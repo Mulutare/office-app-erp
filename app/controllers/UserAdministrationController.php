@@ -70,6 +70,9 @@ final class UserAdministrationController
             'filters' => $listing['filters'],
             'pagination' =>
                 $listing['pagination'],
+                'createdCredentials' => \getFlash(
+    'created_user_credentials'
+),
         ]);
     }
 

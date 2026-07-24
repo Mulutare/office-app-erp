@@ -20,9 +20,15 @@ $filters = is_array(
 $pagination = is_array(
     $data['pagination'] ?? null
 )
+
     ? $data['pagination']
     : [];
-
+    
+$createdCredentials = is_array(
+    $data['createdCredentials'] ?? null
+)
+    ? $data['createdCredentials']
+    : null;
 function userListUrl(
     array $filters,
     array $overrides = []
@@ -66,7 +72,51 @@ function userStatusClass(array $user): string
         : 'badge-muted';
 }
 ?>
+<?php if ($createdCredentials !== null): ?>
+    <section
+        class="alert alert-success credential-alert"
+        role="status"
+    >
+        <div>
+            <strong>User created successfully.</strong>
 
+            <p>
+                Give these credentials securely to the user.
+                The temporary password is displayed only once.
+            </p>
+        </div>
+
+        <dl class="credential-list">
+            <div>
+                <dt>Username</dt>
+                <dd>
+                    <?= e(
+                        $createdCredentials['username']
+                        ?? ''
+                    ) ?>
+                </dd>
+            </div>
+
+            <div>
+                <dt>Temporary password</dt>
+                <dd>
+                    <code>
+                        <?= e(
+                            $createdCredentials[
+                                'temporary_password'
+                            ] ?? ''
+                        ) ?>
+                    </code>
+                </dd>
+            </div>
+        </dl>
+
+        <p class="credential-warning">
+            Do not refresh or leave this page until the
+            temporary password has been transferred securely.
+        </p>
+    </section>
+<?php endif; ?>
 <section class="toolbar">
     <form
         method="get"
@@ -251,9 +301,26 @@ function userStatusClass(array $user): string
                                     No role
                                 </span>
                             <?php else: ?>
-                                <?= e(
-                                    implode(', ', $roles)
-                                ) ?>
+                             <div class="role-badges">
+    <?php foreach (
+        array_slice($roles, 0, 2)
+        as $role
+    ): ?>
+        <span class="badge badge-role">
+            <?= e(
+                ucwords(
+                    str_replace('_', ' ', $role)
+                )
+            ) ?>
+        </span>
+    <?php endforeach; ?>
+
+    <?php if (count($roles) > 2): ?>
+        <span class="badge badge-muted">
+            +<?= e(count($roles) - 2) ?> more
+        </span>
+    <?php endif; ?>
+</div>
                             <?php endif; ?>
                         </td>
 
