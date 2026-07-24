@@ -8,6 +8,7 @@ use App\Services\AuthorizationService;
 use App\Services\UserAdministrationService;
 use App\Services\UserDetailsService;
 use App\Services\UserUpdateService;
+use App\Services\UserPasswordResetService;
 
 final class UserAdministrationController
 {
@@ -16,6 +17,7 @@ final class UserAdministrationController
     private UserAdministrationService $users;
     private UserDetailsService $details;
     private UserUpdateService $updates;
+    private UserPasswordResetService $passwordResets;
 
     public function __construct()
     {
@@ -32,6 +34,9 @@ final class UserAdministrationController
 
         $this->updates =
             new UserUpdateService();
+
+        $this->passwordResets =
+            new UserPasswordResetService();
     }
 
     public function show(): void
@@ -84,7 +89,123 @@ final class UserAdministrationController
                 $_SESSION['auth']['permissions'] ?? [],
                 true
             ),
+            'canResetPassword' => (int) (
+                $profile['user_id'] ?? 0
+            ) !== (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            ),
+            'resetCredentials' => \getFlash(
+                'reset_user_credentials'
+            ),
         ]);
+    }
+
+    public function showResetPassword(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.users.manage'
+        );
+
+        $userId = $this->queryInteger('id', 0);
+        $profile = $this->passwordResets
+            ->target($userId);
+
+        if ($profile === null) {
+            $this->notFound();
+        }
+
+        if ($userId === (int) (
+            $_SESSION['auth']['user_id'] ?? 0
+        )) {
+            \flash(
+                'user_update_success',
+                'Use the Change Password page to change your own password.'
+            );
+
+            \redirect(
+                '/administration/users/view?id='
+                . $userId
+            );
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => 'Reset User Password',
+            'pageDescription' =>
+                'Issue a one-time temporary password for this account.',
+            'contentView' =>
+                'administration.users.reset-password',
+            'user' => $_SESSION['auth'],
+            'profile' => $profile,
+            'errors' => \getFlash(
+                'password_reset_errors',
+                []
+            ),
+        ]);
+    }
+
+    public function resetPassword(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.users.manage'
+        );
+
+        $userId = $this->postInteger('user_id');
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('password_reset_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+
+            \redirect(
+                '/administration/users/reset-password?id='
+                . $userId
+            );
+        }
+
+        $result = $this->passwordResets->reset(
+            $userId,
+            (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            )
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'password_reset_errors',
+                $result['errors']
+            );
+
+            \redirect(
+                '/administration/users/reset-password?id='
+                . $userId
+            );
+        }
+
+        \flash('reset_user_credentials', [
+            'username' => $result['username'],
+            'temporary_password' =>
+                $result['temporaryPassword'],
+        ]);
+
+        \redirect(
+            '/administration/users/view?id='
+            . $userId
+        );
     }
 
     public function edit(): void

@@ -672,6 +672,27 @@ public function updateAdministrationUser(
     ]);
 }
 
+public function resetAdministrationPassword(
+    int $userId,
+    string $passwordHash
+): void {
+    $statement = \db()->prepare(
+        'UPDATE users
+         SET password_hash = :password_hash,
+             must_change_password = TRUE,
+             password_changed_at = NOW(),
+             failed_login_count = 0,
+             locked_until = NULL
+         WHERE user_id = :user_id
+           AND deleted_at IS NULL'
+    );
+
+    $statement->execute([
+        'password_hash' => $passwordHash,
+        'user_id' => $userId,
+    ]);
+}
+
 /**
  * @param list<int> $roleIds
  */

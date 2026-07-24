@@ -770,11 +770,60 @@ a {
     margin-bottom: 18px;
 }
 
+.details-actions,
+.confirmation-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 .alert-information {
     margin-top: 14px;
     background: #eff8ff;
     border: 1px solid #b2ddff;
     color: #175cd3;
+}
+
+.confirmation-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 18px;
+    max-width: 760px;
+}
+
+.confirmation-icon {
+    display: grid;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #fee4e2;
+    color: #b42318;
+    font-size: 1.3rem;
+    font-weight: 800;
+    place-items: center;
+}
+
+.confirmation-card p {
+    color: var(--color-muted);
+    line-height: 1.6;
+}
+
+.confirmation-list {
+    padding-left: 20px;
+    margin: 18px 0 24px;
+    color: var(--color-muted);
+    line-height: 1.7;
+}
+
+@media (max-width: 620px) {
+    .confirmation-card {
+        grid-template-columns: 1fr;
+    }
+
+    .details-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
 }
 
 .profile-summary-card,

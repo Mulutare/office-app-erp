@@ -88,6 +88,22 @@ $router->post(
     [$userAdministrationController, 'update']
 );
 
+$router->get(
+    '/administration/users/reset-password',
+    [
+        $userAdministrationController,
+        'showResetPassword',
+    ]
+);
+
+$router->post(
+    '/administration/users/reset-password',
+    [
+        $userAdministrationController,
+        'resetPassword',
+    ]
+);
+
 $router->post(
     '/administration/users',
     [$userAdministrationController, 'store']

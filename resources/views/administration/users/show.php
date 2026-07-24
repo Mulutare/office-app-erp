@@ -32,6 +32,14 @@ $successMessage = is_string(
     ? $data['successMessage']
     : '';
 $canEdit = !empty($data['canEdit']);
+$canResetPassword = !empty(
+    $data['canResetPassword']
+);
+$resetCredentials = is_array(
+    $data['resetCredentials'] ?? null
+)
+    ? $data['resetCredentials']
+    : null;
 
 $formatDate = static function (mixed $value): string {
     if (!is_string($value) || trim($value) === '') {
@@ -76,6 +84,50 @@ if (!empty($profile['is_locked'])) {
     </div>
 <?php endif; ?>
 
+<?php if ($resetCredentials !== null): ?>
+    <section
+        class="alert alert-success credential-alert"
+        role="status"
+    >
+        <strong>Password reset successfully.</strong>
+
+        <p>
+            Transfer these credentials securely.
+            The temporary password is shown only once.
+        </p>
+
+        <dl class="credential-list">
+            <div>
+                <dt>Username</dt>
+                <dd>
+                    <?= e(
+                        $resetCredentials['username']
+                        ?? ''
+                    ) ?>
+                </dd>
+            </div>
+
+            <div>
+                <dt>Temporary password</dt>
+                <dd>
+                    <code>
+                        <?= e(
+                            $resetCredentials[
+                                'temporary_password'
+                            ] ?? ''
+                        ) ?>
+                    </code>
+                </dd>
+            </div>
+        </dl>
+
+        <p class="credential-warning">
+            The user must change this password
+            at the next sign-in.
+        </p>
+    </section>
+<?php endif; ?>
+
 <div class="details-toolbar">
     <a
         href="/office_app/public/administration/users"
@@ -84,16 +136,29 @@ if (!empty($profile['is_locked'])) {
         Back to users
     </a>
 
-    <?php if ($canEdit): ?>
-        <a
-            href="/office_app/public/administration/users/edit?id=<?= e(
-                $profile['user_id'] ?? ''
-            ) ?>"
-            class="btn btn-primary"
-        >
-            Edit user
-        </a>
-    <?php endif; ?>
+    <div class="details-actions">
+        <?php if ($canResetPassword): ?>
+            <a
+                href="/office_app/public/administration/users/reset-password?id=<?= e(
+                    $profile['user_id'] ?? ''
+                ) ?>"
+                class="btn btn-secondary"
+            >
+                Reset password
+            </a>
+        <?php endif; ?>
+
+        <?php if ($canEdit): ?>
+            <a
+                href="/office_app/public/administration/users/edit?id=<?= e(
+                    $profile['user_id'] ?? ''
+                ) ?>"
+                class="btn btn-primary"
+            >
+                Edit user
+            </a>
+        <?php endif; ?>
+    </div>
 </div>
 
 <section class="card profile-summary-card">
