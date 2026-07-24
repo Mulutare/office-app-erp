@@ -169,6 +169,17 @@ final class AuthService
             return false;
         }
 
+        $_SESSION['auth']['username'] =
+            (string) $user['username'];
+        $_SESSION['auth']['display_name'] =
+            (string) $user['display_name'];
+        $_SESSION['auth']['roles'] =
+            $this->users->roleCodes($userId);
+        $_SESSION['auth']['permissions'] =
+            $this->users->permissionCodes($userId);
+        $_SESSION['auth']['must_change_password'] =
+            (bool) $user['must_change_password'];
+
         return true;
     }
 
