@@ -1,0 +1,199 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Models;
+
+use PDO;
+
+final class User
+{
+    /**
+     * Find one active user by username or email.
+     *
+     * This method intentionally includes password_hash because
+     * the authentication service will need it to verify a password.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findForAuthentication(string $login): ?array
+    {
+        $sql = <<<'SQL'
+            SELECT
+                user_id,
+                username,
+                email,
+                password_hash,
+                display_name,
+                active,
+                must_change_password,
+                failed_login_count,
+                locked_until,
+                last_login_at,
+                password_changed_at
+            FROM users
+            WHERE deleted_at IS NULL
+              AND (
+                    username = :username
+                    OR email = :email
+                  )
+            LIMIT 1
+        SQL;
+
+        $statement = \db()->prepare($sql);
+
+        $statement->execute([
+            'username' => $login,
+            'email' => $login,
+        ]);
+
+        $user = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($user) ? $user : null;
+    }
+
+    /**
+     * Find a user by ID without exposing the password hash.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findById(int $userId): ?array
+    {
+        $sql = <<<'SQL'
+            SELECT
+                user_id,
+                username,
+                email,
+                display_name,
+                active,
+                must_change_password,
+                failed_login_count,
+                locked_until,
+                last_login_at,
+                password_changed_at,
+                created_at,
+                updated_at
+            FROM users
+            WHERE user_id = :user_id
+              AND deleted_at IS NULL
+            LIMIT 1
+        SQL;
+
+        $statement = \db()->prepare($sql);
+
+        $statement->execute([
+            'user_id' => $userId,
+        ]);
+
+        $user = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($user) ? $user : null;
+    }
+
+    /**
+     * Determine whether a username already exists.
+     */
+    public function usernameExists(string $username): bool
+    {
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM users
+             WHERE username = :username
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+
+        $statement->execute([
+            'username' => $username,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * Determine whether an email address already exists.
+     */
+    public function emailExists(string $email): bool
+    {
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM users
+             WHERE email = :email
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+
+        $statement->execute([
+            'email' => $email,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * Return the number of non-deleted users.
+     */
+    public function count(): int
+    {
+        $result = \db()->query(
+            'SELECT COUNT(*)
+             FROM users
+             WHERE deleted_at IS NULL'
+        );
+
+        return (int) $result->fetchColumn();
+    }
+
+    /**
+     * Update data after a successful login.
+     */
+    public function recordSuccessfulLogin(int $userId): void
+    {
+        $statement = \db()->prepare(
+            'UPDATE users
+             SET last_login_at = NOW(),
+                 failed_login_count = 0,
+                 locked_until = NULL
+             WHERE user_id = :user_id'
+        );
+
+        $statement->execute([
+            'user_id' => $userId,
+        ]);
+    }
+
+    /**
+     * Increase the failed-login counter.
+     */
+    public function incrementFailedLoginCount(int $userId): void
+    {
+        $statement = \db()->prepare(
+            'UPDATE users
+             SET failed_login_count = failed_login_count + 1
+             WHERE user_id = :user_id'
+        );
+
+        $statement->execute([
+            'user_id' => $userId,
+        ]);
+    }
+
+    /**
+     * Temporarily lock a user account.
+     */
+    public function lockUntil(
+        int $userId,
+        string $lockedUntil
+    ): void {
+        $statement = \db()->prepare(
+            'UPDATE users
+             SET locked_until = :locked_until
+             WHERE user_id = :user_id'
+        );
+
+        $statement->execute([
+            'locked_until' => $lockedUntil,
+            'user_id' => $userId,
+        ]);
+    }
+}

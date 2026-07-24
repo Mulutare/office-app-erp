@@ -1,0 +1,35 @@
+# Secrets and environment
+.env
+.env.*
+!.env.example
+
+# Runtime files
+storage/logs/*
+storage/cache/*
+storage/uploads/*
+
+!storage/logs/.gitkeep
+!storage/cache/.gitkeep
+!storage/uploads/.gitkeep
+
+# Database exports and backups
+*.sql.bak
+*_export.sql
+*_backup.sql
+*.zip
+*.bak
+*.backup
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Future dependencies
+/vendor/
+config/database.php
