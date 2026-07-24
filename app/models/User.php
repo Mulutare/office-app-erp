@@ -196,4 +196,83 @@ final class User
             'user_id' => $userId,
         ]);
     }
+    /**
+ * Return active role codes assigned to a user.
+ *
+ * @return list<string>
+ */
+public function roleCodes(int $userId): array
+{
+    $statement = \db()->prepare(
+        'SELECT r.code
+         FROM roles r
+         INNER JOIN user_roles ur
+             ON ur.role_id = r.role_id
+         WHERE ur.user_id = :user_id
+           AND r.active = TRUE
+         ORDER BY r.code'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    $roles = $statement->fetchAll(
+        \PDO::FETCH_COLUMN
+    );
+
+    return array_values(
+        array_filter(
+            array_map('strval', $roles)
+        )
+    );
+}
+/**
+ * Update a user's password and clear the mandatory-change flag.
+ */
+public function updatePassword(
+    int $userId,
+    string $passwordHash
+): void {
+    $statement = \db()->prepare(
+        'UPDATE users
+         SET password_hash = :password_hash,
+             must_change_password = FALSE,
+             password_changed_at = NOW(),
+             failed_login_count = 0,
+             locked_until = NULL
+         WHERE user_id = :user_id
+           AND deleted_at IS NULL'
+    );
+
+    $statement->execute([
+        'password_hash' => $passwordHash,
+        'user_id' => $userId,
+    ]);
+}
+
+/**
+ * Return the password hash for an active session user.
+ */
+public function passwordHashById(int $userId): ?string
+{
+    $statement = \db()->prepare(
+        'SELECT password_hash
+         FROM users
+         WHERE user_id = :user_id
+           AND active = TRUE
+           AND deleted_at IS NULL
+         LIMIT 1'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    $passwordHash = $statement->fetchColumn();
+
+    return is_string($passwordHash)
+        ? $passwordHash
+        : null;
+}
 }

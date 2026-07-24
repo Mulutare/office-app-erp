@@ -1,20 +1,36 @@
 <?php
 
 declare(strict_types=1);
+
 require_once __DIR__ . '/autoload.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/view.php';
-
+require_once __DIR__ . '/response.php';
+require_once __DIR__ . '/session.php';
+require_once __DIR__ . '/request.php';
+require_once __DIR__ . '/csrf.php';
 date_default_timezone_set(
     (string) config('timezone', 'UTC')
 );
 
 session_name(
-    (string) config('session_name', 'office_app_session')
+    (string) config(
+        'session_name',
+        'office_app_session'
+    )
 );
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/office_app/public',
+        'domain' => '',
+        'secure' => false,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+
     session_start();
 }
 
