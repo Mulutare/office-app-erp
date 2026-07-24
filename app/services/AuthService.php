@@ -164,7 +164,62 @@ final class AuthService
             ? $userId
             : null;
     }
+/**
+ * Check whether the signed-in user has a specific role.
+ */
+public function hasRole(string $roleCode): bool
+{
+    $roles = $_SESSION['auth']['roles'] ?? [];
 
+    if (!is_array($roles)) {
+        return false;
+    }
+
+    return in_array(
+        $roleCode,
+        $roles,
+        true
+    );
+}
+
+/**
+ * Check whether the signed-in user has a permission.
+ */
+public function can(string $permissionCode): bool
+{
+    $permissions =
+        $_SESSION['auth']['permissions'] ?? [];
+
+    if (!is_array($permissions)) {
+        return false;
+    }
+
+    return in_array(
+        $permissionCode,
+        $permissions,
+        true
+    );
+}
+
+/**
+ * Check whether the signed-in user has at least one
+ * permission from the supplied list.
+ *
+ * @param list<string> $permissionCodes
+ */
+public function canAny(array $permissionCodes): bool
+{
+    foreach ($permissionCodes as $permissionCode) {
+        if (
+            is_string($permissionCode)
+            && $this->can($permissionCode)
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
     /**
      * @param array<string, mixed> $user
      *

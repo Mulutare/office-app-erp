@@ -311,4 +311,296 @@ public function permissionCodes(int $userId): array
         )
     );
 }
+/**
+ * Count users matching administration filters.
+ */
+public function administrationCount(
+    string $search = '',
+    string $status = 'all'
+): int {
+    $conditions = [
+        'deleted_at IS NULL',
+    ];
+
+    $parameters = [];
+
+    if ($search !== '') {
+        $conditions[] = '(
+            username LIKE :search
+            OR email LIKE :search
+            OR display_name LIKE :search
+        )';
+
+        $parameters['search'] = '%' . $search . '%';
+    }
+
+    if ($status === 'active') {
+        $conditions[] = 'active = TRUE';
+    } elseif ($status === 'inactive') {
+        $conditions[] = 'active = FALSE';
+    } elseif ($status === 'locked') {
+        $conditions[] = '
+            locked_until IS NOT NULL
+            AND locked_until > NOW()
+        ';
+    }
+
+    $sql = '
+        SELECT COUNT(*)
+        FROM users
+        WHERE ' . implode(' AND ', $conditions);
+
+    $statement = \db()->prepare($sql);
+    $statement->execute($parameters);
+
+    return (int) $statement->fetchColumn();
+}
+
+/**
+ * Return one page of users for administration.
+ *
+ * @return list<array<string, mixed>>
+ */
+public function administrationPage(
+    string $search,
+    string $status,
+    string $sort,
+    string $direction,
+    int $limit,
+    int $offset
+): array {
+    $conditions = [
+        'deleted_at IS NULL',
+    ];
+
+    $parameters = [];
+
+    if ($search !== '') {
+        $conditions[] = '(
+            username LIKE :search
+            OR email LIKE :search
+            OR display_name LIKE :search
+        )';
+
+        $parameters['search'] = '%' . $search . '%';
+    }
+
+    if ($status === 'active') {
+        $conditions[] = 'active = TRUE';
+    } elseif ($status === 'inactive') {
+        $conditions[] = 'active = FALSE';
+    } elseif ($status === 'locked') {
+        $conditions[] = '
+            locked_until IS NOT NULL
+            AND locked_until > NOW()
+        ';
+    }
+
+    $allowedSorts = [
+        'username' => 'username',
+        'display_name' => 'display_name',
+        'email' => 'email',
+        'last_login_at' => 'last_login_at',
+        'created_at' => 'created_at',
+    ];
+
+    $orderColumn =
+        $allowedSorts[$sort] ?? 'created_at';
+
+    $orderDirection =
+        strtolower($direction) === 'asc'
+            ? 'ASC'
+            : 'DESC';
+
+    $sql = '
+        SELECT
+            user_id,
+            username,
+            email,
+            display_name,
+            active,
+            must_change_password,
+            failed_login_count,
+            locked_until,
+            last_login_at,
+            password_changed_at,
+            created_at,
+            updated_at
+        FROM users
+        WHERE ' . implode(' AND ', $conditions) . '
+        ORDER BY ' . $orderColumn . ' '
+            . $orderDirection . '
+        LIMIT :limit
+        OFFSET :offset
+    ';
+
+    $statement = \db()->prepare($sql);
+
+    foreach ($parameters as $key => $value) {
+        $statement->bindValue(
+            ':' . $key,
+            $value,
+            \PDO::PARAM_STR
+        );
+    }
+
+    $statement->bindValue(
+        ':limit',
+        $limit,
+        \PDO::PARAM_INT
+    );
+
+    $statement->bindValue(
+        ':offset',
+        $offset,
+        \PDO::PARAM_INT
+    );
+
+    $statement->execute();
+
+    $users = $statement->fetchAll(
+        \PDO::FETCH_ASSOC
+    );
+
+    return is_array($users)
+        ? $users
+        : [];
+}
+
+/**
+ * Return role codes assigned to multiple users.
+ *
+ * @param list<int> $userIds
+ *
+ * @return array<int, list<string>>
+ */
+public function roleCodesForUsers(array $userIds): array
+{
+    if ($userIds === []) {
+        return [];
+    }
+
+    $placeholders = implode(
+        ', ',
+        array_fill(0, count($userIds), '?')
+    );
+
+    $statement = \db()->prepare(
+        'SELECT
+            ur.user_id,
+            r.code
+         FROM user_roles ur
+         INNER JOIN roles r
+             ON r.role_id = ur.role_id
+         WHERE ur.user_id IN (' . $placeholders . ')
+           AND r.active = TRUE
+         ORDER BY r.code'
+    );
+
+    foreach ($userIds as $index => $userId) {
+        $statement->bindValue(
+            $index + 1,
+            $userId,
+            \PDO::PARAM_INT
+        );
+    }
+
+    $statement->execute();
+
+    $rows = $statement->fetchAll(
+        \PDO::FETCH_ASSOC
+    );
+
+    $result = [];
+
+    foreach ($rows as $row) {
+        $userId = (int) $row['user_id'];
+
+        if (!isset($result[$userId])) {
+            $result[$userId] = [];
+        }
+
+        $result[$userId][] =
+            (string) $row['code'];
+    }
+
+    return $result;
+}
+/**
+ * Create a new ERP user.
+ */
+public function createAdministrationUser(
+    string $username,
+    string $email,
+    string $displayName,
+    string $passwordHash,
+    bool $active
+): int {
+    $statement = \db()->prepare(
+        'INSERT INTO users
+            (
+                username,
+                email,
+                display_name,
+                password_hash,
+                active,
+                must_change_password,
+                failed_login_count
+            )
+         VALUES
+            (
+                :username,
+                :email,
+                :display_name,
+                :password_hash,
+                :active,
+                TRUE,
+                0
+            )'
+    );
+
+    $statement->execute([
+        'username' => $username,
+        'email' => $email,
+        'display_name' => $displayName,
+        'password_hash' => $passwordHash,
+        'active' => $active ? 1 : 0,
+    ]);
+
+    return (int) \db()->lastInsertId();
+}
+
+/**
+ * Assign roles to a user.
+ *
+ * @param list<int> $roleIds
+ */
+public function assignRoles(
+    int $userId,
+    array $roleIds,
+    int $assignedBy
+): void {
+    $statement = \db()->prepare(
+        'INSERT INTO user_roles
+            (
+                user_id,
+                role_id,
+                assigned_by
+            )
+         VALUES
+            (
+                :user_id,
+                :role_id,
+                :assigned_by
+            )'
+    );
+
+    foreach ($roleIds as $roleId) {
+        $statement->execute([
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'assigned_by' => $assignedBy,
+        ]);
+    }
+}
 }

@@ -1,10 +1,14 @@
 <?php
 
 declare(strict_types=1);
-
+use App\Controllers\UserAdministrationController;
+use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
 use App\Controllers\DashboardController;
 use App\Controllers\HomeController;
+
+$userAdministrationController =
+    new UserAdministrationController();
 
 $router = new Router();
 
@@ -12,7 +16,12 @@ $homeController = new HomeController();
 $authController = new AuthController();
 $dashboardController =
     new DashboardController();
-
+    $administrationController =
+    new AdministrationController();
+$router->get(
+    '/administration/users',
+    [$userAdministrationController, 'index']
+);
 $router->get(
     '/',
     [$homeController, 'index']
@@ -46,7 +55,10 @@ $router->get(
     '/dashboard',
     [$dashboardController, 'index']
 );
-
+$router->get(
+    '/administration',
+    [$administrationController, 'index']
+);
 $router->post(
     '/logout',
     [$authController, 'logout']
@@ -55,4 +67,13 @@ $router->post(
 $router->get(
     '/diagnostics/user-model',
     [$homeController, 'userModelHealth']
+);
+$router->get(
+    '/administration/users/create',
+    [$userAdministrationController, 'create']
+);
+
+$router->post(
+    '/administration/users',
+    [$userAdministrationController, 'store']
 );
