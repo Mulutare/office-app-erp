@@ -26,6 +26,12 @@ $auditActivity = is_array(
 )
     ? $data['auditActivity']
     : [];
+$successMessage = is_string(
+    $data['successMessage'] ?? null
+)
+    ? $data['successMessage']
+    : '';
+$canEdit = !empty($data['canEdit']);
 
 $formatDate = static function (mixed $value): string {
     if (!is_string($value) || trim($value) === '') {
@@ -64,6 +70,12 @@ if (!empty($profile['is_locked'])) {
 }
 ?>
 
+<?php if ($successMessage !== ''): ?>
+    <div class="alert alert-success" role="status">
+        <?= e($successMessage) ?>
+    </div>
+<?php endif; ?>
+
 <div class="details-toolbar">
     <a
         href="/office_app/public/administration/users"
@@ -71,6 +83,17 @@ if (!empty($profile['is_locked'])) {
     >
         Back to users
     </a>
+
+    <?php if ($canEdit): ?>
+        <a
+            href="/office_app/public/administration/users/edit?id=<?= e(
+                $profile['user_id'] ?? ''
+            ) ?>"
+            class="btn btn-primary"
+        >
+            Edit user
+        </a>
+    <?php endif; ?>
 </div>
 
 <section class="card profile-summary-card">

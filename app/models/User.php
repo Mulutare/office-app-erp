@@ -130,6 +130,48 @@ final class User
         return $statement->fetchColumn() !== false;
     }
 
+    public function usernameExistsForOtherUser(
+        string $username,
+        int $userId
+    ): bool {
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM users
+             WHERE username = :username
+               AND user_id <> :user_id
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+
+        $statement->execute([
+            'username' => $username,
+            'user_id' => $userId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    public function emailExistsForOtherUser(
+        string $email,
+        int $userId
+    ): bool {
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM users
+             WHERE email = :email
+               AND user_id <> :user_id
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+
+        $statement->execute([
+            'email' => $email,
+            'user_id' => $userId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
     /**
      * Return the number of non-deleted users.
      */
@@ -604,6 +646,56 @@ public function assignRoles(
     }
 }
 
+public function updateAdministrationUser(
+    int $userId,
+    string $username,
+    string $email,
+    string $displayName,
+    bool $active
+): void {
+    $statement = \db()->prepare(
+        'UPDATE users
+         SET username = :username,
+             email = :email,
+             display_name = :display_name,
+             active = :active
+         WHERE user_id = :user_id
+           AND deleted_at IS NULL'
+    );
+
+    $statement->execute([
+        'username' => $username,
+        'email' => $email,
+        'display_name' => $displayName,
+        'active' => $active ? 1 : 0,
+        'user_id' => $userId,
+    ]);
+}
+
+/**
+ * @param list<int> $roleIds
+ */
+public function replaceRoles(
+    int $userId,
+    array $roleIds,
+    int $assignedBy
+): void {
+    $statement = \db()->prepare(
+        'DELETE FROM user_roles
+         WHERE user_id = :user_id'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    $this->assignRoles(
+        $userId,
+        $roleIds,
+        $assignedBy
+    );
+}
+
 /**
  * Return assigned role details for a user.
  *
@@ -635,6 +727,28 @@ public function administrationRoles(int $userId): array
     $roles = $statement->fetchAll(\PDO::FETCH_ASSOC);
 
     return is_array($roles) ? $roles : [];
+}
+
+/**
+ * @return list<int>
+ */
+public function roleIds(int $userId): array
+{
+    $statement = \db()->prepare(
+        'SELECT role_id
+         FROM user_roles
+         WHERE user_id = :user_id
+         ORDER BY role_id'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    return array_map(
+        'intval',
+        $statement->fetchAll(\PDO::FETCH_COLUMN)
+    );
 }
 
 /**

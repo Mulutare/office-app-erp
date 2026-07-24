@@ -78,6 +78,16 @@ $router->get(
     [$userAdministrationController, 'show']
 );
 
+$router->get(
+    '/administration/users/edit',
+    [$userAdministrationController, 'edit']
+);
+
+$router->post(
+    '/administration/users/update',
+    [$userAdministrationController, 'update']
+);
+
 $router->post(
     '/administration/users',
     [$userAdministrationController, 'store']

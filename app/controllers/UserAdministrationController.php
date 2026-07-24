@@ -7,6 +7,7 @@ use App\Services\UserCreationService;
 use App\Services\AuthorizationService;
 use App\Services\UserAdministrationService;
 use App\Services\UserDetailsService;
+use App\Services\UserUpdateService;
 
 final class UserAdministrationController
 {
@@ -14,6 +15,7 @@ final class UserAdministrationController
     private AuthorizationService $authorization;
     private UserAdministrationService $users;
     private UserDetailsService $details;
+    private UserUpdateService $updates;
 
     public function __construct()
     {
@@ -27,6 +29,9 @@ final class UserAdministrationController
 
         $this->details =
             new UserDetailsService();
+
+        $this->updates =
+            new UserUpdateService();
     }
 
     public function show(): void
@@ -71,7 +76,154 @@ final class UserAdministrationController
                 $details['loginAttempts'],
             'auditActivity' =>
                 $details['auditActivity'],
+            'successMessage' => \getFlash(
+                'user_update_success'
+            ),
+            'canEdit' => in_array(
+                'administration.roles.manage',
+                $_SESSION['auth']['permissions'] ?? [],
+                true
+            ),
         ]);
+    }
+
+    public function edit(): void
+    {
+        $this->requireUserAndRoleManagement();
+
+        $userId = $this->queryInteger('id', 0);
+        $formData = $this->updates
+            ->formData($userId);
+
+        if ($formData === null) {
+            $this->notFound();
+        }
+
+        $old = \getFlash('user_edit_old', []);
+
+        if (is_array($old) && $old !== []) {
+            $formData['profile'] = array_merge(
+                $formData['profile'],
+                $old
+            );
+        }
+
+        $isSelf = $userId === (int) (
+            $_SESSION['auth']['user_id'] ?? 0
+        );
+
+        if ($isSelf) {
+            $current = $this->updates
+                ->formData($userId);
+
+            if ($current !== null) {
+                $formData['profile']['role_ids'] =
+                    $current['profile']['role_ids'];
+                $formData['profile']['active'] =
+                    $current['profile']['active'];
+            }
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => 'Edit User',
+            'pageDescription' =>
+                'Update account identity, status and assigned roles.',
+            'contentView' =>
+                'administration.users.edit',
+            'user' => $_SESSION['auth'],
+            'profile' => $formData['profile'],
+            'roles' => $formData['roles'],
+            'isSelf' => $isSelf,
+            'errors' => \getFlash(
+                'user_edit_errors',
+                []
+            ),
+        ]);
+    }
+
+    public function update(): void
+    {
+        $this->requireUserAndRoleManagement();
+
+        $userId = $this->postInteger('user_id');
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('user_edit_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+
+            \redirect(
+                '/administration/users/edit?id='
+                . $userId
+            );
+        }
+
+        $input = [
+            'username' => \postString('username'),
+            'email' => \postString('email'),
+            'display_name' =>
+                \postString('display_name'),
+            'active' => isset($_POST['active']),
+            'role_ids' =>
+                $_POST['role_ids'] ?? [],
+        ];
+
+        $actorId = (int) (
+            $_SESSION['auth']['user_id'] ?? 0
+        );
+        $result = $this->updates->update(
+            $userId,
+            $input,
+            $actorId
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'user_edit_errors',
+                $result['errors']
+            );
+            \flash('user_edit_old', array_merge(
+                $input,
+                ['user_id' => $userId]
+            ));
+
+            \redirect(
+                '/administration/users/edit?id='
+                . $userId
+            );
+        }
+
+        if ($userId === $actorId) {
+            $_SESSION['auth']['username'] =
+                $result['profile']['username'];
+            $_SESSION['auth']['display_name'] =
+                $result['profile']['display_name'];
+        }
+
+        \flash(
+            'user_update_success',
+            'User account updated successfully.'
+        );
+
+        \redirect(
+            '/administration/users/view?id='
+            . $userId
+        );
     }
 
     public function index(): void
@@ -155,6 +307,30 @@ final class UserAdministrationController
         }
 
         return $default;
+    }
+
+    private function postInteger(string $key): int
+    {
+        $value = $_POST[$key] ?? null;
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        return is_string($value)
+            && ctype_digit($value)
+                ? (int) $value
+                : 0;
+    }
+
+    private function requireUserAndRoleManagement(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.users.manage'
+        );
+        $this->authorization->requirePermission(
+            'administration.roles.manage'
+        );
     }
 
     private function notFound(): void
