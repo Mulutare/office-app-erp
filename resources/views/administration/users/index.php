@@ -350,7 +350,7 @@ function userStatusClass(array $user): string
 
                         <td>
                             <a
-                                href="/office_app/public/administration/users/<?= e(
+                                href="/office_app/public/administration/users/view?id=<?= e(
                                     $user['user_id']
                                 ) ?>"
                                 class="table-link"

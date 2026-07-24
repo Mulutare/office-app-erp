@@ -7,6 +7,67 @@ namespace App\Models;
 final class AuditLog
 {
     /**
+     * Return recent activity performed by or targeting a user.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function recentForUser(
+        int $userId,
+        int $limit = 10
+    ): array {
+        $statement = \db()->prepare(
+            'SELECT
+                audit_logs.audit_log_id,
+                audit_logs.action,
+                audit_logs.module,
+                audit_logs.table_name,
+                audit_logs.record_id,
+                audit_logs.ip_address,
+                audit_logs.created_at,
+                actor.display_name AS actor_name,
+                actor.username AS actor_username
+             FROM audit_logs
+             LEFT JOIN users actor
+                 ON actor.user_id = audit_logs.user_id
+             WHERE audit_logs.user_id = :actor_user_id
+                OR (
+                    audit_logs.table_name = :table_name
+                    AND audit_logs.record_id = :record_id
+                )
+             ORDER BY audit_logs.created_at DESC
+             LIMIT :limit'
+        );
+
+        $statement->bindValue(
+            ':actor_user_id',
+            $userId,
+            \PDO::PARAM_INT
+        );
+        $statement->bindValue(
+            ':table_name',
+            'users',
+            \PDO::PARAM_STR
+        );
+        $statement->bindValue(
+            ':record_id',
+            (string) $userId,
+            \PDO::PARAM_STR
+        );
+        $statement->bindValue(
+            ':limit',
+            max(1, min($limit, 50)),
+            \PDO::PARAM_INT
+        );
+        $statement->execute();
+
+        $activity = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($activity) ? $activity : [];
+    }
+
+    /**
      * @param array<string, mixed>|null $oldValues
      * @param array<string, mixed>|null $newValues
      */

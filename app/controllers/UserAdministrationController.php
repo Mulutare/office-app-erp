@@ -6,12 +6,14 @@ namespace App\Controllers;
 use App\Services\UserCreationService;
 use App\Services\AuthorizationService;
 use App\Services\UserAdministrationService;
+use App\Services\UserDetailsService;
 
 final class UserAdministrationController
 {
     private UserCreationService $creation;
     private AuthorizationService $authorization;
     private UserAdministrationService $users;
+    private UserDetailsService $details;
 
     public function __construct()
     {
@@ -22,6 +24,54 @@ final class UserAdministrationController
 
         $this->users =
             new UserAdministrationService();
+
+        $this->details =
+            new UserDetailsService();
+    }
+
+    public function show(): void
+    {
+        $this->authorization
+            ->requirePermission(
+                'administration.users.manage'
+            );
+
+        $userId = $this->queryInteger('id', 0);
+        $details = $this->details->details($userId);
+
+        if ($details === null) {
+            $this->notFound();
+        }
+
+        $profile = $details['user'];
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => (string) (
+                $profile['display_name']
+                ?? 'User Details'
+            ),
+            'pageDescription' =>
+                'Account, access and security information.',
+            'contentView' =>
+                'administration.users.show',
+            'user' => $_SESSION['auth'],
+            'profile' => $profile,
+            'roles' => $details['roles'],
+            'permissions' =>
+                $details['permissions'],
+            'loginAttempts' =>
+                $details['loginAttempts'],
+            'auditActivity' =>
+                $details['auditActivity'],
+        ]);
     }
 
     public function index(): void
@@ -91,15 +141,34 @@ final class UserAdministrationController
         string $key,
         int $default
     ): int {
-        $value = filter_input(
-            INPUT_GET,
-            $key,
-            FILTER_VALIDATE_INT
-        );
+        $value = $_GET[$key] ?? null;
 
-        return is_int($value)
-            ? $value
-            : $default;
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (
+            is_string($value)
+            && ctype_digit($value)
+        ) {
+            return (int) $value;
+        }
+
+        return $default;
+    }
+
+    private function notFound(): void
+    {
+        http_response_code(404);
+
+        \view('errors.404', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+        ]);
+
+        exit;
     }
     public function create(): void
 {

@@ -73,6 +73,11 @@ $router->get(
     [$userAdministrationController, 'create']
 );
 
+$router->get(
+    '/administration/users/view',
+    [$userAdministrationController, 'show']
+);
+
 $router->post(
     '/administration/users',
     [$userAdministrationController, 'store']

@@ -603,4 +603,77 @@ public function assignRoles(
         ]);
     }
 }
+
+/**
+ * Return assigned role details for a user.
+ *
+ * @return list<array<string, mixed>>
+ */
+public function administrationRoles(int $userId): array
+{
+    $statement = \db()->prepare(
+        'SELECT
+            r.role_id,
+            r.code,
+            r.name,
+            r.description,
+            ur.assigned_at,
+            assigned_by.display_name AS assigned_by_name
+         FROM user_roles ur
+         INNER JOIN roles r
+             ON r.role_id = ur.role_id
+         LEFT JOIN users assigned_by
+             ON assigned_by.user_id = ur.assigned_by
+         WHERE ur.user_id = :user_id
+         ORDER BY r.name'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    $roles = $statement->fetchAll(\PDO::FETCH_ASSOC);
+
+    return is_array($roles) ? $roles : [];
+}
+
+/**
+ * Return effective permissions inherited through active roles.
+ *
+ * @return list<array<string, mixed>>
+ */
+public function administrationPermissions(int $userId): array
+{
+    $statement = \db()->prepare(
+        'SELECT DISTINCT
+            p.permission_id,
+            p.code,
+            p.name,
+            p.module,
+            p.description
+         FROM permissions p
+         INNER JOIN role_permissions rp
+             ON rp.permission_id = p.permission_id
+         INNER JOIN user_roles ur
+             ON ur.role_id = rp.role_id
+         INNER JOIN roles r
+             ON r.role_id = ur.role_id
+         WHERE ur.user_id = :user_id
+           AND p.active = TRUE
+           AND r.active = TRUE
+         ORDER BY p.module, p.name'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    $permissions = $statement->fetchAll(
+        \PDO::FETCH_ASSOC
+    );
+
+    return is_array($permissions)
+        ? $permissions
+        : [];
+}
 }

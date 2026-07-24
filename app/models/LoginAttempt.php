@@ -6,6 +6,48 @@ namespace App\Models;
 
 final class LoginAttempt
 {
+    /**
+     * Return recent authentication attempts for a user.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function recentForUser(
+        int $userId,
+        int $limit = 10
+    ): array {
+        $statement = \db()->prepare(
+            'SELECT
+                login_attempt_id,
+                username_entered,
+                ip_address,
+                successful,
+                failure_reason,
+                attempted_at
+             FROM login_attempts
+             WHERE user_id = :user_id
+             ORDER BY attempted_at DESC
+             LIMIT :limit'
+        );
+
+        $statement->bindValue(
+            ':user_id',
+            $userId,
+            \PDO::PARAM_INT
+        );
+        $statement->bindValue(
+            ':limit',
+            max(1, min($limit, 50)),
+            \PDO::PARAM_INT
+        );
+        $statement->execute();
+
+        $attempts = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($attempts) ? $attempts : [];
+    }
+
     public function record(
         string $login,
         ?int $userId,
