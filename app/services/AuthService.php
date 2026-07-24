@@ -151,8 +151,25 @@ final class AuthService
 
     public function check(): bool
     {
-        return isset($_SESSION['auth']['user_id'])
-            && is_int($_SESSION['auth']['user_id']);
+        $userId = $_SESSION['auth']['user_id']
+            ?? null;
+
+        if (!is_int($userId)) {
+            return false;
+        }
+
+        $user = $this->users->findById($userId);
+
+        if (
+            $user === null
+            || empty($user['active'])
+        ) {
+            unset($_SESSION['auth']);
+
+            return false;
+        }
+
+        return true;
     }
 
     public function userId(): ?int

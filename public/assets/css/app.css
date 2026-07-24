@@ -803,6 +803,11 @@ a {
     place-items: center;
 }
 
+.confirmation-icon-success {
+    background: #d1fadf;
+    color: #027a48;
+}
+
 .confirmation-card p {
     color: var(--color-muted);
     line-height: 1.6;

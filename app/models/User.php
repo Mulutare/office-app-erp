@@ -693,6 +693,67 @@ public function resetAdministrationPassword(
     ]);
 }
 
+public function setAdministrationActive(
+    int $userId,
+    bool $active
+): void {
+    $statement = \db()->prepare(
+        'UPDATE users
+         SET active = :active
+         WHERE user_id = :user_id
+           AND deleted_at IS NULL'
+    );
+
+    $statement->execute([
+        'active' => $active ? 1 : 0,
+        'user_id' => $userId,
+    ]);
+}
+
+public function hasRoleCode(
+    int $userId,
+    string $roleCode
+): bool {
+    $statement = \db()->prepare(
+        'SELECT 1
+         FROM user_roles ur
+         INNER JOIN roles r
+             ON r.role_id = ur.role_id
+         WHERE ur.user_id = :user_id
+           AND r.code = :role_code
+         LIMIT 1'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+        'role_code' => $roleCode,
+    ]);
+
+    return $statement->fetchColumn() !== false;
+}
+
+public function activeUserCountForRole(
+    string $roleCode
+): int {
+    $statement = \db()->prepare(
+        'SELECT COUNT(DISTINCT users.user_id)
+         FROM users
+         INNER JOIN user_roles
+             ON user_roles.user_id = users.user_id
+         INNER JOIN roles
+             ON roles.role_id = user_roles.role_id
+         WHERE roles.code = :role_code
+           AND users.active = TRUE
+           AND users.deleted_at IS NULL'
+    );
+
+    $statement->execute([
+        'role_code' => $roleCode,
+    ]);
+
+    return (int) $statement->fetchColumn();
+}
+
 /**
  * @param list<int> $roleIds
  */

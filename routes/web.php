@@ -104,6 +104,22 @@ $router->post(
     ]
 );
 
+$router->get(
+    '/administration/users/account-status',
+    [
+        $userAdministrationController,
+        'showAccountStatus',
+    ]
+);
+
+$router->post(
+    '/administration/users/account-status',
+    [
+        $userAdministrationController,
+        'changeAccountStatus',
+    ]
+);
+
 $router->post(
     '/administration/users',
     [$userAdministrationController, 'store']

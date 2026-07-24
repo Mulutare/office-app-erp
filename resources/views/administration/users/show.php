@@ -35,6 +35,9 @@ $canEdit = !empty($data['canEdit']);
 $canResetPassword = !empty(
     $data['canResetPassword']
 );
+$canChangeStatus = !empty(
+    $data['canChangeStatus']
+);
 $resetCredentials = is_array(
     $data['resetCredentials'] ?? null
 )
@@ -137,6 +140,23 @@ if (!empty($profile['is_locked'])) {
     </a>
 
     <div class="details-actions">
+        <?php if ($canChangeStatus): ?>
+            <a
+                href="/office_app/public/administration/users/account-status?id=<?= e(
+                    $profile['user_id'] ?? ''
+                ) ?>"
+                class="btn <?= !empty(
+                    $profile['active']
+                )
+                    ? 'btn-danger'
+                    : 'btn-secondary' ?>"
+            >
+                <?= !empty($profile['active'])
+                    ? 'Deactivate user'
+                    : 'Activate user' ?>
+            </a>
+        <?php endif; ?>
+
         <?php if ($canResetPassword): ?>
             <a
                 href="/office_app/public/administration/users/reset-password?id=<?= e(

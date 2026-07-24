@@ -9,6 +9,7 @@ use App\Services\UserAdministrationService;
 use App\Services\UserDetailsService;
 use App\Services\UserUpdateService;
 use App\Services\UserPasswordResetService;
+use App\Services\UserAccountStatusService;
 
 final class UserAdministrationController
 {
@@ -18,6 +19,7 @@ final class UserAdministrationController
     private UserDetailsService $details;
     private UserUpdateService $updates;
     private UserPasswordResetService $passwordResets;
+    private UserAccountStatusService $accountStatus;
 
     public function __construct()
     {
@@ -37,6 +39,9 @@ final class UserAdministrationController
 
         $this->passwordResets =
             new UserPasswordResetService();
+
+        $this->accountStatus =
+            new UserAccountStatusService();
     }
 
     public function show(): void
@@ -97,7 +102,142 @@ final class UserAdministrationController
             'resetCredentials' => \getFlash(
                 'reset_user_credentials'
             ),
+            'canChangeStatus' => (int) (
+                $profile['user_id'] ?? 0
+            ) !== (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            ),
         ]);
+    }
+
+    public function showAccountStatus(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.users.manage'
+        );
+
+        $userId = $this->queryInteger('id', 0);
+        $profile = $this->accountStatus
+            ->target($userId);
+
+        if ($profile === null) {
+            $this->notFound();
+        }
+
+        if ($userId === (int) (
+            $_SESSION['auth']['user_id'] ?? 0
+        )) {
+            \flash(
+                'user_update_success',
+                'You cannot change the status of your own account.'
+            );
+
+            \redirect(
+                '/administration/users/view?id='
+                . $userId
+            );
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => !empty($profile['active'])
+                ? 'Deactivate User'
+                : 'Activate User',
+            'pageDescription' =>
+                'Confirm the requested account status change.',
+            'contentView' =>
+                'administration.users.account-status',
+            'user' => $_SESSION['auth'],
+            'profile' => $profile,
+            'errors' => \getFlash(
+                'account_status_errors',
+                []
+            ),
+        ]);
+    }
+
+    public function changeAccountStatus(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.users.manage'
+        );
+
+        $userId = $this->postInteger('user_id');
+        $active = $this->postBoolean('active');
+
+        if ($active === null) {
+            \flash('account_status_errors', [
+                'form' =>
+                    'The requested account status is invalid.',
+            ]);
+
+            \redirect(
+                '/administration/users/account-status?id='
+                . $userId
+            );
+        }
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('account_status_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+
+            \redirect(
+                '/administration/users/account-status?id='
+                . $userId
+            );
+        }
+
+        $result = $this->accountStatus->change(
+            $userId,
+            $active,
+            (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            )
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'account_status_errors',
+                $result['errors']
+            );
+
+            \redirect(
+                '/administration/users/account-status?id='
+                . $userId
+            );
+        }
+
+        $message = $active
+            ? 'User account activated successfully.'
+            : 'User account deactivated successfully.';
+
+        if (empty($result['changed'])) {
+            $message = $active
+                ? 'User account is already active.'
+                : 'User account is already inactive.';
+        }
+
+        \flash('user_update_success', $message);
+
+        \redirect(
+            '/administration/users/view?id='
+            . $userId
+        );
     }
 
     public function showResetPassword(): void
@@ -442,6 +582,21 @@ final class UserAdministrationController
             && ctype_digit($value)
                 ? (int) $value
                 : 0;
+    }
+
+    private function postBoolean(string $key): ?bool
+    {
+        $value = $_POST[$key] ?? null;
+
+        if ($value === '1' || $value === 1) {
+            return true;
+        }
+
+        if ($value === '0' || $value === 0) {
+            return false;
+        }
+
+        return null;
     }
 
     private function requireUserAndRoleManagement(): void
