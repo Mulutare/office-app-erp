@@ -120,6 +120,22 @@ $router->post(
     ]
 );
 
+$router->get(
+    '/administration/users/unlock',
+    [
+        $userAdministrationController,
+        'showUnlockAccount',
+    ]
+);
+
+$router->post(
+    '/administration/users/unlock',
+    [
+        $userAdministrationController,
+        'unlockAccount',
+    ]
+);
+
 $router->post(
     '/administration/users',
     [$userAdministrationController, 'store']

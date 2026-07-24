@@ -10,6 +10,7 @@ use App\Services\UserDetailsService;
 use App\Services\UserUpdateService;
 use App\Services\UserPasswordResetService;
 use App\Services\UserAccountStatusService;
+use App\Services\UserAccountUnlockService;
 
 final class UserAdministrationController
 {
@@ -20,6 +21,7 @@ final class UserAdministrationController
     private UserUpdateService $updates;
     private UserPasswordResetService $passwordResets;
     private UserAccountStatusService $accountStatus;
+    private UserAccountUnlockService $accountUnlocks;
 
     public function __construct()
     {
@@ -42,6 +44,9 @@ final class UserAdministrationController
 
         $this->accountStatus =
             new UserAccountStatusService();
+
+        $this->accountUnlocks =
+            new UserAccountUnlockService();
     }
 
     public function show(): void
@@ -107,7 +112,126 @@ final class UserAdministrationController
             ) !== (int) (
                 $_SESSION['auth']['user_id'] ?? 0
             ),
+            'canUnlock' => (
+                !empty($profile['is_locked'])
+                || (int) (
+                    $profile['failed_login_count'] ?? 0
+                ) > 0
+            ) && (int) (
+                $profile['user_id'] ?? 0
+            ) !== (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            ),
         ]);
+    }
+
+    public function showUnlockAccount(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.users.manage'
+        );
+
+        $userId = $this->queryInteger('id', 0);
+        $profile = $this->accountUnlocks
+            ->target($userId);
+
+        if ($profile === null) {
+            $this->notFound();
+        }
+
+        if ($userId === (int) (
+            $_SESSION['auth']['user_id'] ?? 0
+        )) {
+            \flash(
+                'user_update_success',
+                'You cannot unlock your own account from user administration.'
+            );
+
+            \redirect(
+                '/administration/users/view?id='
+                . $userId
+            );
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => 'Unlock User Account',
+            'pageDescription' =>
+                'Clear the temporary lock and failed-login counter.',
+            'contentView' =>
+                'administration.users.unlock',
+            'user' => $_SESSION['auth'],
+            'profile' => $profile,
+            'errors' => \getFlash(
+                'account_unlock_errors',
+                []
+            ),
+        ]);
+    }
+
+    public function unlockAccount(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.users.manage'
+        );
+
+        $userId = $this->postInteger('user_id');
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('account_unlock_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+
+            \redirect(
+                '/administration/users/unlock?id='
+                . $userId
+            );
+        }
+
+        $result = $this->accountUnlocks->unlock(
+            $userId,
+            (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            )
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'account_unlock_errors',
+                $result['errors']
+            );
+
+            \redirect(
+                '/administration/users/unlock?id='
+                . $userId
+            );
+        }
+
+        \flash(
+            'user_update_success',
+            !empty($result['changed'])
+                ? 'User account unlocked successfully.'
+                : 'User account is not locked.'
+        );
+
+        \redirect(
+            '/administration/users/view?id='
+            . $userId
+        );
     }
 
     public function showAccountStatus(): void

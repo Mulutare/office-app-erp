@@ -710,6 +710,22 @@ public function setAdministrationActive(
     ]);
 }
 
+public function unlockAdministrationAccount(
+    int $userId
+): void {
+    $statement = \db()->prepare(
+        'UPDATE users
+         SET failed_login_count = 0,
+             locked_until = NULL
+         WHERE user_id = :user_id
+           AND deleted_at IS NULL'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+}
+
 public function hasRoleCode(
     int $userId,
     string $roleCode

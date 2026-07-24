@@ -38,6 +38,7 @@ $canResetPassword = !empty(
 $canChangeStatus = !empty(
     $data['canChangeStatus']
 );
+$canUnlock = !empty($data['canUnlock']);
 $resetCredentials = is_array(
     $data['resetCredentials'] ?? null
 )
@@ -140,6 +141,17 @@ if (!empty($profile['is_locked'])) {
     </a>
 
     <div class="details-actions">
+        <?php if ($canUnlock): ?>
+            <a
+                href="/office_app/public/administration/users/unlock?id=<?= e(
+                    $profile['user_id'] ?? ''
+                ) ?>"
+                class="btn btn-secondary"
+            >
+                Unlock account
+            </a>
+        <?php endif; ?>
+
         <?php if ($canChangeStatus): ?>
             <a
                 href="/office_app/public/administration/users/account-status?id=<?= e(

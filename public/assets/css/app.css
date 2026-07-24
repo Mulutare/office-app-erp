@@ -808,6 +808,43 @@ a {
     color: #027a48;
 }
 
+.confirmation-icon-information {
+    background: #eaf2ff;
+    color: #1849a9;
+}
+
+.unlock-summary {
+    display: grid;
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 18px 0;
+}
+
+.unlock-summary div {
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+}
+
+.unlock-summary dt {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.unlock-summary dd {
+    margin: 5px 0 0;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 620px) {
+    .unlock-summary {
+        grid-template-columns: 1fr;
+    }
+}
+
 .confirmation-card p {
     color: var(--color-muted);
     line-height: 1.6;
