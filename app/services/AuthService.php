@@ -304,70 +304,84 @@ public function changePassword(
         'message' => 'Password changed successfully.',
     ];
 }
-    private function completeLogin(array $user): array
-    {
-        $userId = (int) $user['user_id'];
+    /**
+ * Complete a successful authentication.
+ *
+ * @param array<string, mixed> $user
+ *
+ * @return array{
+ *     successful: bool,
+ *     message: string
+ * }
+ */
+private function completeLogin(array $user): array
+{
+    $userId = (int) $user['user_id'];
 
-        try {
-            \db()->beginTransaction();
+    try {
+        \db()->beginTransaction();
 
-            $this->users->recordSuccessfulLogin(
-                $userId
-            );
+        $this->users->recordSuccessfulLogin(
+            $userId
+        );
 
-            $this->loginAttempts->record(
-                (string) $user['username'],
-                $userId,
-                true,
-                null,
-                \requestIp(),
-                \requestUserAgent()
-            );
+        $this->loginAttempts->record(
+            (string) $user['username'],
+            $userId,
+            true,
+            null,
+            \requestIp(),
+            \requestUserAgent()
+        );
 
-            $roles = $this->users
-                ->roleCodes($userId);
+        $roles = $this->users
+            ->roleCodes($userId);
 
-            $this->auditLogs->record(
-                $userId,
-                'LOGIN',
-                'authentication',
-                'users',
-                (string) $userId,
-                null,
-                [
-                    'username' => $user['username'],
-                    'roles' => $roles,
-                ]
-            );
+        $permissions = $this->users
+            ->permissionCodes($userId);
 
-            \db()->commit();
-        } catch (Throwable $exception) {
-            if (\db()->inTransaction()) {
-                \db()->rollBack();
-            }
+        $this->auditLogs->record(
+            $userId,
+            'LOGIN',
+            'authentication',
+            'users',
+            (string) $userId,
+            null,
+            [
+                'username' => $user['username'],
+                'roles' => $roles,
+                'permissions' => $permissions,
+            ]
+        );
 
-            throw $exception;
+        \db()->commit();
+    } catch (Throwable $exception) {
+        if (\db()->inTransaction()) {
+            \db()->rollBack();
         }
 
-        session_regenerate_id(true);
-
-        $_SESSION['auth'] = [
-            'user_id' => $userId,
-            'username' => (string) $user['username'],
-            'display_name' =>
-                (string) $user['display_name'],
-            'roles' => $roles,
-            'must_change_password' =>
-                (bool) $user['must_change_password'],
-            'authenticated_at' => time(),
-        ];
-
-        return [
-            'successful' => true,
-            'message' => 'Authentication successful.',
-        ];
+        throw $exception;
     }
 
+    session_regenerate_id(true);
+
+    $_SESSION['auth'] = [
+        'user_id' => $userId,
+        'username' => (string) $user['username'],
+        'display_name' =>
+            (string) $user['display_name'],
+        'roles' => $roles,
+        'permissions' => $permissions,
+        'must_change_password' =>
+            (bool) $user['must_change_password'],
+        'authenticated_at' => time(),
+    ];
+
+    return [
+        'successful' => true,
+        'message' => 'Authentication successful.',
+    ];
+}
     private function recordFailedPassword(
         int $userId,
         string $login,

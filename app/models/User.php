@@ -275,4 +275,40 @@ public function passwordHashById(int $userId): ?string
         ? $passwordHash
         : null;
 }
+/**
+ * Return active permission codes assigned through user roles.
+ *
+ * @return list<string>
+ */
+public function permissionCodes(int $userId): array
+{
+    $statement = \db()->prepare(
+        'SELECT DISTINCT p.code
+         FROM permissions p
+         INNER JOIN role_permissions rp
+             ON rp.permission_id = p.permission_id
+         INNER JOIN user_roles ur
+             ON ur.role_id = rp.role_id
+         INNER JOIN roles r
+             ON r.role_id = ur.role_id
+         WHERE ur.user_id = :user_id
+           AND p.active = TRUE
+           AND r.active = TRUE
+         ORDER BY p.code'
+    );
+
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    $permissions = $statement->fetchAll(
+        \PDO::FETCH_COLUMN
+    );
+
+    return array_values(
+        array_filter(
+            array_map('strval', $permissions)
+        )
+    );
+}
 }
