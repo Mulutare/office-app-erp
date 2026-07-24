@@ -17,6 +17,14 @@ $assignedUsers = is_array(
 )
     ? $data['assignedUsers']
     : [];
+$canEditPermissions = !empty(
+    $data['canEditPermissions']
+);
+$successMessage = is_string(
+    $data['successMessage'] ?? null
+)
+    ? $data['successMessage']
+    : '';
 
 $permissionGroups = [];
 
@@ -32,6 +40,12 @@ foreach ($permissions as $permission) {
 }
 ?>
 
+<?php if ($successMessage !== ''): ?>
+    <div class="alert alert-success" role="status">
+        <?= e($successMessage) ?>
+    </div>
+<?php endif; ?>
+
 <div class="details-toolbar">
     <a
         href="/office_app/public/administration/roles"
@@ -39,6 +53,17 @@ foreach ($permissions as $permission) {
     >
         Back to roles
     </a>
+
+    <?php if ($canEditPermissions): ?>
+        <a
+            href="/office_app/public/administration/roles/edit-permissions?id=<?= e(
+                $role['role_id'] ?? ''
+            ) ?>"
+            class="btn btn-primary"
+        >
+            Edit permissions
+        </a>
+    <?php endif; ?>
 </div>
 
 <section class="card profile-summary-card">

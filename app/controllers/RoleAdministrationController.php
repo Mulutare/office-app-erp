@@ -6,11 +6,13 @@ namespace App\Controllers;
 
 use App\Services\AuthorizationService;
 use App\Services\RoleAdministrationService;
+use App\Services\RolePermissionUpdateService;
 
 final class RoleAdministrationController
 {
     private AuthorizationService $authorization;
     private RoleAdministrationService $roles;
+    private RolePermissionUpdateService $permissionUpdates;
 
     public function __construct()
     {
@@ -18,6 +20,8 @@ final class RoleAdministrationController
             new AuthorizationService();
         $this->roles =
             new RoleAdministrationService();
+        $this->permissionUpdates =
+            new RolePermissionUpdateService();
     }
 
     public function index(): void
@@ -80,12 +84,164 @@ final class RoleAdministrationController
             'permissions' =>
                 $details['permissions'],
             'assignedUsers' => $details['users'],
+            'canEditPermissions' =>
+                (string) (
+                    $details['role']['code'] ?? ''
+                ) !== 'system_administrator',
+            'successMessage' => \getFlash(
+                'role_permission_success'
+            ),
         ]);
+    }
+
+    public function editPermissions(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.roles.manage'
+        );
+
+        $roleId = $this->queryInteger('id');
+        $formData = $this->permissionUpdates
+            ->formData($roleId);
+
+        if ($formData === null) {
+            $this->notFound();
+        }
+
+        if (
+            (string) $formData['role']['code']
+            === 'system_administrator'
+        ) {
+            \flash(
+                'role_permission_success',
+                'The System Administrator permission baseline is protected.'
+            );
+
+            \redirect(
+                '/administration/roles/view?id='
+                . $roleId
+            );
+        }
+
+        $oldSelection = \getFlash(
+            'role_permission_old'
+        );
+
+        if (is_array($oldSelection)) {
+            $formData['selectedPermissionIds'] =
+                array_map('intval', $oldSelection);
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => 'Edit Role Permissions',
+            'pageDescription' =>
+                'Apply least-privilege access to this role.',
+            'contentView' =>
+                'administration.roles.edit-permissions',
+            'user' => $_SESSION['auth'],
+            'role' => $formData['role'],
+            'permissions' =>
+                $formData['permissions'],
+            'selectedPermissionIds' =>
+                $formData['selectedPermissionIds'],
+            'errors' => \getFlash(
+                'role_permission_errors',
+                []
+            ),
+        ]);
+    }
+
+    public function updatePermissions(): void
+    {
+        $this->authorization->requirePermission(
+            'administration.roles.manage'
+        );
+
+        $roleId = $this->postInteger('role_id');
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('role_permission_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+
+            \redirect(
+                '/administration/roles/edit-permissions?id='
+                . $roleId
+            );
+        }
+
+        $submitted = $_POST['permission_ids'] ?? [];
+        $result = $this->permissionUpdates->update(
+            $roleId,
+            $submitted,
+            (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            )
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'role_permission_errors',
+                $result['errors']
+            );
+            \flash(
+                'role_permission_old',
+                is_array($submitted)
+                    ? $submitted
+                    : []
+            );
+
+            \redirect(
+                '/administration/roles/edit-permissions?id='
+                . $roleId
+            );
+        }
+
+        \flash(
+            'role_permission_success',
+            !empty($result['changed'])
+                ? 'Role permissions updated successfully.'
+                : 'Role permissions were already up to date.'
+        );
+
+        \redirect(
+            '/administration/roles/view?id='
+            . $roleId
+        );
     }
 
     private function queryInteger(string $key): int
     {
         $value = $_GET[$key] ?? null;
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        return is_string($value)
+            && ctype_digit($value)
+                ? (int) $value
+                : 0;
+    }
+
+    private function postInteger(string $key): int
+    {
+        $value = $_POST[$key] ?? null;
 
         if (is_int($value)) {
             return $value;

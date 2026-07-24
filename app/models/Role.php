@@ -182,6 +182,169 @@ final class Role
     /**
      * @return list<array<string, mixed>>
      */
+    public function activePermissions(): array
+    {
+        $statement = \db()->query(
+            'SELECT
+                permission_id,
+                code,
+                name,
+                module,
+                description
+             FROM permissions
+             WHERE active = TRUE
+             ORDER BY module, name'
+        );
+
+        $permissions = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($permissions)
+            ? $permissions
+            : [];
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function permissionIds(int $roleId): array
+    {
+        $statement = \db()->prepare(
+            'SELECT permission_id
+             FROM role_permissions
+             WHERE role_id = :role_id
+             ORDER BY permission_id'
+        );
+
+        $statement->execute([
+            'role_id' => $roleId,
+        ]);
+
+        return array_map(
+            'intval',
+            $statement->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    /**
+     * @param list<int> $permissionIds
+     */
+    public function validActivePermissionIds(
+        array $permissionIds
+    ): array {
+        $permissionIds = array_values(array_unique(
+            array_filter(
+                $permissionIds,
+                static fn (int $permissionId): bool =>
+                    $permissionId > 0
+            )
+        ));
+
+        if ($permissionIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(
+            ', ',
+            array_fill(0, count($permissionIds), '?')
+        );
+        $statement = \db()->prepare(
+            'SELECT permission_id
+             FROM permissions
+             WHERE active = TRUE
+               AND permission_id IN ('
+                . $placeholders . ')'
+        );
+
+        foreach (
+            $permissionIds as $index => $permissionId
+        ) {
+            $statement->bindValue(
+                $index + 1,
+                $permissionId,
+                \PDO::PARAM_INT
+            );
+        }
+
+        $statement->execute();
+
+        return array_map(
+            'intval',
+            $statement->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    public function isAssignedToUser(
+        int $roleId,
+        int $userId
+    ): bool {
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM user_roles
+             WHERE role_id = :role_id
+               AND user_id = :user_id
+             LIMIT 1'
+        );
+
+        $statement->execute([
+            'role_id' => $roleId,
+            'user_id' => $userId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    public function lockForPermissionUpdate(
+        int $roleId
+    ): bool {
+        $statement = \db()->prepare(
+            'SELECT role_id
+             FROM roles
+             WHERE role_id = :role_id
+             FOR UPDATE'
+        );
+
+        $statement->execute([
+            'role_id' => $roleId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * @param list<int> $permissionIds
+     */
+    public function replacePermissions(
+        int $roleId,
+        array $permissionIds
+    ): void {
+        $delete = \db()->prepare(
+            'DELETE FROM role_permissions
+             WHERE role_id = :role_id'
+        );
+        $delete->execute([
+            'role_id' => $roleId,
+        ]);
+
+        $insert = \db()->prepare(
+            'INSERT INTO role_permissions
+                (role_id, permission_id)
+             VALUES
+                (:role_id, :permission_id)'
+        );
+
+        foreach ($permissionIds as $permissionId) {
+            $insert->execute([
+                'role_id' => $roleId,
+                'permission_id' => $permissionId,
+            ]);
+        }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
     public function activeRoles(): array
     {
         $statement = \db()->query(

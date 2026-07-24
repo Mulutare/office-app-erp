@@ -34,6 +34,20 @@ $router->get(
     [$roleAdministrationController, 'show']
 );
 $router->get(
+    '/administration/roles/edit-permissions',
+    [
+        $roleAdministrationController,
+        'editPermissions',
+    ]
+);
+$router->post(
+    '/administration/roles/update-permissions',
+    [
+        $roleAdministrationController,
+        'updatePermissions',
+    ]
+);
+$router->get(
     '/',
     [$homeController, 'index']
 );
