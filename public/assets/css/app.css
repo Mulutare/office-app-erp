@@ -845,6 +845,105 @@ a {
     }
 }
 
+.role-management-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.role-management-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+}
+
+.role-management-card code,
+.role-title-row + code {
+    color: #1849a9;
+}
+
+.role-management-description {
+    color: var(--color-muted);
+    line-height: 1.6;
+}
+
+.role-statistics {
+    display: grid;
+    grid-template-columns:
+        repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: auto 0 18px;
+}
+
+.role-statistics div {
+    padding: 10px;
+    border-radius: 8px;
+    background: #f8fafc;
+    text-align: center;
+}
+
+.role-statistics dt {
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.role-statistics dd {
+    margin: 5px 0 0;
+    font-size: 1.1rem;
+    font-weight: 800;
+}
+
+.role-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.role-permission-list {
+    display: grid;
+    gap: 12px;
+}
+
+.role-permission-list article {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.role-permission-list article:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.role-permission-list strong,
+.role-permission-list code {
+    display: block;
+}
+
+.role-permission-list code {
+    margin-top: 4px;
+    color: #1849a9;
+}
+
+.role-permission-list p {
+    margin: 5px 0 0;
+    color: var(--color-muted);
+}
+
+@media (max-width: 760px) {
+    .role-management-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .role-statistics {
+        grid-template-columns: 1fr;
+    }
+}
+
 .confirmation-card p {
     color: var(--color-muted);
     line-height: 1.6;

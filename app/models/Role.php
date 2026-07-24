@@ -7,6 +7,179 @@ namespace App\Models;
 final class Role
 {
     /**
+     * Return role summaries for administration.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function administrationSummaries(): array
+    {
+        $statement = \db()->query(
+            'SELECT
+                roles.role_id,
+                roles.code,
+                roles.name,
+                roles.description,
+                roles.is_system,
+                roles.active,
+                roles.created_at,
+                COUNT(
+                    DISTINCT role_permissions.permission_id
+                ) AS permission_count,
+                COUNT(
+                    DISTINCT users.user_id
+                ) AS user_count,
+                COUNT(
+                    DISTINCT CASE
+                        WHEN users.active = TRUE
+                        THEN users.user_id
+                    END
+                ) AS active_user_count
+             FROM roles
+             LEFT JOIN role_permissions
+                 ON role_permissions.role_id = roles.role_id
+             LEFT JOIN user_roles
+                 ON user_roles.role_id = roles.role_id
+             LEFT JOIN users
+                 ON users.user_id = user_roles.user_id
+                AND users.deleted_at IS NULL
+             GROUP BY
+                roles.role_id,
+                roles.code,
+                roles.name,
+                roles.description,
+                roles.is_system,
+                roles.active,
+                roles.created_at
+             ORDER BY roles.name'
+        );
+
+        $roles = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($roles) ? $roles : [];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function findForAdministration(
+        int $roleId
+    ): ?array {
+        $statement = \db()->prepare(
+            'SELECT
+                role_id,
+                code,
+                name,
+                description,
+                is_system,
+                active,
+                created_at,
+                updated_at
+             FROM roles
+             WHERE role_id = :role_id
+             LIMIT 1'
+        );
+
+        $statement->execute([
+            'role_id' => $roleId,
+        ]);
+
+        $role = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($role) ? $role : null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function permissionsForRole(
+        int $roleId
+    ): array {
+        $statement = \db()->prepare(
+            'SELECT
+                permissions.permission_id,
+                permissions.code,
+                permissions.name,
+                permissions.module,
+                permissions.description,
+                permissions.active,
+                role_permissions.granted_at
+             FROM role_permissions
+             INNER JOIN permissions
+                 ON permissions.permission_id =
+                    role_permissions.permission_id
+             WHERE role_permissions.role_id = :role_id
+             ORDER BY
+                permissions.module,
+                permissions.name'
+        );
+
+        $statement->execute([
+            'role_id' => $roleId,
+        ]);
+
+        $permissions = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($permissions)
+            ? $permissions
+            : [];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function usersForRole(
+        int $roleId,
+        int $limit = 25
+    ): array {
+        $statement = \db()->prepare(
+            'SELECT
+                users.user_id,
+                users.username,
+                users.display_name,
+                users.email,
+                users.active,
+                users.last_login_at,
+                user_roles.assigned_at,
+                assigned_by.display_name
+                    AS assigned_by_name
+             FROM user_roles
+             INNER JOIN users
+                 ON users.user_id = user_roles.user_id
+                AND users.deleted_at IS NULL
+             LEFT JOIN users assigned_by
+                 ON assigned_by.user_id =
+                    user_roles.assigned_by
+             WHERE user_roles.role_id = :role_id
+             ORDER BY users.display_name
+             LIMIT :limit'
+        );
+
+        $statement->bindValue(
+            ':role_id',
+            $roleId,
+            \PDO::PARAM_INT
+        );
+        $statement->bindValue(
+            ':limit',
+            max(1, min($limit, 100)),
+            \PDO::PARAM_INT
+        );
+        $statement->execute();
+
+        $users = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($users) ? $users : [];
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function activeRoles(): array
