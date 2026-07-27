@@ -7,10 +7,12 @@ namespace App\Models;
 final class UserActivity
 {
     public function countForUser(
+        int $companyId,
         int $userId,
         string $type
     ): int {
         $query = $this->queryDefinition(
+            $companyId,
             $userId,
             $type,
             true
@@ -32,12 +34,14 @@ final class UserActivity
      * @return list<array<string, mixed>>
      */
     public function pageForUser(
+        int $companyId,
         int $userId,
         string $type,
         int $limit,
         int $offset
     ): array {
         $query = $this->queryDefinition(
+            $companyId,
             $userId,
             $type,
             false
@@ -92,6 +96,7 @@ final class UserActivity
      * }
      */
     private function queryDefinition(
+        int $companyId,
         int $userId,
         string $type,
         bool $countOnly
@@ -110,12 +115,16 @@ final class UserActivity
         $parameters = [];
 
         if ($type !== 'administration') {
+            $parameters['login_company_id'] =
+                $companyId;
             $parameters['login_user_id'] = $userId;
             $parts[] = $countOnly
                 ? $this->loginCountQuery()
                 : $this->loginPageQuery();
         }
 
+        $parameters['audit_company_id'] =
+            $companyId;
         $parameters['audit_actor_user_id'] =
             $userId;
         $parameters['audit_record_id'] =
@@ -135,7 +144,8 @@ final class UserActivity
         return
             'SELECT login_attempt_id AS event_id
              FROM login_attempts
-             WHERE user_id = :login_user_id';
+             WHERE company_id = :login_company_id
+               AND user_id = :login_user_id';
     }
 
     private function auditCountQuery(
@@ -144,7 +154,8 @@ final class UserActivity
         return
             'SELECT audit_log_id AS event_id
              FROM audit_logs
-             WHERE (
+             WHERE company_id = :audit_company_id
+               AND (
                     user_id = :audit_actor_user_id
                     OR (
                         table_name = \'users\'
@@ -201,7 +212,8 @@ final class UserActivity
                 NULL AS new_values,
                 attempted_at AS occurred_at
              FROM login_attempts
-             WHERE user_id = :login_user_id';
+             WHERE company_id = :login_company_id
+               AND user_id = :login_user_id';
     }
 
     private function auditPageQuery(
@@ -253,7 +265,9 @@ final class UserActivity
              FROM audit_logs
              LEFT JOIN users actor
                  ON actor.user_id = audit_logs.user_id
-             WHERE (
+             WHERE audit_logs.company_id =
+                    :audit_company_id
+               AND (
                     audit_logs.user_id =
                         :audit_actor_user_id
                     OR (

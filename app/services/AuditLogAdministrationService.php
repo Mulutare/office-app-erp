@@ -13,12 +13,14 @@ final class AuditLogAdministrationService
 
     private AuditLogQuery $auditLogs;
     private AuditChangePresenter $changes;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->auditLogs = new AuditLogQuery();
         $this->changes =
             new AuditChangePresenter();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -33,8 +35,9 @@ final class AuditLogAdministrationService
         string $dateTo,
         int $page
     ): array {
+        $companyId = $this->tenant->companyId();
         $options = $this->auditLogs
-            ->filterOptions();
+            ->filterOptions($companyId);
         $search = mb_substr(
             trim($search),
             0,
@@ -95,6 +98,7 @@ final class AuditLogAdministrationService
         ];
         $page = max(1, $page);
         $total = $this->auditLogs->count(
+            $companyId,
             $queryFilters
         );
         $lastPage = max(
@@ -104,6 +108,7 @@ final class AuditLogAdministrationService
         $page = min($page, $lastPage);
         $offset = ($page - 1) * self::PAGE_SIZE;
         $logs = $this->auditLogs->page(
+            $companyId,
             $queryFilters,
             self::PAGE_SIZE,
             $offset
@@ -153,6 +158,7 @@ final class AuditLogAdministrationService
         }
 
         $log = $this->auditLogs->find(
+            $this->tenant->companyId(),
             $auditLogId
         );
 

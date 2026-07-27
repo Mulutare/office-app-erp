@@ -7,15 +7,18 @@ namespace App\Models;
 final class EmployeeActivity
 {
     public function countForEmployee(
+        int $companyId,
         int $employeeId
     ): int {
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM audit_logs
-             WHERE table_name = :table_name
+             WHERE company_id = :company_id
+               AND table_name = :table_name
                AND record_id = :record_id'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'table_name' => 'hr_employees',
             'record_id' => (string) $employeeId,
         ]);
@@ -27,6 +30,7 @@ final class EmployeeActivity
      * @return list<array<string, mixed>>
      */
     public function pageForEmployee(
+        int $companyId,
         int $employeeId,
         int $limit,
         int $offset
@@ -46,7 +50,9 @@ final class EmployeeActivity
              FROM audit_logs
              LEFT JOIN users actor
                  ON actor.user_id = audit_logs.user_id
-             WHERE audit_logs.table_name =
+             WHERE audit_logs.company_id =
+                    :company_id
+               AND audit_logs.table_name =
                     :table_name
                AND audit_logs.record_id = :record_id
              ORDER BY
@@ -54,6 +60,11 @@ final class EmployeeActivity
                 audit_logs.audit_log_id DESC
              LIMIT :limit
              OFFSET :offset'
+        );
+        $statement->bindValue(
+            ':company_id',
+            $companyId,
+            \PDO::PARAM_INT
         );
         $statement->bindValue(
             ':table_name',

@@ -9,9 +9,15 @@ final class AuditLogQuery
     /**
      * @param array<string, mixed> $filters
      */
-    public function count(array $filters): int
+    public function count(
+        int $companyId,
+        array $filters
+    ): int
     {
-        $query = $this->whereClause($filters);
+        $query = $this->whereClause(
+            $companyId,
+            $filters
+        );
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM audit_logs
@@ -30,11 +36,15 @@ final class AuditLogQuery
      * @return list<array<string, mixed>>
      */
     public function page(
+        int $companyId,
         array $filters,
         int $limit,
         int $offset
     ): array {
-        $query = $this->whereClause($filters);
+        $query = $this->whereClause(
+            $companyId,
+            $filters
+        );
         $statement = \db()->prepare(
             'SELECT
                 audit_logs.audit_log_id,
@@ -84,7 +94,10 @@ final class AuditLogQuery
     /**
      * @return array<string, mixed>|null
      */
-    public function find(int $auditLogId): ?array
+    public function find(
+        int $companyId,
+        int $auditLogId
+    ): ?array
     {
         $statement = \db()->prepare(
             'SELECT
@@ -107,9 +120,12 @@ final class AuditLogQuery
                  ON actor.user_id = audit_logs.user_id
              WHERE audit_logs.audit_log_id =
                 :audit_log_id
+               AND audit_logs.company_id =
+                    :company_id
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'audit_log_id' => $auditLogId,
         ]);
         $log = $statement->fetch(
@@ -126,23 +142,37 @@ final class AuditLogQuery
      *     actors: list<array<string, mixed>>
      * }
      */
-    public function filterOptions(): array
+    public function filterOptions(int $companyId): array
     {
-        $modules = \db()->query(
+        $moduleStatement = \db()->prepare(
             'SELECT DISTINCT module
              FROM audit_logs
-             WHERE module <> \'\'
+             WHERE company_id = :company_id
+               AND module <> \'\'
              ORDER BY module'
-        )->fetchAll(\PDO::FETCH_COLUMN);
+        );
+        $moduleStatement->execute([
+            'company_id' => $companyId,
+        ]);
+        $modules = $moduleStatement->fetchAll(
+            \PDO::FETCH_COLUMN
+        );
 
-        $actions = \db()->query(
+        $actionStatement = \db()->prepare(
             'SELECT DISTINCT action
              FROM audit_logs
-             WHERE action <> \'\'
+             WHERE company_id = :company_id
+               AND action <> \'\'
              ORDER BY action'
-        )->fetchAll(\PDO::FETCH_COLUMN);
+        );
+        $actionStatement->execute([
+            'company_id' => $companyId,
+        ]);
+        $actions = $actionStatement->fetchAll(
+            \PDO::FETCH_COLUMN
+        );
 
-        $actors = \db()->query(
+        $actorStatement = \db()->prepare(
             'SELECT DISTINCT
                 users.user_id,
                 users.display_name,
@@ -150,8 +180,16 @@ final class AuditLogQuery
              FROM audit_logs
              INNER JOIN users
                  ON users.user_id = audit_logs.user_id
+             WHERE audit_logs.company_id =
+                    :company_id
              ORDER BY users.display_name, users.username'
-        )->fetchAll(\PDO::FETCH_ASSOC);
+        );
+        $actorStatement->execute([
+            'company_id' => $companyId,
+        ]);
+        $actors = $actorStatement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
 
         return [
             'modules' => array_values(array_map(
@@ -177,10 +215,15 @@ final class AuditLogQuery
      * }
      */
     private function whereClause(
+        int $companyId,
         array $filters
     ): array {
-        $conditions = ['1 = 1'];
-        $parameters = [];
+        $conditions = [
+            'audit_logs.company_id = :company_id',
+        ];
+        $parameters = [
+            'company_id' => $companyId,
+        ];
         $search = (string) (
             $filters['search'] ?? ''
         );

@@ -57,7 +57,9 @@ final class UserActivityService
         }
 
         $page = max(1, $page);
+        $companyId = $this->tenant->companyId();
         $total = $this->activity->countForUser(
+            $companyId,
             $userId,
             $type
         );
@@ -68,6 +70,7 @@ final class UserActivityService
         $page = min($page, $lastPage);
         $offset = ($page - 1) * self::PAGE_SIZE;
         $events = $this->activity->pageForUser(
+            $companyId,
             $userId,
             $type,
             self::PAGE_SIZE,

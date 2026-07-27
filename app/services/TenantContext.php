@@ -6,13 +6,22 @@ namespace App\Services;
 
 final class TenantContext
 {
-    public function companyId(): int
+    public function companyIdOrNull(): ?int
     {
         $companyId = $_SESSION['auth']['company'][
             'company_id'
         ] ?? null;
 
-        if (!is_int($companyId)) {
+        return is_int($companyId) && $companyId > 0
+            ? $companyId
+            : null;
+    }
+
+    public function companyId(): int
+    {
+        $companyId = $this->companyIdOrNull();
+
+        if ($companyId === null) {
             throw new \RuntimeException(
                 'An active company workspace is required.'
             );

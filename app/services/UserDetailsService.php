@@ -59,9 +59,15 @@ final class UserDetailsService
                     $userId
                 ),
             'loginAttempts' => $this->loginAttempts
-                ->recentForUser($userId),
+                ->recentForUser(
+                    $userId,
+                    $companyId
+                ),
             'auditActivity' => $this->auditLogs
-                ->recentForUser($userId),
+                ->recentForUser(
+                    $userId,
+                    $companyId
+                ),
         ];
     }
 

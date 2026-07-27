@@ -14,6 +14,7 @@ final class EmployeeUpdateService
     private Employee $employees;
     private EmployeeRecordValidator $validator;
     private AuditLog $auditLogs;
+    private TenantContext $tenant;
 
     public function __construct()
     {
@@ -21,6 +22,7 @@ final class EmployeeUpdateService
         $this->validator =
             new EmployeeRecordValidator();
         $this->auditLogs = new AuditLog();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -29,6 +31,7 @@ final class EmployeeUpdateService
     public function form(int $employeeId): ?array
     {
         $employee = $this->employees->find(
+            $this->tenant->companyId(),
             $employeeId
         );
 
@@ -64,7 +67,9 @@ final class EmployeeUpdateService
         array $input,
         int $updatedBy
     ): array {
+        $companyId = $this->tenant->companyId();
         $employee = $this->employees->find(
+            $companyId,
             $employeeId
         );
 
@@ -119,6 +124,7 @@ final class EmployeeUpdateService
             }
 
             $this->employees->update(
+                $companyId,
                 $employeeId,
                 $values,
                 $updatedBy

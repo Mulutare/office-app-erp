@@ -20,11 +20,13 @@ final class EmployeeDirectoryService
 
     private Employee $employees;
     private Department $departments;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->employees = new Employee();
         $this->departments = new Department();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -48,8 +50,9 @@ final class EmployeeDirectoryService
         )
             ? $status
             : '';
+        $companyId = $this->tenant->companyId();
         $departments = $this->departments
-            ->activeOptions();
+            ->activeOptions($companyId);
         $validDepartmentIds = array_map(
             static fn (array $department): int =>
                 (int) $department['department_id'],
@@ -70,7 +73,10 @@ final class EmployeeDirectoryService
             'departmentId' => $departmentId,
         ];
         $page = max(1, $page);
-        $total = $this->employees->count($filters);
+        $total = $this->employees->count(
+            $companyId,
+            $filters
+        );
         $lastPage = max(
             1,
             (int) ceil($total / self::PAGE_SIZE)
@@ -78,6 +84,7 @@ final class EmployeeDirectoryService
         $page = min($page, $lastPage);
         $offset = ($page - 1) * self::PAGE_SIZE;
         $employees = $this->employees->page(
+            $companyId,
             $filters,
             self::PAGE_SIZE,
             $offset
@@ -95,7 +102,9 @@ final class EmployeeDirectoryService
             'statusOptions' =>
                 $this->statusOptions(),
             'summary' =>
-                $this->employees->statusSummary(),
+                $this->employees->statusSummary(
+                    $companyId
+                ),
             'filters' => [
                 'search' => $search,
                 'status' => $status,
@@ -127,7 +136,9 @@ final class EmployeeDirectoryService
             return null;
         }
 
+        $companyId = $this->tenant->companyId();
         $employee = $this->employees->find(
+            $companyId,
             $employeeId
         );
 
@@ -136,7 +147,10 @@ final class EmployeeDirectoryService
         }
 
         $reports = $this->employees
-            ->directReports($employeeId);
+            ->directReports(
+                $companyId,
+                $employeeId
+            );
 
         foreach ($reports as &$report) {
             $report = $this->present($report);

@@ -61,13 +61,17 @@ final class DashboardService
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM login_attempts
-             WHERE successful = TRUE
+             WHERE company_id = :company_id
+               AND successful = TRUE
                AND attempted_at >= CURDATE()
                AND attempted_at < CURDATE()
                    + INTERVAL 1 DAY'
         );
 
-        $statement->execute();
+        $statement->execute([
+            'company_id' =>
+                $this->tenant->companyId(),
+        ]);
 
         return (int) $statement->fetchColumn();
     }
@@ -77,13 +81,17 @@ final class DashboardService
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM login_attempts
-             WHERE successful = FALSE
+             WHERE company_id = :company_id
+               AND successful = FALSE
                AND attempted_at >= CURDATE()
                AND attempted_at < CURDATE()
                    + INTERVAL 1 DAY'
         );
 
-        $statement->execute();
+        $statement->execute([
+            'company_id' =>
+                $this->tenant->companyId(),
+        ]);
 
         return (int) $statement->fetchColumn();
     }
@@ -93,7 +101,8 @@ final class DashboardService
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM login_attempts
-             WHERE successful = FALSE
+             WHERE company_id = :company_id
+               AND successful = FALSE
                AND failure_reason IN (
                    "account_locked",
                    "invalid_password_account_locked"
@@ -103,7 +112,10 @@ final class DashboardService
                    + INTERVAL 1 DAY'
         );
 
-        $statement->execute();
+        $statement->execute([
+            'company_id' =>
+                $this->tenant->companyId(),
+        ]);
 
         return (int) $statement->fetchColumn();
     }

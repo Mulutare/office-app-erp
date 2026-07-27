@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\TenantContext;
+
 final class AuditLog
 {
     /**
@@ -13,6 +15,7 @@ final class AuditLog
      */
     public function recentForUser(
         int $userId,
+        int $companyId,
         int $limit = 10
     ): array {
         $statement = \db()->prepare(
@@ -29,15 +32,23 @@ final class AuditLog
              FROM audit_logs
              LEFT JOIN users actor
                  ON actor.user_id = audit_logs.user_id
-             WHERE audit_logs.user_id = :actor_user_id
-                OR (
-                    audit_logs.table_name = :table_name
-                    AND audit_logs.record_id = :record_id
-                )
+             WHERE audit_logs.company_id = :company_id
+               AND (
+                    audit_logs.user_id = :actor_user_id
+                    OR (
+                        audit_logs.table_name = :table_name
+                        AND audit_logs.record_id = :record_id
+                    )
+               )
              ORDER BY audit_logs.created_at DESC
              LIMIT :limit'
         );
 
+        $statement->bindValue(
+            ':company_id',
+            $companyId,
+            \PDO::PARAM_INT
+        );
         $statement->bindValue(
             ':actor_user_id',
             $userId,
@@ -78,11 +89,15 @@ final class AuditLog
         ?string $tableName = null,
         ?string $recordId = null,
         ?array $oldValues = null,
-        ?array $newValues = null
+        ?array $newValues = null,
+        ?int $companyId = null
     ): void {
+        $companyId = $companyId
+            ?? (new TenantContext())->companyIdOrNull();
         $statement = \db()->prepare(
             'INSERT INTO audit_logs
                 (
+                    company_id,
                     user_id,
                     action,
                     module,
@@ -95,6 +110,7 @@ final class AuditLog
                 )
              VALUES
                 (
+                    :company_id,
                     :user_id,
                     :action,
                     :module,
@@ -108,6 +124,7 @@ final class AuditLog
         );
 
         $statement->execute([
+            'company_id' => $companyId,
             'user_id' => $userId,
             'action' => $action,
             'module' => $module,

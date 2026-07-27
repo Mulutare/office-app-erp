@@ -13,11 +13,13 @@ final class DepartmentManagementService
 {
     private Department $departments;
     private AuditLog $auditLogs;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->departments = new Department();
         $this->auditLogs = new AuditLog();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -25,7 +27,9 @@ final class DepartmentManagementService
      */
     public function listing(): array
     {
-        return $this->departments->managementList();
+        return $this->departments->managementList(
+            $this->tenant->companyId()
+        );
     }
 
     /**
@@ -35,6 +39,7 @@ final class DepartmentManagementService
         int $departmentId
     ): ?array {
         return $this->departments->find(
+            $this->tenant->companyId(),
             $departmentId
         );
     }
@@ -55,7 +60,9 @@ final class DepartmentManagementService
         array $input,
         int $updatedBy
     ): array {
+        $companyId = $this->tenant->companyId();
         $department = $this->departments->find(
+            $companyId,
             $departmentId
         );
 
@@ -82,6 +89,7 @@ final class DepartmentManagementService
             'active' => !empty($input['active']),
         ];
         $errors = $this->validate(
+            $companyId,
             $departmentId,
             $values,
             !empty($department['active'])
@@ -120,6 +128,7 @@ final class DepartmentManagementService
             }
 
             $this->departments->update(
+                $companyId,
                 $departmentId,
                 (string) $values['code'],
                 (string) $values['name'],
@@ -189,6 +198,7 @@ final class DepartmentManagementService
      * @return array<string, string>
      */
     private function validate(
+        int $companyId,
         int $departmentId,
         array $values,
         bool $wasActive
@@ -211,6 +221,7 @@ final class DepartmentManagementService
                 'Code must contain 2-30 uppercase letters, numbers, hyphens or underscores and begin with a letter.';
         } elseif (
             $this->departments->codeExists(
+                $companyId,
                 $code,
                 $departmentId
             )
@@ -229,6 +240,7 @@ final class DepartmentManagementService
                 'Department name must contain 2-100 characters.';
         } elseif (
             $this->departments->nameExists(
+                $companyId,
                 $name,
                 $departmentId
             )
@@ -247,6 +259,7 @@ final class DepartmentManagementService
             && $wasActive
             && $this->departments
                 ->currentEmployeeCount(
+                    $companyId,
                     $departmentId
                 ) > 0
         ) {

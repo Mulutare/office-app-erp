@@ -13,11 +13,13 @@ final class DepartmentCreationService
 {
     private Department $departments;
     private AuditLog $auditLogs;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->departments = new Department();
         $this->auditLogs = new AuditLog();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -44,7 +46,9 @@ final class DepartmentCreationService
             $input['description'] ?? ''
         ));
         $active = !empty($input['active']);
+        $companyId = $this->tenant->companyId();
         $errors = $this->validate(
+            $companyId,
             $code,
             $name,
             $description
@@ -68,6 +72,7 @@ final class DepartmentCreationService
 
             $departmentId =
                 $this->departments->create(
+                    $companyId,
                     $code,
                     $name,
                     $description,
@@ -141,6 +146,7 @@ final class DepartmentCreationService
      * @return array<string, string>
      */
     private function validate(
+        int $companyId,
         string $code,
         string $name,
         string $description
@@ -156,7 +162,10 @@ final class DepartmentCreationService
             $errors['code'] =
                 'Code must contain 2-30 uppercase letters, numbers, hyphens or underscores and begin with a letter.';
         } elseif (
-            $this->departments->codeExists($code)
+            $this->departments->codeExists(
+                $companyId,
+                $code
+            )
         ) {
             $errors['code'] =
                 'That department code is already in use.';
@@ -171,7 +180,10 @@ final class DepartmentCreationService
             $errors['name'] =
                 'Department name must contain 2-100 characters.';
         } elseif (
-            $this->departments->nameExists($name)
+            $this->departments->nameExists(
+                $companyId,
+                $name
+            )
         ) {
             $errors['name'] =
                 'That department name is already in use.';

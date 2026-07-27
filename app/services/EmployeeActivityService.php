@@ -14,6 +14,7 @@ final class EmployeeActivityService
     private Employee $employees;
     private EmployeeActivity $activity;
     private AuditChangePresenter $changes;
+    private TenantContext $tenant;
 
     public function __construct()
     {
@@ -21,6 +22,7 @@ final class EmployeeActivityService
         $this->activity = new EmployeeActivity();
         $this->changes =
             new AuditChangePresenter();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -34,7 +36,9 @@ final class EmployeeActivityService
             return null;
         }
 
+        $companyId = $this->tenant->companyId();
         $employee = $this->employees->find(
+            $companyId,
             $employeeId
         );
 
@@ -44,7 +48,10 @@ final class EmployeeActivityService
 
         $page = max(1, $page);
         $total = $this->activity
-            ->countForEmployee($employeeId);
+            ->countForEmployee(
+                $companyId,
+                $employeeId
+            );
         $lastPage = max(
             1,
             (int) ceil($total / self::PAGE_SIZE)
@@ -53,6 +60,7 @@ final class EmployeeActivityService
         $offset = ($page - 1) * self::PAGE_SIZE;
         $events = $this->activity
             ->pageForEmployee(
+                $companyId,
                 $employeeId,
                 self::PAGE_SIZE,
                 $offset

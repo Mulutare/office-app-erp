@@ -27,11 +27,13 @@ final class EmployeeRecordValidator
 
     private Employee $employees;
     private Department $departments;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->employees = new Employee();
         $this->departments = new Department();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -40,14 +42,20 @@ final class EmployeeRecordValidator
     public function formOptions(
         ?int $currentEmployeeId = null
     ): array {
+        $companyId = $this->tenant->companyId();
         $departments =
-            $this->departments->activeOptions();
+            $this->departments->activeOptions(
+                $companyId
+            );
         $currentEmployee = null;
         $currentManagerId = null;
 
         if ($currentEmployeeId !== null) {
             $currentEmployee = $this->employees
-                ->find($currentEmployeeId);
+                ->find(
+                    $companyId,
+                    $currentEmployeeId
+                );
             $currentManagerId = (int) (
                 $currentEmployee[
                     'manager_employee_id'
@@ -73,6 +81,7 @@ final class EmployeeRecordValidator
             ) {
                 $currentDepartment =
                     $this->departments->find(
+                        $companyId,
                         $currentDepartmentId
                     );
 
@@ -87,6 +96,7 @@ final class EmployeeRecordValidator
 
         $managers = $this->employees
             ->managerOptions(
+                $companyId,
                 $currentEmployeeId,
                 $currentManagerId > 0
                     ? $currentManagerId
@@ -131,6 +141,7 @@ final class EmployeeRecordValidator
             'managers' => $managers,
             'users' =>
                 $this->employees->availableUserOptions(
+                    $companyId,
                     $currentEmployeeId
                 ),
             'employmentTypes' =>
@@ -221,6 +232,7 @@ final class EmployeeRecordValidator
         array $values,
         ?int $currentEmployeeId = null
     ): array {
+        $companyId = $this->tenant->companyId();
         $errors = [];
         $employeeNumber = (string) (
             $values['employee_number'] ?? ''
@@ -236,6 +248,7 @@ final class EmployeeRecordValidator
                 'Employee number must contain 2-50 letters, numbers, dots, slashes, hyphens or underscores.';
         } elseif (
             $this->employees->employeeNumberExists(
+                $companyId,
                 $employeeNumber,
                 $currentEmployeeId
             )
@@ -290,6 +303,7 @@ final class EmployeeRecordValidator
                 'Enter a valid work email address.';
         } elseif (
             $this->employees->workEmailExists(
+                $companyId,
                 $workEmail,
                 $currentEmployeeId
             )
@@ -324,7 +338,10 @@ final class EmployeeRecordValidator
             && $departmentId > 0
         ) {
             $currentEmployee = $this->employees
-                ->find($currentEmployeeId);
+                ->find(
+                    $companyId,
+                    $currentEmployeeId
+                );
             $departmentIsCurrent =
                 (int) (
                     $currentEmployee['department_id']
@@ -337,7 +354,10 @@ final class EmployeeRecordValidator
             || (
                 !$departmentIsCurrent
                 && !$this->departments
-                    ->activeExists($departmentId)
+                    ->activeExists(
+                        $companyId,
+                        $departmentId
+                    )
             )
         ) {
             $errors['department_id'] =
@@ -418,7 +438,10 @@ final class EmployeeRecordValidator
             && is_int($managerId)
         ) {
             $currentEmployee = $this->employees
-                ->find($currentEmployeeId);
+                ->find(
+                    $companyId,
+                    $currentEmployeeId
+                );
             $managerIsCurrent =
                 (int) (
                     $currentEmployee[
@@ -441,7 +464,10 @@ final class EmployeeRecordValidator
             is_int($managerId)
             && !$managerIsCurrent
             && !$this->employees
-                ->managerExists($managerId)
+                ->managerExists(
+                    $companyId,
+                    $managerId
+                )
         ) {
             $errors['manager_employee_id'] =
                 'Select a valid active manager.';
@@ -451,6 +477,7 @@ final class EmployeeRecordValidator
             && !$managerIsCurrent
             && $this->employees
                 ->wouldCreateManagerCycle(
+                    $companyId,
                     $currentEmployeeId,
                     $managerId
                 )
@@ -471,6 +498,7 @@ final class EmployeeRecordValidator
             is_int($userId)
             && !$this->employees
                 ->availableUserExists(
+                    $companyId,
                     $userId,
                     $currentEmployeeId
                 )

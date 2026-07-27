@@ -20,10 +20,12 @@ final class FinanceDashboardService
     ];
 
     private ExpenseRequest $requests;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->requests = new ExpenseRequest();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -50,7 +52,9 @@ final class FinanceDashboardService
             'status' => $status,
         ];
         $page = max(1, $page);
+        $companyId = $this->tenant->companyId();
         $total = $this->requests->count(
+            $companyId,
             $filters
         );
         $lastPage = max(
@@ -60,6 +64,7 @@ final class FinanceDashboardService
         $page = min($page, $lastPage);
         $offset = ($page - 1) * self::PAGE_SIZE;
         $requests = $this->requests->page(
+            $companyId,
             $filters,
             self::PAGE_SIZE,
             $offset
@@ -74,7 +79,9 @@ final class FinanceDashboardService
         return [
             'requests' => $requests,
             'summary' =>
-                $this->requests->statusSummary(),
+                $this->requests->statusSummary(
+                    $companyId
+                ),
             'statusOptions' => self::STATUSES,
             'filters' => $filters,
             'pagination' => [

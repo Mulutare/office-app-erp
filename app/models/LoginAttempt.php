@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\TenantContext;
+
 final class LoginAttempt
 {
     /**
@@ -13,6 +15,7 @@ final class LoginAttempt
      */
     public function recentForUser(
         int $userId,
+        int $companyId,
         int $limit = 10
     ): array {
         $statement = \db()->prepare(
@@ -24,11 +27,17 @@ final class LoginAttempt
                 failure_reason,
                 attempted_at
              FROM login_attempts
-             WHERE user_id = :user_id
+             WHERE company_id = :company_id
+               AND user_id = :user_id
              ORDER BY attempted_at DESC
              LIMIT :limit'
         );
 
+        $statement->bindValue(
+            ':company_id',
+            $companyId,
+            \PDO::PARAM_INT
+        );
         $statement->bindValue(
             ':user_id',
             $userId,
@@ -54,11 +63,15 @@ final class LoginAttempt
         bool $successful,
         ?string $failureReason,
         string $ipAddress,
-        string $userAgent
+        string $userAgent,
+        ?int $companyId = null
     ): void {
+        $companyId = $companyId
+            ?? (new TenantContext())->companyIdOrNull();
         $statement = \db()->prepare(
             'INSERT INTO login_attempts
                 (
+                    company_id,
                     username_entered,
                     user_id,
                     ip_address,
@@ -68,6 +81,7 @@ final class LoginAttempt
                 )
              VALUES
                 (
+                    :company_id,
                     :username_entered,
                     :user_id,
                     :ip_address,
@@ -78,6 +92,7 @@ final class LoginAttempt
         );
 
         $statement->execute([
+            'company_id' => $companyId,
             'username_entered' => $login,
             'user_id' => $userId,
             'ip_address' => $ipAddress,

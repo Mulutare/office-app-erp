@@ -9,9 +9,9 @@ final class ExpenseRequest
     /**
      * @return array<string, int>
      */
-    public function statusSummary(): array
+    public function statusSummary(int $companyId): array
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT
                 COUNT(*) AS total,
                 SUM(
@@ -33,8 +33,12 @@ final class ExpenseRequest
                     status = \'cancelled\'
                 ) AS cancelled
              FROM finance_expense_requests
-             WHERE deleted_at IS NULL'
+             WHERE company_id = :company_id
+               AND deleted_at IS NULL'
         );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
         $summary = $statement->fetch(
             \PDO::FETCH_ASSOC
         );
@@ -62,19 +66,29 @@ final class ExpenseRequest
     /**
      * @param array<string, string> $filters
      */
-    public function count(array $filters): int
+    public function count(
+        int $companyId,
+        array $filters
+    ): int
     {
-        $query = $this->whereClause($filters);
+        $query = $this->whereClause(
+            $companyId,
+            $filters
+        );
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM finance_expense_requests requests
              INNER JOIN hr_employees employees
                  ON employees.employee_id =
                     requests.requested_by_employee_id
+                AND employees.company_id =
+                    requests.company_id
              LEFT JOIN finance_expense_categories
                     categories
                  ON categories.category_id =
                     requests.category_id
+                AND categories.company_id =
+                    requests.company_id
              WHERE ' . $query['sql']
         );
         $statement->execute($query['parameters']);
@@ -88,11 +102,15 @@ final class ExpenseRequest
      * @return list<array<string, mixed>>
      */
     public function page(
+        int $companyId,
         array $filters,
         int $limit,
         int $offset
     ): array {
-        $query = $this->whereClause($filters);
+        $query = $this->whereClause(
+            $companyId,
+            $filters
+        );
         $statement = \db()->prepare(
             'SELECT
                 requests.expense_request_id,
@@ -118,10 +136,14 @@ final class ExpenseRequest
              INNER JOIN hr_employees employees
                  ON employees.employee_id =
                     requests.requested_by_employee_id
+                AND employees.company_id =
+                    requests.company_id
              LEFT JOIN finance_expense_categories
                     categories
                  ON categories.category_id =
                     requests.category_id
+                AND categories.company_id =
+                    requests.company_id
              WHERE ' . $query['sql'] . '
              ORDER BY
                 requests.created_at DESC,
@@ -168,13 +190,19 @@ final class ExpenseRequest
      *     parameters: array<string, string>
      * }
      */
-    private function whereClause(array $filters): array
+    private function whereClause(
+        int $companyId,
+        array $filters
+    ): array
     {
         $conditions = [
+            'requests.company_id = :company_id',
             'requests.deleted_at IS NULL',
             'employees.deleted_at IS NULL',
         ];
-        $parameters = [];
+        $parameters = [
+            'company_id' => $companyId,
+        ];
         $search = trim((string) (
             $filters['search'] ?? ''
         ));

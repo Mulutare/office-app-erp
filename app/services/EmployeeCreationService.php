@@ -14,6 +14,7 @@ final class EmployeeCreationService
     private Employee $employees;
     private EmployeeRecordValidator $validator;
     private AuditLog $auditLogs;
+    private TenantContext $tenant;
 
     public function __construct()
     {
@@ -21,6 +22,7 @@ final class EmployeeCreationService
         $this->validator =
             new EmployeeRecordValidator();
         $this->auditLogs = new AuditLog();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -67,6 +69,7 @@ final class EmployeeCreationService
             }
 
             $employeeId = $this->employees->create(
+                $this->tenant->companyId(),
                 $values,
                 $createdBy
             );

@@ -70,6 +70,8 @@ final class AuthService
         }
 
         $userId = (int) $user['user_id'];
+        $companyId = $this
+            ->authenticationCompanyId($userId);
 
         if (!(bool) $user['active']) {
             $this->loginAttempts->record(
@@ -78,7 +80,8 @@ final class AuthService
                 false,
                 'account_inactive',
                 \requestIp(),
-                \requestUserAgent()
+                \requestUserAgent(),
+                $companyId
             );
 
             return $this->failure(
@@ -93,7 +96,8 @@ final class AuthService
                 false,
                 'account_locked',
                 \requestIp(),
-                \requestUserAgent()
+                \requestUserAgent(),
+                $companyId
             );
 
             return $this->failure(
@@ -112,7 +116,8 @@ final class AuthService
             $this->recordFailedPassword(
                 $userId,
                 $login,
-                (int) $user['failed_login_count']
+                (int) $user['failed_login_count'],
+                $companyId
             );
 
             return $this->failure(
@@ -506,7 +511,8 @@ private function completeLogin(array $user): array
             false,
             'company_access_unavailable',
             \requestIp(),
-            \requestUserAgent()
+            \requestUserAgent(),
+            null
         );
 
         return $this->failure(
@@ -530,7 +536,8 @@ private function completeLogin(array $user): array
             true,
             null,
             \requestIp(),
-            \requestUserAgent()
+            \requestUserAgent(),
+            $companyId
         );
 
         $roles = $this->memberships
@@ -566,7 +573,8 @@ private function completeLogin(array $user): array
                         (string) $module['code'],
                     $modules
                 )),
-            ]
+            ],
+            $companyId
         );
 
         \db()->commit();
@@ -603,7 +611,8 @@ private function completeLogin(array $user): array
     private function recordFailedPassword(
         int $userId,
         string $login,
-        int $currentFailureCount
+        int $currentFailureCount,
+        ?int $companyId
     ): void {
         $newFailureCount =
             $currentFailureCount + 1;
@@ -638,8 +647,28 @@ private function completeLogin(array $user): array
             false,
             $failureReason,
             \requestIp(),
-            \requestUserAgent()
+            \requestUserAgent(),
+            $companyId
         );
+    }
+
+    private function authenticationCompanyId(
+        int $userId
+    ): ?int {
+        $companies = $this->memberships
+            ->activeForUser($userId);
+
+        if ($companies === []) {
+            return null;
+        }
+
+        $companyId = $companies[0]['company_id']
+            ?? null;
+
+        return is_int($companyId)
+            && $companyId > 0
+                ? $companyId
+                : null;
     }
 
     private function isLocked(

@@ -7,10 +7,12 @@ namespace App\Models;
 final class Employee
 {
     public function employeeNumberExists(
+        int $companyId,
         string $employeeNumber,
         ?int $ignoreEmployeeId = null
     ): bool {
         return $this->uniqueValueExists(
+            $companyId,
             'employee_number',
             $employeeNumber,
             $ignoreEmployeeId
@@ -18,10 +20,12 @@ final class Employee
     }
 
     public function workEmailExists(
+        int $companyId,
         string $workEmail,
         ?int $ignoreEmployeeId = null
     ): bool {
         return $this->uniqueValueExists(
+            $companyId,
             'work_email',
             $workEmail,
             $ignoreEmployeeId
@@ -32,6 +36,7 @@ final class Employee
      * @return list<array<string, mixed>>
      */
     public function managerOptions(
+        int $companyId,
         ?int $excludeEmployeeId = null,
         ?int $includeManagerId = null
     ): array {
@@ -45,7 +50,8 @@ final class Employee
                 job_title,
                 employment_status
              FROM hr_employees
-             WHERE deleted_at IS NULL
+             WHERE company_id = :company_id
+               AND deleted_at IS NULL
                AND (
                    employment_status <> \'terminated\'
                    OR employee_id =
@@ -60,6 +66,7 @@ final class Employee
              LIMIT 250'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'exclude_employee_null' =>
                 $excludeEmployeeId,
             'exclude_employee_value' =>
@@ -80,6 +87,7 @@ final class Employee
      * @return list<array<string, mixed>>
      */
     public function availableUserOptions(
+        int $companyId,
         ?int $currentEmployeeId = null
     ): array {
         $statement = \db()->prepare(
@@ -89,9 +97,12 @@ final class Employee
                 users.display_name,
                 users.email,
                 users.active
-             FROM users
+             FROM company_users memberships
+             INNER JOIN users
+                 ON users.user_id = memberships.user_id
              LEFT JOIN hr_employees employees
                  ON employees.user_id = users.user_id
+                AND employees.company_id = :employee_company_id
                 AND employees.deleted_at IS NULL
                 AND (
                     :current_employee_null IS NULL
@@ -105,10 +116,15 @@ final class Employee
                        FROM hr_employees current_employee
                        WHERE current_employee.employee_id =
                             :current_user_employee_id
+                         AND current_employee.company_id =
+                            :current_employee_company_id
                          AND current_employee.deleted_at
                             IS NULL
                    )
                )
+               AND memberships.company_id =
+                    :membership_company_id
+               AND memberships.active = TRUE
                AND users.deleted_at IS NULL
                AND employees.employee_id IS NULL
              ORDER BY
@@ -117,6 +133,10 @@ final class Employee
              LIMIT 250'
         );
         $statement->execute([
+            'employee_company_id' => $companyId,
+            'current_employee_company_id' =>
+                $companyId,
+            'membership_company_id' => $companyId,
             'current_employee_null' =>
                 $currentEmployeeId,
             'current_employee_value' =>
@@ -131,18 +151,23 @@ final class Employee
         return is_array($users) ? $users : [];
     }
 
-    public function managerExists(int $employeeId): bool
+    public function managerExists(
+        int $companyId,
+        int $employeeId
+    ): bool
     {
         $statement = \db()->prepare(
             'SELECT 1
              FROM hr_employees
-             WHERE employee_id = :employee_id
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
                AND deleted_at IS NULL
                AND employment_status
                     <> \'terminated\'
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'employee_id' => $employeeId,
         ]);
 
@@ -150,14 +175,18 @@ final class Employee
     }
 
     public function availableUserExists(
+        int $companyId,
         int $userId,
         ?int $currentEmployeeId = null
     ): bool {
         $statement = \db()->prepare(
             'SELECT 1
-             FROM users
+             FROM company_users memberships
+             INNER JOIN users
+                 ON users.user_id = memberships.user_id
              LEFT JOIN hr_employees employees
                  ON employees.user_id = users.user_id
+                AND employees.company_id = :employee_company_id
                 AND employees.deleted_at IS NULL
                 AND (
                     :current_employee_null IS NULL
@@ -172,15 +201,24 @@ final class Employee
                        FROM hr_employees current_employee
                        WHERE current_employee.employee_id =
                             :current_user_employee_id
+                         AND current_employee.company_id =
+                            :current_employee_company_id
                          AND current_employee.deleted_at
                             IS NULL
                    )
                )
+               AND memberships.company_id =
+                    :membership_company_id
+               AND memberships.active = TRUE
                AND users.deleted_at IS NULL
                AND employees.employee_id IS NULL
              LIMIT 1'
         );
         $statement->execute([
+            'employee_company_id' => $companyId,
+            'current_employee_company_id' =>
+                $companyId,
+            'membership_company_id' => $companyId,
             'user_id' => $userId,
             'current_employee_null' =>
                 $currentEmployeeId,
@@ -197,12 +235,14 @@ final class Employee
      * @param array<string, mixed> $values
      */
     public function create(
+        int $companyId,
         array $values,
         int $createdBy
     ): int {
         $statement = \db()->prepare(
             'INSERT INTO hr_employees
                 (
+                    company_id,
                     employee_number,
                     user_id,
                     first_name,
@@ -223,6 +263,7 @@ final class Employee
                 )
              VALUES
                 (
+                    :company_id,
                     :employee_number,
                     :user_id,
                     :first_name,
@@ -243,6 +284,7 @@ final class Employee
                 )'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'employee_number' =>
                 $values['employee_number'],
             'user_id' => $values['user_id'],
@@ -276,6 +318,7 @@ final class Employee
      * @param array<string, mixed> $values
      */
     public function update(
+        int $companyId,
         int $employeeId,
         array $values,
         int $updatedBy
@@ -302,10 +345,12 @@ final class Employee
                  manager_employee_id =
                     :manager_employee_id,
                  updated_by = :updated_by
-             WHERE employee_id = :employee_id
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
                AND deleted_at IS NULL'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'employee_number' =>
                 $values['employee_number'],
             'user_id' => $values['user_id'],
@@ -334,6 +379,7 @@ final class Employee
     }
 
     public function wouldCreateManagerCycle(
+        int $companyId,
         int $employeeId,
         int $managerEmployeeId
     ): bool {
@@ -342,7 +388,8 @@ final class Employee
         $statement = \db()->prepare(
             'SELECT manager_employee_id
              FROM hr_employees
-             WHERE employee_id = :employee_id
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
                AND deleted_at IS NULL
              LIMIT 1'
         );
@@ -358,6 +405,7 @@ final class Employee
 
             $visited[$currentId] = true;
             $statement->execute([
+                'company_id' => $companyId,
                 'employee_id' => $currentId,
             ]);
             $managerId = $statement->fetchColumn();
@@ -382,9 +430,15 @@ final class Employee
     /**
      * @param array<string, mixed> $filters
      */
-    public function count(array $filters): int
+    public function count(
+        int $companyId,
+        array $filters
+    ): int
     {
-        $query = $this->whereClause($filters);
+        $query = $this->whereClause(
+            $companyId,
+            $filters
+        );
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM hr_employees employees
@@ -404,11 +458,15 @@ final class Employee
      * @return list<array<string, mixed>>
      */
     public function page(
+        int $companyId,
         array $filters,
         int $limit,
         int $offset
     ): array {
-        $query = $this->whereClause($filters);
+        $query = $this->whereClause(
+            $companyId,
+            $filters
+        );
         $statement = \db()->prepare(
             'SELECT
                 employees.employee_id,
@@ -433,6 +491,8 @@ final class Employee
              LEFT JOIN hr_departments departments
                  ON departments.department_id =
                     employees.department_id
+                AND departments.company_id =
+                    employees.company_id
              LEFT JOIN users
                  ON users.user_id = employees.user_id
              WHERE ' . $query['sql'] . '
@@ -471,7 +531,10 @@ final class Employee
     /**
      * @return array<string, mixed>|null
      */
-    public function find(int $employeeId): ?array
+    public function find(
+        int $companyId,
+        int $employeeId
+    ): ?array
     {
         $statement = \db()->prepare(
             'SELECT
@@ -497,18 +560,24 @@ final class Employee
              LEFT JOIN hr_departments departments
                  ON departments.department_id =
                     employees.department_id
+                AND departments.company_id =
+                    employees.company_id
              LEFT JOIN users
                  ON users.user_id = employees.user_id
              LEFT JOIN hr_employees manager
                  ON manager.employee_id =
                     employees.manager_employee_id
+                AND manager.company_id =
+                    employees.company_id
                 AND manager.deleted_at IS NULL
              WHERE employees.employee_id =
                 :employee_id
+               AND employees.company_id = :company_id
                AND employees.deleted_at IS NULL
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'employee_id' => $employeeId,
         ]);
         $employee = $statement->fetch(
@@ -524,6 +593,7 @@ final class Employee
      * @return list<array<string, mixed>>
      */
     public function directReports(
+        int $companyId,
         int $managerEmployeeId,
         int $limit = 20
     ): array {
@@ -537,11 +607,17 @@ final class Employee
                 job_title,
                 employment_status
              FROM hr_employees
-             WHERE manager_employee_id =
+             WHERE company_id = :company_id
+               AND manager_employee_id =
                 :manager_employee_id
                AND deleted_at IS NULL
              ORDER BY last_name, first_name
              LIMIT :limit'
+        );
+        $statement->bindValue(
+            ':company_id',
+            $companyId,
+            \PDO::PARAM_INT
         );
         $statement->bindValue(
             ':manager_employee_id',
@@ -564,16 +640,20 @@ final class Employee
     /**
      * @return array<string, int>
      */
-    public function statusSummary(): array
+    public function statusSummary(int $companyId): array
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT
                 employment_status,
                 COUNT(*) AS total
              FROM hr_employees
-             WHERE deleted_at IS NULL
+             WHERE company_id = :company_id
+               AND deleted_at IS NULL
              GROUP BY employment_status'
         );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
         $rows = $statement->fetchAll(
             \PDO::FETCH_ASSOC
         );
@@ -596,12 +676,18 @@ final class Employee
      *     parameters: array<string, int|string>
      * }
      */
-    private function whereClause(array $filters): array
+    private function whereClause(
+        int $companyId,
+        array $filters
+    ): array
     {
         $conditions = [
+            'employees.company_id = :company_id',
             'employees.deleted_at IS NULL',
         ];
-        $parameters = [];
+        $parameters = [
+            'company_id' => $companyId,
+        ];
         $search = (string) (
             $filters['search'] ?? ''
         );
@@ -685,6 +771,7 @@ final class Employee
     }
 
     private function uniqueValueExists(
+        int $companyId,
         string $column,
         string $value,
         ?int $ignoreEmployeeId = null
@@ -707,7 +794,8 @@ final class Employee
         $statement = \db()->prepare(
             'SELECT 1
              FROM hr_employees
-             WHERE ' . $column . ' = :value
+             WHERE company_id = :company_id
+               AND ' . $column . ' = :value
                AND deleted_at IS NULL
                AND (
                    :ignore_employee_null IS NULL
@@ -717,6 +805,7 @@ final class Employee
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'value' => $value,
             'ignore_employee_null' =>
                 $ignoreEmployeeId,

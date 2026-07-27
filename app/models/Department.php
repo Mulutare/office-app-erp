@@ -9,18 +9,22 @@ final class Department
     /**
      * @return list<array<string, mixed>>
      */
-    public function activeOptions(): array
+    public function activeOptions(int $companyId): array
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT
                 department_id,
                 code,
                 name
              FROM hr_departments
-             WHERE active = TRUE
+             WHERE company_id = :company_id
+               AND active = TRUE
                AND deleted_at IS NULL
              ORDER BY name'
         );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
         $departments = $statement->fetchAll(
             \PDO::FETCH_ASSOC
         );
@@ -31,13 +35,15 @@ final class Department
     }
 
     public function codeExists(
+        int $companyId,
         string $code,
         ?int $ignoreDepartmentId = null
     ): bool {
         $statement = \db()->prepare(
             'SELECT 1
              FROM hr_departments
-             WHERE code = :code
+             WHERE company_id = :company_id
+               AND code = :code
                AND deleted_at IS NULL
                AND (
                    :ignore_department_null IS NULL
@@ -47,6 +53,7 @@ final class Department
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'code' => $code,
             'ignore_department_null' =>
                 $ignoreDepartmentId,
@@ -58,13 +65,15 @@ final class Department
     }
 
     public function nameExists(
+        int $companyId,
         string $name,
         ?int $ignoreDepartmentId = null
     ): bool {
         $statement = \db()->prepare(
             'SELECT 1
              FROM hr_departments
-             WHERE name = :name
+             WHERE company_id = :company_id
+               AND name = :name
                AND deleted_at IS NULL
                AND (
                    :ignore_department_null IS NULL
@@ -74,6 +83,7 @@ final class Department
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'name' => $name,
             'ignore_department_null' =>
                 $ignoreDepartmentId,
@@ -85,17 +95,20 @@ final class Department
     }
 
     public function activeExists(
+        int $companyId,
         int $departmentId
     ): bool {
         $statement = \db()->prepare(
             'SELECT 1
              FROM hr_departments
-             WHERE department_id = :department_id
+             WHERE company_id = :company_id
+               AND department_id = :department_id
                AND active = TRUE
                AND deleted_at IS NULL
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'department_id' => $departmentId,
         ]);
 
@@ -103,6 +116,7 @@ final class Department
     }
 
     public function create(
+        int $companyId,
         string $code,
         string $name,
         string $description,
@@ -112,6 +126,7 @@ final class Department
         $statement = \db()->prepare(
             'INSERT INTO hr_departments
                 (
+                    company_id,
                     code,
                     name,
                     description,
@@ -121,6 +136,7 @@ final class Department
                 )
              VALUES
                 (
+                    :company_id,
                     :code,
                     :name,
                     :description,
@@ -130,6 +146,7 @@ final class Department
                 )'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'code' => $code,
             'name' => $name,
             'description' =>
@@ -147,9 +164,9 @@ final class Department
     /**
      * @return list<array<string, mixed>>
      */
-    public function managementList(): array
+    public function managementList(int $companyId): array
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT
                 departments.department_id,
                 departments.code,
@@ -172,8 +189,12 @@ final class Department
              LEFT JOIN hr_employees employees
                  ON employees.department_id =
                     departments.department_id
+                AND employees.company_id =
+                    departments.company_id
                 AND employees.deleted_at IS NULL
-             WHERE departments.deleted_at IS NULL
+             WHERE departments.company_id =
+                    :company_id
+               AND departments.deleted_at IS NULL
              GROUP BY
                 departments.department_id,
                 departments.code,
@@ -186,6 +207,9 @@ final class Department
                 departments.active DESC,
                 departments.name'
         );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
         $departments = $statement->fetchAll(
             \PDO::FETCH_ASSOC
         );
@@ -199,6 +223,7 @@ final class Department
      * @return array<string, mixed>|null
      */
     public function find(
+        int $companyId,
         int $departmentId
     ): ?array {
         $statement = \db()->prepare(
@@ -213,11 +238,13 @@ final class Department
                 created_at,
                 updated_at
              FROM hr_departments
-             WHERE department_id = :department_id
+             WHERE company_id = :company_id
+               AND department_id = :department_id
                AND deleted_at IS NULL
              LIMIT 1'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'department_id' => $departmentId,
         ]);
         $department = $statement->fetch(
@@ -230,16 +257,19 @@ final class Department
     }
 
     public function currentEmployeeCount(
+        int $companyId,
         int $departmentId
     ): int {
         $statement = \db()->prepare(
             'SELECT COUNT(*)
              FROM hr_employees
-             WHERE department_id = :department_id
+             WHERE company_id = :company_id
+               AND department_id = :department_id
                AND employment_status <> \'terminated\'
                AND deleted_at IS NULL'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'department_id' => $departmentId,
         ]);
 
@@ -247,6 +277,7 @@ final class Department
     }
 
     public function update(
+        int $companyId,
         int $departmentId,
         string $code,
         string $name,
@@ -261,10 +292,12 @@ final class Department
                  description = :description,
                  active = :active,
                  updated_by = :updated_by
-             WHERE department_id = :department_id
+             WHERE company_id = :company_id
+               AND department_id = :department_id
                AND deleted_at IS NULL'
         );
         $statement->execute([
+            'company_id' => $companyId,
             'code' => $code,
             'name' => $name,
             'description' =>
