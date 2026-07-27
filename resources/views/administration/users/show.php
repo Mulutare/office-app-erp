@@ -39,6 +39,9 @@ $canChangeStatus = !empty(
     $data['canChangeStatus']
 );
 $canUnlock = !empty($data['canUnlock']);
+$canViewActivity = !empty(
+    $data['canViewActivity']
+);
 $resetCredentials = is_array(
     $data['resetCredentials'] ?? null
 )
@@ -141,6 +144,17 @@ if (!empty($profile['is_locked'])) {
     </a>
 
     <div class="details-actions">
+        <?php if ($canViewActivity): ?>
+            <a
+                href="/office_app/public/administration/users/activity?id=<?= e(
+                    $profile['user_id'] ?? ''
+                ) ?>"
+                class="btn btn-secondary"
+            >
+                View full activity
+            </a>
+        <?php endif; ?>
+
         <?php if ($canUnlock): ?>
             <a
                 href="/office_app/public/administration/users/unlock?id=<?= e(

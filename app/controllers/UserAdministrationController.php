@@ -122,6 +122,11 @@ final class UserAdministrationController
             ) !== (int) (
                 $_SESSION['auth']['user_id'] ?? 0
             ),
+            'canViewActivity' => in_array(
+                'audit.logs.view',
+                $_SESSION['auth']['permissions'] ?? [],
+                true
+            ),
         ]);
     }
 

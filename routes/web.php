@@ -7,11 +7,14 @@ use App\Controllers\AuthController;
 use App\Controllers\DashboardController;
 use App\Controllers\HomeController;
 use App\Controllers\RoleAdministrationController;
+use App\Controllers\UserActivityController;
 
 $userAdministrationController =
     new UserAdministrationController();
 $roleAdministrationController =
     new RoleAdministrationController();
+$userActivityController =
+    new UserActivityController();
 
 $router = new Router();
 
@@ -24,6 +27,10 @@ $dashboardController =
 $router->get(
     '/administration/users',
     [$userAdministrationController, 'index']
+);
+$router->get(
+    '/administration/users/activity',
+    [$userActivityController, 'index']
 );
 $router->get(
     '/administration/roles',
