@@ -22,14 +22,29 @@ final class CompanyModuleService
     /**
      * @return array<string, mixed>
      */
-    public function company(): array
+    public function company(
+        ?int $companyId = null
+    ): array
     {
-        $company = $this->modules->companyByCode(
-            (string) \config(
-                'company_code',
-                'default'
-            )
-        );
+        if ($companyId === null) {
+            $sessionCompanyId =
+                $_SESSION['auth']['company'][
+                    'company_id'
+                ] ?? null;
+
+            $companyId = is_int($sessionCompanyId)
+                ? $sessionCompanyId
+                : null;
+        }
+
+        $company = $companyId !== null
+            ? $this->modules->companyById($companyId)
+            : $this->modules->companyByCode(
+                (string) \config(
+                    'company_code',
+                    'default'
+                )
+            );
 
         if (
             $company === null
@@ -46,10 +61,14 @@ final class CompanyModuleService
     /**
      * @return list<array<string, mixed>>
      */
-    public function enabledNavigationModules(): array
+    public function enabledNavigationModules(
+        ?int $companyId = null
+    ): array
     {
+        $company = $this->company($companyId);
+
         return $this->modules->enabledForCompany(
-            (int) $this->company()['company_id']
+            (int) $company['company_id']
         );
     }
 

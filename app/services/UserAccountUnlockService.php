@@ -11,11 +11,13 @@ use Throwable;
 final class UserAccountUnlockService
 {
     private User $users;
+    private TenantContext $tenant;
     private AuditLog $auditLogs;
 
     public function __construct()
     {
         $this->users = new User();
+        $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
     }
 
@@ -28,7 +30,10 @@ final class UserAccountUnlockService
             return null;
         }
 
-        return $this->users->findById($userId);
+        return $this->users->findByIdInCompany(
+            $userId,
+            $this->tenant->companyId()
+        );
     }
 
     /**
@@ -38,7 +43,11 @@ final class UserAccountUnlockService
         int $userId,
         int $unlockedBy
     ): array {
-        $user = $this->users->findById($userId);
+        $companyId = $this->tenant->companyId();
+        $user = $this->users->findByIdInCompany(
+            $userId,
+            $companyId
+        );
 
         if ($user === null) {
             return [
@@ -98,6 +107,7 @@ final class UserAccountUnlockService
                 [
                     'failed_login_count' => 0,
                     'locked_until' => null,
+                    'company_id' => $companyId,
                 ]
             );
 

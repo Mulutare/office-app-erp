@@ -14,11 +14,13 @@ final class UserAccountStatusService
         'system_administrator';
 
     private User $users;
+    private TenantContext $tenant;
     private AuditLog $auditLogs;
 
     public function __construct()
     {
         $this->users = new User();
+        $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
     }
 
@@ -31,7 +33,10 @@ final class UserAccountStatusService
             return null;
         }
 
-        return $this->users->findById($userId);
+        return $this->users->findByIdInCompany(
+            $userId,
+            $this->tenant->companyId()
+        );
     }
 
     /**
@@ -42,7 +47,11 @@ final class UserAccountStatusService
         bool $active,
         int $changedBy
     ): array {
-        $user = $this->users->findById($userId);
+        $companyId = $this->tenant->companyId();
+        $user = $this->users->findByIdInCompany(
+            $userId,
+            $companyId
+        );
 
         if ($user === null) {
             return [
@@ -69,10 +78,12 @@ final class UserAccountStatusService
             !$active
             && $currentlyActive
             && $this->users->hasRoleCode(
+                $companyId,
                 $userId,
                 self::SYSTEM_ADMINISTRATOR
             )
             && $this->users->activeUserCountForRole(
+                $companyId,
                 self::SYSTEM_ADMINISTRATOR
             ) <= 1
         ) {
@@ -100,6 +111,7 @@ final class UserAccountStatusService
             \db()->beginTransaction();
 
             $this->users->setAdministrationActive(
+                $companyId,
                 $userId,
                 $active
             );
@@ -111,7 +123,10 @@ final class UserAccountStatusService
                 'users',
                 (string) $userId,
                 ['active' => $currentlyActive],
-                ['active' => $active]
+                [
+                    'active' => $active,
+                    'company_id' => $companyId,
+                ]
             );
 
             \db()->commit();

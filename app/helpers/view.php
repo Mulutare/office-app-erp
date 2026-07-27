@@ -34,3 +34,30 @@ function e(mixed $value): string
         'UTF-8'
     );
 }
+
+/**
+ * Build a cache-safe public asset URL.
+ */
+function assetUrl(string $path): string
+{
+    $path = ltrim($path, '/');
+    $filePath = __DIR__
+        . '/../../public/assets/'
+        . $path;
+    $url = '/office_app/public/assets/'
+        . str_replace(
+            '%2F',
+            '/',
+            rawurlencode($path)
+        );
+
+    if (!is_file($filePath)) {
+        return $url;
+    }
+
+    $modifiedAt = filemtime($filePath);
+
+    return $modifiedAt === false
+        ? $url
+        : $url . '?v=' . $modifiedAt;
+}

@@ -91,6 +91,60 @@ final class User
     }
 
     /**
+     * Find a user who belongs to a specific company.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findByIdInCompany(
+        int $userId,
+        int $companyId
+    ): ?array {
+        $statement = \db()->prepare(
+            'SELECT
+                users.user_id,
+                users.username,
+                users.email,
+                users.display_name,
+                (
+                    users.active = TRUE
+                    AND memberships.active = TRUE
+                ) AS active,
+                users.active AS platform_active,
+                memberships.active
+                    AS membership_active,
+                memberships.is_default,
+                memberships.joined_at,
+                users.must_change_password,
+                users.failed_login_count,
+                users.locked_until,
+                users.last_login_at,
+                users.password_changed_at,
+                users.created_at,
+                users.updated_at
+             FROM company_users memberships
+             INNER JOIN users
+                 ON users.user_id =
+                    memberships.user_id
+             WHERE memberships.company_id =
+                    :company_id
+               AND users.user_id = :user_id
+               AND users.deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'user_id' => $userId,
+        ]);
+        $user = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($user)
+            ? $user
+            : null;
+    }
+
+    /**
      * Determine whether a username already exists.
      */
     public function usernameExists(string $username): bool
@@ -243,19 +297,24 @@ final class User
  *
  * @return list<string>
  */
-public function roleCodes(int $userId): array
+public function roleCodes(
+    int $companyId,
+    int $userId
+): array
 {
     $statement = \db()->prepare(
         'SELECT r.code
          FROM roles r
-         INNER JOIN user_roles ur
+         INNER JOIN company_user_roles ur
              ON ur.role_id = r.role_id
          WHERE ur.user_id = :user_id
+           AND ur.company_id = :company_id
            AND r.active = TRUE
          ORDER BY r.code'
     );
 
     $statement->execute([
+        'company_id' => $companyId,
         'user_id' => $userId,
     ]);
 
@@ -322,24 +381,29 @@ public function passwordHashById(int $userId): ?string
  *
  * @return list<string>
  */
-public function permissionCodes(int $userId): array
+public function permissionCodes(
+    int $companyId,
+    int $userId
+): array
 {
     $statement = \db()->prepare(
         'SELECT DISTINCT p.code
          FROM permissions p
          INNER JOIN role_permissions rp
              ON rp.permission_id = p.permission_id
-         INNER JOIN user_roles ur
+         INNER JOIN company_user_roles ur
              ON ur.role_id = rp.role_id
          INNER JOIN roles r
              ON r.role_id = ur.role_id
          WHERE ur.user_id = :user_id
+           AND ur.company_id = :company_id
            AND p.active = TRUE
            AND r.active = TRUE
          ORDER BY p.code'
     );
 
     $statement->execute([
+        'company_id' => $companyId,
         'user_id' => $userId,
     ]);
 
@@ -357,39 +421,51 @@ public function permissionCodes(int $userId): array
  * Count users matching administration filters.
  */
 public function administrationCount(
+    int $companyId,
     string $search = '',
     string $status = 'all'
 ): int {
     $conditions = [
-        'deleted_at IS NULL',
+        'users.deleted_at IS NULL',
+        'memberships.company_id = :company_id',
     ];
 
-    $parameters = [];
+    $parameters = [
+        'company_id' => $companyId,
+    ];
 
     if ($search !== '') {
         $conditions[] = '(
-            username LIKE :search
-            OR email LIKE :search
-            OR display_name LIKE :search
+            users.username LIKE :search
+            OR users.email LIKE :search
+            OR users.display_name LIKE :search
         )';
 
         $parameters['search'] = '%' . $search . '%';
     }
 
     if ($status === 'active') {
-        $conditions[] = 'active = TRUE';
+        $conditions[] = '
+            users.active = TRUE
+            AND memberships.active = TRUE
+        ';
     } elseif ($status === 'inactive') {
-        $conditions[] = 'active = FALSE';
+        $conditions[] = '(
+            users.active = FALSE
+            OR memberships.active = FALSE
+        )';
     } elseif ($status === 'locked') {
         $conditions[] = '
-            locked_until IS NOT NULL
-            AND locked_until > NOW()
+            users.locked_until IS NOT NULL
+            AND users.locked_until > NOW()
         ';
     }
 
     $sql = '
         SELECT COUNT(*)
-        FROM users
+        FROM company_users memberships
+        INNER JOIN users
+            ON users.user_id = memberships.user_id
         WHERE ' . implode(' AND ', $conditions);
 
     $statement = \db()->prepare($sql);
@@ -404,6 +480,7 @@ public function administrationCount(
  * @return list<array<string, mixed>>
  */
 public function administrationPage(
+    int $companyId,
     string $search,
     string $status,
     string $sort,
@@ -412,42 +489,51 @@ public function administrationPage(
     int $offset
 ): array {
     $conditions = [
-        'deleted_at IS NULL',
+        'users.deleted_at IS NULL',
+        'memberships.company_id = :company_id',
     ];
 
-    $parameters = [];
+    $parameters = [
+        'company_id' => $companyId,
+    ];
 
     if ($search !== '') {
         $conditions[] = '(
-            username LIKE :search
-            OR email LIKE :search
-            OR display_name LIKE :search
+            users.username LIKE :search
+            OR users.email LIKE :search
+            OR users.display_name LIKE :search
         )';
 
         $parameters['search'] = '%' . $search . '%';
     }
 
     if ($status === 'active') {
-        $conditions[] = 'active = TRUE';
+        $conditions[] = '
+            users.active = TRUE
+            AND memberships.active = TRUE
+        ';
     } elseif ($status === 'inactive') {
-        $conditions[] = 'active = FALSE';
+        $conditions[] = '(
+            users.active = FALSE
+            OR memberships.active = FALSE
+        )';
     } elseif ($status === 'locked') {
         $conditions[] = '
-            locked_until IS NOT NULL
-            AND locked_until > NOW()
+            users.locked_until IS NOT NULL
+            AND users.locked_until > NOW()
         ';
     }
 
     $allowedSorts = [
-        'username' => 'username',
-        'display_name' => 'display_name',
-        'email' => 'email',
-        'last_login_at' => 'last_login_at',
-        'created_at' => 'created_at',
+        'username' => 'users.username',
+        'display_name' => 'users.display_name',
+        'email' => 'users.email',
+        'last_login_at' => 'users.last_login_at',
+        'created_at' => 'users.created_at',
     ];
 
     $orderColumn =
-        $allowedSorts[$sort] ?? 'created_at';
+        $allowedSorts[$sort] ?? 'users.created_at';
 
     $orderDirection =
         strtolower($direction) === 'asc'
@@ -456,19 +542,26 @@ public function administrationPage(
 
     $sql = '
         SELECT
-            user_id,
-            username,
-            email,
-            display_name,
-            active,
-            must_change_password,
-            failed_login_count,
-            locked_until,
-            last_login_at,
-            password_changed_at,
-            created_at,
-            updated_at
-        FROM users
+            users.user_id,
+            users.username,
+            users.email,
+            users.display_name,
+            (
+                users.active = TRUE
+                AND memberships.active = TRUE
+            ) AS active,
+            memberships.active
+                AS membership_active,
+            users.must_change_password,
+            users.failed_login_count,
+            users.locked_until,
+            users.last_login_at,
+            users.password_changed_at,
+            users.created_at,
+            users.updated_at
+        FROM company_users memberships
+        INNER JOIN users
+            ON users.user_id = memberships.user_id
         WHERE ' . implode(' AND ', $conditions) . '
         ORDER BY ' . $orderColumn . ' '
             . $orderDirection . '
@@ -516,7 +609,10 @@ public function administrationPage(
  *
  * @return array<int, list<string>>
  */
-public function roleCodesForUsers(array $userIds): array
+public function roleCodesForUsers(
+    int $companyId,
+    array $userIds
+): array
 {
     if ($userIds === []) {
         return [];
@@ -529,19 +625,26 @@ public function roleCodesForUsers(array $userIds): array
 
     $statement = \db()->prepare(
         'SELECT
-            ur.user_id,
+            assignments.user_id,
             r.code
-         FROM user_roles ur
+         FROM company_user_roles assignments
          INNER JOIN roles r
-             ON r.role_id = ur.role_id
-         WHERE ur.user_id IN (' . $placeholders . ')
+             ON r.role_id = assignments.role_id
+         WHERE assignments.company_id = ?
+           AND assignments.user_id IN (' . $placeholders . ')
            AND r.active = TRUE
          ORDER BY r.code'
     );
 
+    $statement->bindValue(
+        1,
+        $companyId,
+        \PDO::PARAM_INT
+    );
+
     foreach ($userIds as $index => $userId) {
         $statement->bindValue(
-            $index + 1,
+            $index + 2,
             $userId,
             \PDO::PARAM_INT
         );
@@ -618,19 +721,22 @@ public function createAdministrationUser(
  * @param list<int> $roleIds
  */
 public function assignRoles(
+    int $companyId,
     int $userId,
     array $roleIds,
     int $assignedBy
 ): void {
     $statement = \db()->prepare(
-        'INSERT INTO user_roles
+        'INSERT INTO company_user_roles
             (
+                company_id,
                 user_id,
                 role_id,
                 assigned_by
             )
          VALUES
             (
+                :company_id,
                 :user_id,
                 :role_id,
                 :assigned_by
@@ -639,6 +745,7 @@ public function assignRoles(
 
     foreach ($roleIds as $roleId) {
         $statement->execute([
+            'company_id' => $companyId,
             'user_id' => $userId,
             'role_id' => $roleId,
             'assigned_by' => $assignedBy,
@@ -647,6 +754,7 @@ public function assignRoles(
 }
 
 public function updateAdministrationUser(
+    int $companyId,
     int $userId,
     string $username,
     string $email,
@@ -657,8 +765,7 @@ public function updateAdministrationUser(
         'UPDATE users
          SET username = :username,
              email = :email,
-             display_name = :display_name,
-             active = :active
+             display_name = :display_name
          WHERE user_id = :user_id
            AND deleted_at IS NULL'
     );
@@ -667,9 +774,32 @@ public function updateAdministrationUser(
         'username' => $username,
         'email' => $email,
         'display_name' => $displayName,
-        'active' => $active ? 1 : 0,
         'user_id' => $userId,
     ]);
+
+    $membershipStatement = \db()->prepare(
+        'UPDATE company_users
+         SET active = :active
+         WHERE company_id = :company_id
+           AND user_id = :user_id'
+    );
+    $membershipStatement->execute([
+        'active' => $active ? 1 : 0,
+        'company_id' => $companyId,
+        'user_id' => $userId,
+    ]);
+
+    if ($active) {
+        $platformStatement = \db()->prepare(
+            'UPDATE users
+             SET active = TRUE
+             WHERE user_id = :user_id
+               AND deleted_at IS NULL'
+        );
+        $platformStatement->execute([
+            'user_id' => $userId,
+        ]);
+    }
 }
 
 public function resetAdministrationPassword(
@@ -694,20 +824,34 @@ public function resetAdministrationPassword(
 }
 
 public function setAdministrationActive(
+    int $companyId,
     int $userId,
     bool $active
 ): void {
     $statement = \db()->prepare(
-        'UPDATE users
+        'UPDATE company_users
          SET active = :active
-         WHERE user_id = :user_id
-           AND deleted_at IS NULL'
+         WHERE company_id = :company_id
+           AND user_id = :user_id'
     );
 
     $statement->execute([
         'active' => $active ? 1 : 0,
+        'company_id' => $companyId,
         'user_id' => $userId,
     ]);
+
+    if ($active) {
+        $platformStatement = \db()->prepare(
+            'UPDATE users
+             SET active = TRUE
+             WHERE user_id = :user_id
+               AND deleted_at IS NULL'
+        );
+        $platformStatement->execute([
+            'user_id' => $userId,
+        ]);
+    }
 }
 
 public function unlockAdministrationAccount(
@@ -722,26 +866,30 @@ public function unlockAdministrationAccount(
     );
 
     $statement->execute([
+        'company_id' => $companyId,
         'user_id' => $userId,
     ]);
 }
 
 public function hasRoleCode(
+    int $companyId,
     int $userId,
     string $roleCode
 ): bool {
     $statement = \db()->prepare(
         'SELECT 1
-         FROM user_roles ur
+         FROM company_user_roles ur
          INNER JOIN roles r
              ON r.role_id = ur.role_id
          WHERE ur.user_id = :user_id
+           AND ur.company_id = :company_id
            AND r.code = :role_code
          LIMIT 1'
     );
 
     $statement->execute([
         'user_id' => $userId,
+        'company_id' => $companyId,
         'role_code' => $roleCode,
     ]);
 
@@ -749,22 +897,30 @@ public function hasRoleCode(
 }
 
 public function activeUserCountForRole(
+    int $companyId,
     string $roleCode
 ): int {
     $statement = \db()->prepare(
         'SELECT COUNT(DISTINCT users.user_id)
          FROM users
-         INNER JOIN user_roles
-             ON user_roles.user_id = users.user_id
+         INNER JOIN company_users memberships
+             ON memberships.user_id = users.user_id
+         INNER JOIN company_user_roles assignments
+             ON assignments.user_id = users.user_id
+            AND assignments.company_id =
+                memberships.company_id
          INNER JOIN roles
-             ON roles.role_id = user_roles.role_id
+             ON roles.role_id = assignments.role_id
          WHERE roles.code = :role_code
+           AND memberships.company_id = :company_id
+           AND memberships.active = TRUE
            AND users.active = TRUE
            AND users.deleted_at IS NULL'
     );
 
     $statement->execute([
         'role_code' => $roleCode,
+        'company_id' => $companyId,
     ]);
 
     return (int) $statement->fetchColumn();
@@ -774,20 +930,24 @@ public function activeUserCountForRole(
  * @param list<int> $roleIds
  */
 public function replaceRoles(
+    int $companyId,
     int $userId,
     array $roleIds,
     int $assignedBy
 ): void {
     $statement = \db()->prepare(
-        'DELETE FROM user_roles
-         WHERE user_id = :user_id'
+        'DELETE FROM company_user_roles
+         WHERE company_id = :company_id
+           AND user_id = :user_id'
     );
 
     $statement->execute([
+        'company_id' => $companyId,
         'user_id' => $userId,
     ]);
 
     $this->assignRoles(
+        $companyId,
         $userId,
         $roleIds,
         $assignedBy
@@ -799,7 +959,10 @@ public function replaceRoles(
  *
  * @return list<array<string, mixed>>
  */
-public function administrationRoles(int $userId): array
+public function administrationRoles(
+    int $companyId,
+    int $userId
+): array
 {
     $statement = \db()->prepare(
         'SELECT
@@ -809,17 +972,19 @@ public function administrationRoles(int $userId): array
             r.description,
             ur.assigned_at,
             assigned_by.display_name AS assigned_by_name
-         FROM user_roles ur
+         FROM company_user_roles ur
          INNER JOIN roles r
              ON r.role_id = ur.role_id
          LEFT JOIN users assigned_by
              ON assigned_by.user_id = ur.assigned_by
          WHERE ur.user_id = :user_id
+           AND ur.company_id = :company_id
          ORDER BY r.name'
     );
 
     $statement->execute([
         'user_id' => $userId,
+        'company_id' => $companyId,
     ]);
 
     $roles = $statement->fetchAll(\PDO::FETCH_ASSOC);
@@ -830,16 +995,21 @@ public function administrationRoles(int $userId): array
 /**
  * @return list<int>
  */
-public function roleIds(int $userId): array
+public function roleIds(
+    int $companyId,
+    int $userId
+): array
 {
     $statement = \db()->prepare(
         'SELECT role_id
-         FROM user_roles
-         WHERE user_id = :user_id
+         FROM company_user_roles
+         WHERE company_id = :company_id
+           AND user_id = :user_id
          ORDER BY role_id'
     );
 
     $statement->execute([
+        'company_id' => $companyId,
         'user_id' => $userId,
     ]);
 
@@ -854,7 +1024,10 @@ public function roleIds(int $userId): array
  *
  * @return list<array<string, mixed>>
  */
-public function administrationPermissions(int $userId): array
+public function administrationPermissions(
+    int $companyId,
+    int $userId
+): array
 {
     $statement = \db()->prepare(
         'SELECT DISTINCT
@@ -866,11 +1039,12 @@ public function administrationPermissions(int $userId): array
          FROM permissions p
          INNER JOIN role_permissions rp
              ON rp.permission_id = p.permission_id
-         INNER JOIN user_roles ur
+         INNER JOIN company_user_roles ur
              ON ur.role_id = rp.role_id
          INNER JOIN roles r
              ON r.role_id = ur.role_id
          WHERE ur.user_id = :user_id
+           AND ur.company_id = :company_id
            AND p.active = TRUE
            AND r.active = TRUE
          ORDER BY p.module, p.name'
@@ -878,6 +1052,7 @@ public function administrationPermissions(int $userId): array
 
     $statement->execute([
         'user_id' => $userId,
+        'company_id' => $companyId,
     ]);
 
     $permissions = $statement->fetchAll(

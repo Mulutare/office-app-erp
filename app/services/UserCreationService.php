@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\CompanyMembership;
 use App\Models\Role;
 use App\Models\User;
 use Throwable;
@@ -13,12 +14,17 @@ final class UserCreationService
 {
     private User $users;
     private Role $roles;
+    private CompanyMembership $memberships;
+    private TenantContext $tenant;
     private AuditLog $auditLogs;
 
     public function __construct()
     {
         $this->users = new User();
         $this->roles = new Role();
+        $this->memberships =
+            new CompanyMembership();
+        $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
     }
 
@@ -108,6 +114,8 @@ final class UserCreationService
 
         try {
             \db()->beginTransaction();
+            $companyId =
+                $this->tenant->companyId();
 
             $userId = $this->users
                 ->createAdministrationUser(
@@ -118,7 +126,16 @@ final class UserCreationService
                     $active
                 );
 
+            $this->memberships->add(
+                $companyId,
+                $userId,
+                $createdBy,
+                true,
+                $active
+            );
+
             $this->users->assignRoles(
+                $companyId,
                 $userId,
                 $validRoleIds,
                 $createdBy
@@ -137,6 +154,7 @@ final class UserCreationService
                     'display_name' => $displayName,
                     'active' => $active,
                     'role_ids' => $validRoleIds,
+                    'company_id' => $companyId,
                     'must_change_password' => true,
                 ]
             );

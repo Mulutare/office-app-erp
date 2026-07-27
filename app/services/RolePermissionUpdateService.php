@@ -14,11 +14,13 @@ final class RolePermissionUpdateService
         'system_administrator';
 
     private Role $roles;
+    private TenantContext $tenant;
     private AuditLog $auditLogs;
 
     public function __construct()
     {
         $this->roles = new Role();
+        $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
     }
 
@@ -77,6 +79,7 @@ final class RolePermissionUpdateService
         }
 
         if ($this->roles->isAssignedToUser(
+            $this->tenant->companyId(),
             $roleId,
             $updatedBy
         )) {
@@ -147,6 +150,7 @@ final class RolePermissionUpdateService
             }
 
             if ($this->roles->isAssignedToUser(
+                $this->tenant->companyId(),
                 $roleId,
                 $updatedBy
             )) {

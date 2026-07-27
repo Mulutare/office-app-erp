@@ -14,12 +14,14 @@ final class UserUpdateService
 {
     private User $users;
     private Role $roles;
+    private TenantContext $tenant;
     private AuditLog $auditLogs;
 
     public function __construct()
     {
         $this->users = new User();
         $this->roles = new Role();
+        $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
     }
 
@@ -28,14 +30,21 @@ final class UserUpdateService
      */
     public function formData(int $userId): ?array
     {
-        $user = $this->users->findById($userId);
+        $companyId = $this->tenant->companyId();
+        $user = $this->users->findByIdInCompany(
+            $userId,
+            $companyId
+        );
 
         if ($user === null) {
             return null;
         }
 
         $user['role_ids'] = $this->users
-            ->roleIds($userId);
+            ->roleIds(
+                $companyId,
+                $userId
+            );
 
         return [
             'profile' => $user,
@@ -53,7 +62,11 @@ final class UserUpdateService
         array $input,
         int $updatedBy
     ): array {
-        $existing = $this->users->findById($userId);
+        $companyId = $this->tenant->companyId();
+        $existing = $this->users->findByIdInCompany(
+            $userId,
+            $companyId
+        );
 
         if ($existing === null) {
             return [
@@ -97,7 +110,10 @@ final class UserUpdateService
         }
 
         $existingRoleIds = $this->users
-            ->roleIds($userId);
+            ->roleIds(
+                $companyId,
+                $userId
+            );
         sort($existingRoleIds);
 
         if ($userId === $updatedBy) {
@@ -140,6 +156,7 @@ final class UserUpdateService
             \db()->beginTransaction();
 
             $this->users->updateAdministrationUser(
+                $companyId,
                 $userId,
                 $username,
                 $email,
@@ -149,6 +166,7 @@ final class UserUpdateService
 
             if ($existingRoleIds !== $validRoleIds) {
                 $this->users->replaceRoles(
+                    $companyId,
                     $userId,
                     $validRoleIds,
                     $updatedBy

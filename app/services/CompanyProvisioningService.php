@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\AuditLog;
 use App\Models\Company;
+use App\Models\CompanyMembership;
 use DateTimeImmutable;
 use DateTimeZone;
 use PDOException;
@@ -16,11 +17,14 @@ final class CompanyProvisioningService
     private const PAGE_SIZE = 20;
 
     private Company $companies;
+    private CompanyMembership $memberships;
     private AuditLog $auditLogs;
 
     public function __construct()
     {
         $this->companies = new Company();
+        $this->memberships =
+            new CompanyMembership();
         $this->auditLogs = new AuditLog();
     }
 
@@ -220,6 +224,19 @@ final class CompanyProvisioningService
                 $company[
                     'subscription_expires_at'
                 ],
+                $provisionedBy
+            );
+            $this->memberships->add(
+                $companyId,
+                $provisionedBy,
+                $provisionedBy,
+                false,
+                true
+            );
+            $this->memberships->assignRoleCode(
+                $companyId,
+                $provisionedBy,
+                'system_administrator',
                 $provisionedBy
             );
             $this->auditLogs->record(

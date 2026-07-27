@@ -14,6 +14,7 @@ final class UserActivityService
     private User $users;
     private UserActivity $activity;
     private AuditChangePresenter $changes;
+    private TenantContext $tenant;
 
     public function __construct()
     {
@@ -21,6 +22,7 @@ final class UserActivityService
         $this->activity = new UserActivity();
         $this->changes =
             new AuditChangePresenter();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -35,7 +37,10 @@ final class UserActivityService
             return null;
         }
 
-        $user = $this->users->findById($userId);
+        $user = $this->users->findByIdInCompany(
+            $userId,
+            $this->tenant->companyId()
+        );
 
         if ($user === null) {
             return null;

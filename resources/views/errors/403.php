@@ -23,7 +23,7 @@
 
     <link
         rel="stylesheet"
-        href="/office_app/public/assets/css/app.css"
+        href="<?= e(assetUrl('css/app.css')) ?>"
     >
 </head>
 

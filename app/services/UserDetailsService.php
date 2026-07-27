@@ -13,12 +13,14 @@ final class UserDetailsService
     private User $users;
     private LoginAttempt $loginAttempts;
     private AuditLog $auditLogs;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->users = new User();
         $this->loginAttempts = new LoginAttempt();
         $this->auditLogs = new AuditLog();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -30,7 +32,11 @@ final class UserDetailsService
             return null;
         }
 
-        $user = $this->users->findById($userId);
+        $companyId = $this->tenant->companyId();
+        $user = $this->users->findByIdInCompany(
+            $userId,
+            $companyId
+        );
 
         if ($user === null) {
             return null;
@@ -43,9 +49,15 @@ final class UserDetailsService
         return [
             'user' => $user,
             'roles' => $this->users
-                ->administrationRoles($userId),
+                ->administrationRoles(
+                    $companyId,
+                    $userId
+                ),
             'permissions' => $this->users
-                ->administrationPermissions($userId),
+                ->administrationPermissions(
+                    $companyId,
+                    $userId
+                ),
             'loginAttempts' => $this->loginAttempts
                 ->recentForUser($userId),
             'auditActivity' => $this->auditLogs

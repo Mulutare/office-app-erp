@@ -11,9 +11,11 @@ final class Role
      *
      * @return list<array<string, mixed>>
      */
-    public function administrationSummaries(): array
+    public function administrationSummaries(
+        int $companyId
+    ): array
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT
                 roles.role_id,
                 roles.code,
@@ -31,16 +33,26 @@ final class Role
                 COUNT(
                     DISTINCT CASE
                         WHEN users.active = TRUE
+                         AND memberships.active = TRUE
                         THEN users.user_id
                     END
                 ) AS active_user_count
              FROM roles
              LEFT JOIN role_permissions
                  ON role_permissions.role_id = roles.role_id
-             LEFT JOIN user_roles
-                 ON user_roles.role_id = roles.role_id
+             LEFT JOIN company_user_roles
+                 ON company_user_roles.role_id =
+                    roles.role_id
+                AND company_user_roles.company_id =
+                    :company_id
+             LEFT JOIN company_users memberships
+                 ON memberships.company_id =
+                    company_user_roles.company_id
+                AND memberships.user_id =
+                    company_user_roles.user_id
              LEFT JOIN users
-                 ON users.user_id = user_roles.user_id
+                 ON users.user_id =
+                    company_user_roles.user_id
                 AND users.deleted_at IS NULL
              GROUP BY
                 roles.role_id,
@@ -52,6 +64,9 @@ final class Role
                 roles.created_at
              ORDER BY roles.name'
         );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
 
         $roles = $statement->fetchAll(
             \PDO::FETCH_ASSOC
@@ -134,6 +149,7 @@ final class Role
      * @return list<array<string, mixed>>
      */
     public function usersForRole(
+        int $companyId,
         int $roleId,
         int $limit = 25
     ): array {
@@ -143,23 +159,39 @@ final class Role
                 users.username,
                 users.display_name,
                 users.email,
-                users.active,
+                (
+                    users.active = TRUE
+                    AND memberships.active = TRUE
+                ) AS active,
                 users.last_login_at,
-                user_roles.assigned_at,
+                assignments.assigned_at,
                 assigned_by.display_name
                     AS assigned_by_name
-             FROM user_roles
+             FROM company_user_roles assignments
+             INNER JOIN company_users memberships
+                 ON memberships.company_id =
+                    assignments.company_id
+                AND memberships.user_id =
+                    assignments.user_id
              INNER JOIN users
-                 ON users.user_id = user_roles.user_id
+                 ON users.user_id =
+                    assignments.user_id
                 AND users.deleted_at IS NULL
              LEFT JOIN users assigned_by
                  ON assigned_by.user_id =
-                    user_roles.assigned_by
-             WHERE user_roles.role_id = :role_id
+                    assignments.assigned_by
+             WHERE assignments.company_id =
+                    :company_id
+               AND assignments.role_id = :role_id
              ORDER BY users.display_name
              LIMIT :limit'
         );
 
+        $statement->bindValue(
+            ':company_id',
+            $companyId,
+            \PDO::PARAM_INT
+        );
         $statement->bindValue(
             ':role_id',
             $roleId,
@@ -276,18 +308,21 @@ final class Role
     }
 
     public function isAssignedToUser(
+        int $companyId,
         int $roleId,
         int $userId
     ): bool {
         $statement = \db()->prepare(
             'SELECT 1
-             FROM user_roles
+             FROM company_user_roles
              WHERE role_id = :role_id
+               AND company_id = :company_id
                AND user_id = :user_id
              LIMIT 1'
         );
 
         $statement->execute([
+            'company_id' => $companyId,
             'role_id' => $roleId,
             'user_id' => $userId,
         ]);

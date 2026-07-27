@@ -6,6 +6,7 @@ use App\Controllers\UserAdministrationController;
 use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
 use App\Controllers\CompanyAdministrationController;
+use App\Controllers\CompanyContextController;
 use App\Controllers\DashboardController;
 use App\Controllers\EmployeeActivityController;
 use App\Controllers\FinanceController;
@@ -31,6 +32,8 @@ $moduleAdministrationController =
     new ModuleAdministrationController();
 $companyAdministrationController =
     new CompanyAdministrationController();
+$companyContextController =
+    new CompanyContextController();
 
 $router = new Router();
 
@@ -194,6 +197,10 @@ $router->get(
 $router->post(
     '/logout',
     [$authController, 'logout']
+);
+$router->post(
+    '/company/switch',
+    [$companyContextController, 'switch']
 );
 
 $router->get(

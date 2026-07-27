@@ -21,6 +21,24 @@ $contentView = (string) (
 $user = is_array($data['user'] ?? null)
     ? $data['user']
     : [];
+
+$companies = is_array(
+    $user['companies'] ?? null
+)
+    ? $user['companies']
+    : [];
+
+$currentCompanyId = (int) (
+    $user['company']['company_id'] ?? 0
+);
+
+$companySwitchError = getFlash(
+    'company_switch_error'
+);
+
+$companySwitchSuccess = getFlash(
+    'company_switch_success'
+);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -48,7 +66,7 @@ $user = is_array($data['user'] ?? null)
 
     <link
         rel="stylesheet"
-        href="/office_app/public/assets/css/app.css"
+        href="<?= e(assetUrl('css/app.css')) ?>"
     >
 </head>
 
@@ -68,7 +86,9 @@ $user = is_array($data['user'] ?? null)
 
             <img
                 class="brand-logo"
-                src="/office_app/public/assets/images/company-logo.png"
+                src="<?= e(assetUrl(
+                    'images/company-logo.png'
+                )) ?>"
                 alt=""
                 onerror="this.style.display='none'"
             >
@@ -91,6 +111,56 @@ $user = is_array($data['user'] ?? null)
         </div>
 
         <div class="header-actions">
+            <?php if (count($companies) > 1): ?>
+                <form
+                    method="post"
+                    action="/office_app/public/company/switch"
+                    class="company-switcher"
+                >
+                    <?= csrfField() ?>
+
+                    <label for="company_id">
+                        Workspace
+                    </label>
+
+                    <select
+                        id="company_id"
+                        name="company_id"
+                        aria-label="Company workspace"
+                    >
+                        <?php foreach (
+                            $companies as $company
+                        ): ?>
+                            <?php
+                            $companyId = (int) (
+                                $company['company_id']
+                                ?? 0
+                            );
+                            ?>
+                            <option
+                                value="<?= e($companyId) ?>"
+                                <?= $companyId
+                                    === $currentCompanyId
+                                        ? 'selected'
+                                        : '' ?>
+                            >
+                                <?= e(
+                                    $company['name']
+                                    ?? ''
+                                ) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+
+                    <button
+                        type="submit"
+                        class="btn btn-secondary btn-compact"
+                    >
+                        Switch
+                    </button>
+                </form>
+            <?php endif; ?>
+
             <div class="user-summary">
                 <strong>
                     <?= e(
@@ -140,6 +210,30 @@ $user = is_array($data['user'] ?? null)
     </aside>
 
     <main class="app-main">
+        <?php if (
+            is_string($companySwitchError)
+            && $companySwitchError !== ''
+        ): ?>
+            <div
+                class="alert alert-danger"
+                role="alert"
+            >
+                <?= e($companySwitchError) ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (
+            is_string($companySwitchSuccess)
+            && $companySwitchSuccess !== ''
+        ): ?>
+            <div
+                class="alert alert-success"
+                role="status"
+            >
+                <?= e($companySwitchSuccess) ?>
+            </div>
+        <?php endif; ?>
+
         <header class="page-header">
             <div>
                 <h1 class="page-title">
@@ -167,7 +261,7 @@ $user = is_array($data['user'] ?? null)
 </div>
 
 <script
-    src="/office_app/public/assets/js/app.js"
+    src="<?= e(assetUrl('js/app.js')) ?>"
     defer
 ></script>
 </body>

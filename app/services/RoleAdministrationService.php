@@ -9,10 +9,12 @@ use App\Models\Role;
 final class RoleAdministrationService
 {
     private Role $roles;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->roles = new Role();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -21,7 +23,9 @@ final class RoleAdministrationService
     public function listing(): array
     {
         return $this->roles
-            ->administrationSummaries();
+            ->administrationSummaries(
+                $this->tenant->companyId()
+            );
     }
 
     /**
@@ -45,7 +49,10 @@ final class RoleAdministrationService
             'permissions' => $this->roles
                 ->permissionsForRole($roleId),
             'users' => $this->roles
-                ->usersForRole($roleId),
+                ->usersForRole(
+                    $this->tenant->companyId(),
+                    $roleId
+                ),
         ];
     }
 }

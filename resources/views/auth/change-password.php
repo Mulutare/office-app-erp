@@ -34,7 +34,7 @@ $user = is_array($data['user'] ?? null)
     </title>
     <link
         rel="stylesheet"
-        href="/office_app/public/assets/css/app.css"
+        href="<?= e(assetUrl('css/app.css')) ?>"
     >
 </head>
 
@@ -45,7 +45,9 @@ $user = is_array($data['user'] ?? null)
                 <div class="auth-product-brand">
                     <span class="auth-logo-frame">
                         <img
-                            src="/office_app/public/assets/images/company-logo.png"
+                            src="<?= e(assetUrl(
+                                'images/company-logo.png'
+                            )) ?>"
                             alt=""
                             onerror="this.style.display='none'"
                         >
@@ -235,7 +237,7 @@ $user = is_array($data['user'] ?? null)
     </main>
 
     <script
-        src="/office_app/public/assets/js/app.js"
+        src="<?= e(assetUrl('js/app.js')) ?>"
         defer
     ></script>
 </body>

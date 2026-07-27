@@ -36,6 +36,40 @@ final class CompanyModule
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function companyById(int $companyId): ?array
+    {
+        $statement = \db()->prepare(
+            'SELECT
+                company_id,
+                code,
+                name,
+                legal_name,
+                default_currency,
+                timezone,
+                brand_primary_color,
+                subscription_status,
+                subscription_expires_at,
+                active
+             FROM companies
+             WHERE company_id = :company_id
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+        $company = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($company)
+            ? $company
+            : null;
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function catalogForCompany(

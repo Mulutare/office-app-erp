@@ -11,10 +11,12 @@ final class UserAdministrationService
     private const PAGE_SIZE = 20;
 
     private User $users;
+    private TenantContext $tenant;
 
     public function __construct()
     {
         $this->users = new User();
+        $this->tenant = new TenantContext();
     }
 
     /**
@@ -73,6 +75,7 @@ final class UserAdministrationService
 
         $total = $this->users
             ->administrationCount(
+                $this->tenant->companyId(),
                 $search,
                 $status
             );
@@ -91,6 +94,7 @@ final class UserAdministrationService
 
         $users = $this->users
             ->administrationPage(
+                $this->tenant->companyId(),
                 $search,
                 $status,
                 $sort,
@@ -107,7 +111,10 @@ final class UserAdministrationService
         );
 
         $roles = $this->users
-            ->roleCodesForUsers($userIds);
+            ->roleCodesForUsers(
+                $this->tenant->companyId(),
+                $userIds
+            );
 
         foreach ($users as &$user) {
             $userId = (int) $user['user_id'];

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\CompanyMembership;
 use App\Models\LoginAttempt;
 use App\Models\User;
 use DateTimeImmutable;
@@ -18,6 +19,7 @@ final class AuthService
     private User $users;
     private LoginAttempt $loginAttempts;
     private AuditLog $auditLogs;
+    private CompanyMembership $memberships;
     private CompanyModuleService $companyModules;
 
     public function __construct()
@@ -25,6 +27,8 @@ final class AuthService
         $this->users = new User();
         $this->loginAttempts = new LoginAttempt();
         $this->auditLogs = new AuditLog();
+        $this->memberships =
+            new CompanyMembership();
         $this->companyModules =
             new CompanyModuleService();
     }
@@ -176,17 +180,101 @@ final class AuthService
             (string) $user['username'];
         $_SESSION['auth']['display_name'] =
             (string) $user['display_name'];
+        $companies = $this->memberships
+            ->activeForUser($userId);
+        $currentCompanyId = $_SESSION['auth'][
+            'company'
+        ]['company_id'] ?? null;
+        $currentMembership = is_int(
+            $currentCompanyId
+        )
+            ? $this->memberships
+                ->activeMembership(
+                    $userId,
+                    $currentCompanyId
+                )
+            : null;
+
+        if ($currentMembership === null) {
+            unset($_SESSION['auth']);
+
+            return false;
+        }
+
         $_SESSION['auth']['roles'] =
-            $this->users->roleCodes($userId);
+            $this->memberships->roleCodes(
+                $userId,
+                $currentCompanyId
+            );
         $_SESSION['auth']['permissions'] =
-            $this->users->permissionCodes($userId);
+            $this->memberships->permissionCodes(
+                $userId,
+                $currentCompanyId
+            );
         $_SESSION['auth']['must_change_password'] =
             (bool) $user['must_change_password'];
         $_SESSION['auth']['company'] =
-            $this->companyModules->company();
+            $currentMembership;
+        $_SESSION['auth']['companies'] =
+            $companies;
         $_SESSION['auth']['modules'] =
             $this->companyModules
-                ->enabledNavigationModules();
+                ->enabledNavigationModules(
+                    $currentCompanyId
+                );
+
+        return true;
+    }
+
+    public function switchCompany(int $companyId): bool
+    {
+        $userId = $this->userId();
+
+        if ($userId === null) {
+            return false;
+        }
+
+        $membership = $this->memberships
+            ->activeMembership(
+                $userId,
+                $companyId
+            );
+
+        if ($membership === null) {
+            return false;
+        }
+
+        $previousCompanyId = (int) (
+            $_SESSION['auth']['company'][
+                'company_id'
+            ] ?? 0
+        );
+
+        $this->applyCompanyContext(
+            $userId,
+            $membership,
+            $this->memberships
+                ->activeForUser($userId)
+        );
+
+        session_regenerate_id(true);
+
+        $this->auditLogs->record(
+            $userId,
+            'SWITCH_COMPANY',
+            'authentication',
+            'companies',
+            (string) $companyId,
+            [
+                'company_id' =>
+                    $previousCompanyId,
+            ],
+            [
+                'company_id' => $companyId,
+                'company_code' =>
+                    $membership['code'],
+            ]
+        );
 
         return true;
     }
@@ -408,6 +496,26 @@ public function changePassword(
 private function completeLogin(array $user): array
 {
     $userId = (int) $user['user_id'];
+    $companies = $this->memberships
+        ->activeForUser($userId);
+
+    if ($companies === []) {
+        $this->loginAttempts->record(
+            (string) $user['username'],
+            $userId,
+            false,
+            'company_access_unavailable',
+            \requestIp(),
+            \requestUserAgent()
+        );
+
+        return $this->failure(
+            'Your account is not assigned to an active company workspace.'
+        );
+    }
+
+    $company = $companies[0];
+    $companyId = (int) $company['company_id'];
 
     try {
         \db()->beginTransaction();
@@ -425,15 +533,21 @@ private function completeLogin(array $user): array
             \requestUserAgent()
         );
 
-        $roles = $this->users
-            ->roleCodes($userId);
+        $roles = $this->memberships
+            ->roleCodes(
+                $userId,
+                $companyId
+            );
 
-        $permissions = $this->users
-            ->permissionCodes($userId);
-        $company = $this->companyModules
-            ->company();
+        $permissions = $this->memberships
+            ->permissionCodes(
+                $userId,
+                $companyId
+            );
         $modules = $this->companyModules
-            ->enabledNavigationModules();
+            ->enabledNavigationModules(
+                $companyId
+            );
 
         $this->auditLogs->record(
             $userId,
@@ -474,6 +588,7 @@ private function completeLogin(array $user): array
         'roles' => $roles,
         'permissions' => $permissions,
         'company' => $company,
+        'companies' => $companies,
         'modules' => $modules,
         'must_change_password' =>
             (bool) $user['must_change_password'],
@@ -558,5 +673,35 @@ private function completeLogin(array $user): array
             'successful' => false,
             'message' => $message,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $company
+     * @param list<array<string, mixed>> $companies
+     */
+    private function applyCompanyContext(
+        int $userId,
+        array $company,
+        array $companies
+    ): void {
+        $companyId = (int) $company['company_id'];
+
+        $_SESSION['auth']['company'] = $company;
+        $_SESSION['auth']['companies'] = $companies;
+        $_SESSION['auth']['roles'] =
+            $this->memberships->roleCodes(
+                $userId,
+                $companyId
+            );
+        $_SESSION['auth']['permissions'] =
+            $this->memberships->permissionCodes(
+                $userId,
+                $companyId
+            );
+        $_SESSION['auth']['modules'] =
+            $this->companyModules
+                ->enabledNavigationModules(
+                    $companyId
+                );
     }
 }

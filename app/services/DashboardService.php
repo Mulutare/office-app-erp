@@ -6,6 +6,13 @@ namespace App\Services;
 
 final class DashboardService
 {
+    private TenantContext $tenant;
+
+    public function __construct()
+    {
+        $this->tenant = new TenantContext();
+    }
+
     /**
      * @return array{
      *     users: int,
@@ -29,12 +36,22 @@ final class DashboardService
 
     private function activeUserCount(): int
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT COUNT(*)
-             FROM users
-             WHERE active = TRUE
-               AND deleted_at IS NULL'
+             FROM company_users memberships
+             INNER JOIN users
+                 ON users.user_id =
+                    memberships.user_id
+             WHERE memberships.company_id =
+                    :company_id
+               AND memberships.active = TRUE
+               AND users.active = TRUE
+               AND users.deleted_at IS NULL'
         );
+        $statement->execute([
+            'company_id' =>
+                $this->tenant->companyId(),
+        ]);
 
         return (int) $statement->fetchColumn();
     }
