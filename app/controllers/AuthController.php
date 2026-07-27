@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Services\AuthService;
+use App\Services\CompanyModuleService;
 
 final class AuthController
 {
     private AuthService $auth;
+    private CompanyModuleService $companyModules;
 
     public function __construct()
     {
         $this->auth = new AuthService();
+        $this->companyModules =
+            new CompanyModuleService();
     }
 
     public function showLogin(): void
@@ -26,6 +30,8 @@ final class AuthController
                 'name',
                 'OfficeApp ERP'
             ),
+            'company' =>
+                $this->companyModules->company(),
             'error' => \getFlash('auth_error'),
         ]);
     }
@@ -103,6 +109,10 @@ final class AuthController
             'name',
             'OfficeApp ERP'
         ),
+        'company' =>
+            $_SESSION['auth']['company'] ?? [],
+        'user' =>
+            $_SESSION['auth'] ?? [],
         'error' => \getFlash('password_error'),
         'success' => \getFlash('password_success'),
     ]);

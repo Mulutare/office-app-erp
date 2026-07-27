@@ -1,96 +1,242 @@
+<?php
+
+declare(strict_types=1);
+
+/** @var array<string, mixed> $data */
+$data = is_array($data ?? null) ? $data : [];
+$applicationName = (string) (
+    $data['applicationName'] ?? 'OfficeApp ERP'
+);
+$company = is_array(
+    $data['company'] ?? null
+)
+    ? $data['company']
+    : [];
+$user = is_array($data['user'] ?? null)
+    ? $data['user']
+    : [];
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
-
+    <meta
+        name="robots"
+        content="noindex, nofollow"
+    >
     <title>
-        Change Password |
-        <?= e($data['applicationName'] ?? 'OfficeApp ERP') ?>
+        Secure Your Account |
+        <?= e($applicationName) ?>
     </title>
+    <link
+        rel="stylesheet"
+        href="/office_app/public/assets/css/app.css"
+    >
 </head>
 
-<body>
-    <h1>
-        <?= e($data['applicationName'] ?? 'OfficeApp ERP') ?>
-    </h1>
+<body class="auth-body">
+    <main class="auth-shell">
+        <section class="auth-showcase">
+            <div class="auth-showcase-inner">
+                <div class="auth-product-brand">
+                    <span class="auth-logo-frame">
+                        <img
+                            src="/office_app/public/assets/images/company-logo.png"
+                            alt=""
+                            onerror="this.style.display='none'"
+                        >
+                    </span>
+                    <div>
+                        <strong>
+                            <?= e($applicationName) ?>
+                        </strong>
+                        <span>
+                            <?= e(
+                                $company['name']
+                                ?? 'Company Workspace'
+                            ) ?>
+                        </span>
+                    </div>
+                </div>
 
-    <h2>Change temporary password</h2>
+                <div class="auth-showcase-copy">
+                    <span class="auth-kicker">
+                        First sign-in protection
+                    </span>
+                    <h1>
+                        Create a password only you know.
+                    </h1>
+                    <p>
+                        Temporary passwords must be replaced
+                        before access to company modules is
+                        granted.
+                    </p>
+                </div>
 
-    <p>
-        You must replace your temporary password before continuing.
-    </p>
+                <div class="password-requirements">
+                    <strong>Password requirements</strong>
+                    <ul>
+                        <li>At least 12 characters</li>
+                        <li>Uppercase and lowercase letters</li>
+                        <li>A number and a special character</li>
+                        <li>Different from your temporary password</li>
+                    </ul>
+                </div>
+            </div>
 
-    <?php if (!empty($data['error'])): ?>
-        <p role="alert">
-            <strong><?= e($data['error']) ?></strong>
-        </p>
-    <?php endif; ?>
+            <p class="auth-showcase-footer">
+                Your password is stored as a secure hash.
+            </p>
+        </section>
 
-    <form
-        method="post"
-        action="/office_app/public/change-password"
-    >
-        <?= csrfField() ?>
+        <section class="auth-form-panel">
+            <div class="auth-card auth-card-password">
+                <div class="auth-company-context">
+                    <span aria-hidden="true">ID</span>
+                    <div>
+                        <small>Securing account</small>
+                        <strong>
+                            <?= e(
+                                $user['display_name']
+                                ?? $user['username']
+                                ?? 'ERP User'
+                            ) ?>
+                        </strong>
+                    </div>
+                </div>
 
-        <div>
-            <label for="current_password">
-                Current password
-            </label>
+                <header class="auth-card-header">
+                    <span class="auth-kicker auth-kicker-dark">
+                        Required action
+                    </span>
+                    <h2>Change temporary password</h2>
+                    <p>
+                        Confirm your temporary password, then
+                        choose a strong permanent password.
+                    </p>
+                </header>
 
-            <input
-                id="current_password"
-                name="current_password"
-                type="password"
-                autocomplete="current-password"
-                required
-                autofocus
-            >
-        </div>
+                <?php if (!empty($data['error'])): ?>
+                    <div
+                        class="auth-alert"
+                        role="alert"
+                    >
+                        <span aria-hidden="true">!</span>
+                        <p>
+                            <?= e($data['error']) ?>
+                        </p>
+                    </div>
+                <?php endif; ?>
 
-        <br>
+                <form
+                    method="post"
+                    action="/office_app/public/change-password"
+                    class="auth-form"
+                >
+                    <?= csrfField() ?>
 
-        <div>
-            <label for="new_password">
-                New password
-            </label>
+                    <div class="auth-field">
+                        <label for="current_password">
+                            Temporary password
+                        </label>
+                        <div class="auth-password-field">
+                            <input
+                                id="current_password"
+                                name="current_password"
+                                type="password"
+                                autocomplete="current-password"
+                                placeholder="Enter temporary password"
+                                required
+                                autofocus
+                            >
+                            <button
+                                type="button"
+                                class="auth-password-toggle"
+                                data-password-toggle="current_password"
+                                aria-label="Show temporary password"
+                                aria-pressed="false"
+                            >
+                                Show
+                            </button>
+                        </div>
+                    </div>
 
-            <input
-                id="new_password"
-                name="new_password"
-                type="password"
-                autocomplete="new-password"
-                minlength="12"
-                required
-            >
-        </div>
+                    <div class="auth-field">
+                        <label for="new_password">
+                            New password
+                        </label>
+                        <div class="auth-password-field">
+                            <input
+                                id="new_password"
+                                name="new_password"
+                                type="password"
+                                autocomplete="new-password"
+                                minlength="12"
+                                placeholder="Create a strong password"
+                                required
+                            >
+                            <button
+                                type="button"
+                                class="auth-password-toggle"
+                                data-password-toggle="new_password"
+                                aria-label="Show new password"
+                                aria-pressed="false"
+                            >
+                                Show
+                            </button>
+                        </div>
+                    </div>
 
-        <br>
+                    <div class="auth-field">
+                        <label for="new_password_confirmation">
+                            Confirm new password
+                        </label>
+                        <div class="auth-password-field">
+                            <input
+                                id="new_password_confirmation"
+                                name="new_password_confirmation"
+                                type="password"
+                                autocomplete="new-password"
+                                minlength="12"
+                                placeholder="Repeat the new password"
+                                required
+                            >
+                            <button
+                                type="button"
+                                class="auth-password-toggle"
+                                data-password-toggle="new_password_confirmation"
+                                aria-label="Show password confirmation"
+                                aria-pressed="false"
+                            >
+                                Show
+                            </button>
+                        </div>
+                    </div>
 
-        <div>
-            <label for="new_password_confirmation">
-                Confirm new password
-            </label>
+                    <button
+                        type="submit"
+                        class="btn btn-primary auth-submit"
+                    >
+                        Save password and continue
+                    </button>
+                </form>
 
-            <input
-                id="new_password_confirmation"
-                name="new_password_confirmation"
-                type="password"
-                autocomplete="new-password"
-                minlength="12"
-                required
-            >
-        </div>
+                <footer class="auth-card-footer">
+                    <span>Secure account activation</span>
+                    <span aria-hidden="true">&bull;</span>
+                    <span><?= e(date('Y')) ?></span>
+                </footer>
+            </div>
+        </section>
+    </main>
 
-        <br>
-
-        <button type="submit">
-            Change Password
-        </button>
-    </form>
+    <script
+        src="/office_app/public/assets/js/app.js"
+        defer
+    ></script>
 </body>
 </html>
