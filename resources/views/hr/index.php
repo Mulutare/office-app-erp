@@ -30,6 +30,10 @@ $pagination = is_array(
 )
     ? $data['pagination']
     : [];
+$canManage = !empty($data['canManage']);
+$notice = is_array($data['notice'] ?? null)
+    ? $data['notice']
+    : null;
 
 $formatDate = static function (mixed $value): string {
     if (!is_string($value) || trim($value) === '') {
@@ -73,6 +77,29 @@ $totalEmployees = array_sum(array_map(
     $summary
 ));
 ?>
+
+<?php if ($notice !== null): ?>
+    <div class="alert alert-success" role="status">
+        <?= e($notice['message'] ?? '') ?>
+    </div>
+<?php endif; ?>
+
+<?php if ($canManage): ?>
+    <div class="hr-action-bar">
+        <a
+            href="/office_app/public/hr/departments/create"
+            class="btn btn-secondary"
+        >
+            Create department
+        </a>
+        <a
+            href="/office_app/public/hr/employees/create"
+            class="btn btn-primary"
+        >
+            Create employee
+        </a>
+    </div>
+<?php endif; ?>
 
 <section class="hr-summary-grid">
     <article class="card hr-summary-card">

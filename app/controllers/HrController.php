@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Services\AuthorizationService;
+use App\Services\DepartmentCreationService;
 use App\Services\EmployeeDirectoryService;
+use App\Services\EmployeeCreationService;
 
 final class HrController
 {
     private AuthorizationService $authorization;
     private EmployeeDirectoryService $employees;
+    private EmployeeCreationService $employeeCreation;
+    private DepartmentCreationService
+        $departmentCreation;
 
     public function __construct()
     {
@@ -18,6 +23,10 @@ final class HrController
             new AuthorizationService();
         $this->employees =
             new EmployeeDirectoryService();
+        $this->employeeCreation =
+            new EmployeeCreationService();
+        $this->departmentCreation =
+            new DepartmentCreationService();
     }
 
     public function index(): void
@@ -54,6 +63,7 @@ final class HrController
             'pagination' =>
                 $directory['pagination'],
             'canManage' => $this->canManage(),
+            'notice' => \getFlash('hr_notice'),
         ]);
     }
 
@@ -96,7 +106,213 @@ final class HrController
                 $_SESSION['auth']['permissions'] ?? [],
                 true
             ),
+            'notice' => \getFlash('hr_notice'),
         ]);
+    }
+
+    public function createEmployee(): void
+    {
+        $this->requireHrManagement();
+        $options =
+            $this->employeeCreation->formOptions();
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => 'Create Employee',
+            'pageDescription' =>
+                'Register employment, organization and optional ERP-account information.',
+            'contentView' => 'hr.employees.create',
+            'user' => $_SESSION['auth'],
+            'departments' =>
+                $options['departments'],
+            'managers' => $options['managers'],
+            'users' => $options['users'],
+            'employmentTypes' =>
+                $options['employmentTypes'],
+            'employmentStatuses' =>
+                $options['employmentStatuses'],
+            'errors' => \getFlash(
+                'employee_create_errors',
+                []
+            ),
+            'old' => \getFlash(
+                'employee_create_old',
+                []
+            ),
+        ]);
+    }
+
+    public function storeEmployee(): void
+    {
+        $this->requireHrManagement();
+
+        if (
+            !\verifyCsrfToken(
+                \postString('_token')
+            )
+        ) {
+            \flash(
+                'employee_create_errors',
+                [
+                    'form' =>
+                        'The form session expired. Please try again.',
+                ]
+            );
+            \redirect('/hr/employees/create');
+        }
+
+        $input = [
+            'employee_number' =>
+                \postString('employee_number'),
+            'user_id' => \postString('user_id'),
+            'first_name' =>
+                \postString('first_name'),
+            'middle_name' =>
+                \postString('middle_name'),
+            'last_name' =>
+                \postString('last_name'),
+            'preferred_name' =>
+                \postString('preferred_name'),
+            'work_email' =>
+                \postString('work_email'),
+            'work_phone' =>
+                \postString('work_phone'),
+            'department_id' =>
+                \postString('department_id'),
+            'job_title' =>
+                \postString('job_title'),
+            'employment_type' =>
+                \postString('employment_type'),
+            'employment_status' =>
+                \postString('employment_status'),
+            'hire_date' =>
+                \postString('hire_date'),
+            'termination_date' =>
+                \postString('termination_date'),
+            'manager_employee_id' =>
+                \postString(
+                    'manager_employee_id'
+                ),
+        ];
+        $result = $this->employeeCreation->create(
+            $input,
+            (int) $_SESSION['auth']['user_id']
+        );
+
+        if (!$result['successful']) {
+            \flash(
+                'employee_create_errors',
+                $result['errors']
+            );
+            \flash(
+                'employee_create_old',
+                $input
+            );
+            \redirect('/hr/employees/create');
+        }
+
+        \flash('hr_notice', [
+            'type' => 'success',
+            'message' => sprintf(
+                'Employee %s was created successfully.',
+                (string) $result['employeeName']
+            ),
+        ]);
+        \redirect(
+            '/hr/employees/view?id='
+            . (int) $result['employeeId']
+        );
+    }
+
+    public function createDepartment(): void
+    {
+        $this->requireHrManagement();
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => 'Create Department',
+            'pageDescription' =>
+                'Add an organizational department for employee assignment.',
+            'contentView' =>
+                'hr.departments.create',
+            'user' => $_SESSION['auth'],
+            'errors' => \getFlash(
+                'department_create_errors',
+                []
+            ),
+            'old' => \getFlash(
+                'department_create_old',
+                []
+            ),
+        ]);
+    }
+
+    public function storeDepartment(): void
+    {
+        $this->requireHrManagement();
+
+        if (
+            !\verifyCsrfToken(
+                \postString('_token')
+            )
+        ) {
+            \flash(
+                'department_create_errors',
+                [
+                    'form' =>
+                        'The form session expired. Please try again.',
+                ]
+            );
+            \redirect('/hr/departments/create');
+        }
+
+        $input = [
+            'code' => \postString('code'),
+            'name' => \postString('name'),
+            'description' =>
+                \postString('description'),
+            'active' => isset($_POST['active']),
+        ];
+        $result =
+            $this->departmentCreation->create(
+                $input,
+                (int) $_SESSION['auth']['user_id']
+            );
+
+        if (!$result['successful']) {
+            \flash(
+                'department_create_errors',
+                $result['errors']
+            );
+            \flash(
+                'department_create_old',
+                $input
+            );
+            \redirect('/hr/departments/create');
+        }
+
+        \flash('hr_notice', [
+            'type' => 'success',
+            'message' => sprintf(
+                'Department %s was created successfully.',
+                (string) $result['departmentName']
+            ),
+        ]);
+        \redirect('/hr');
     }
 
     private function requireHrAccess(): void
@@ -106,6 +322,12 @@ final class HrController
                 'hr.records.view',
                 'hr.records.manage',
             ]);
+    }
+
+    private function requireHrManagement(): void
+    {
+        $this->authorization
+            ->requirePermission('hr.records.manage');
     }
 
     private function canManage(): bool

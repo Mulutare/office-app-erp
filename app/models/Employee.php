@@ -6,6 +6,201 @@ namespace App\Models;
 
 final class Employee
 {
+    public function employeeNumberExists(
+        string $employeeNumber
+    ): bool {
+        return $this->uniqueValueExists(
+            'employee_number',
+            $employeeNumber
+        );
+    }
+
+    public function workEmailExists(
+        string $workEmail
+    ): bool {
+        return $this->uniqueValueExists(
+            'work_email',
+            $workEmail
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function managerOptions(): array
+    {
+        $statement = \db()->query(
+            'SELECT
+                employee_id,
+                employee_number,
+                first_name,
+                last_name,
+                preferred_name,
+                job_title
+             FROM hr_employees
+             WHERE deleted_at IS NULL
+               AND employment_status
+                    <> \'terminated\'
+             ORDER BY last_name, first_name
+             LIMIT 250'
+        );
+        $employees = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($employees)
+            ? $employees
+            : [];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function availableUserOptions(): array
+    {
+        $statement = \db()->query(
+            'SELECT
+                users.user_id,
+                users.username,
+                users.display_name,
+                users.email
+             FROM users
+             LEFT JOIN hr_employees employees
+                 ON employees.user_id = users.user_id
+                AND employees.deleted_at IS NULL
+             WHERE users.active = TRUE
+               AND users.deleted_at IS NULL
+               AND employees.employee_id IS NULL
+             ORDER BY
+                users.display_name,
+                users.username
+             LIMIT 250'
+        );
+        $users = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($users) ? $users : [];
+    }
+
+    public function managerExists(int $employeeId): bool
+    {
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM hr_employees
+             WHERE employee_id = :employee_id
+               AND deleted_at IS NULL
+               AND employment_status
+                    <> \'terminated\'
+             LIMIT 1'
+        );
+        $statement->execute([
+            'employee_id' => $employeeId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    public function availableUserExists(int $userId): bool
+    {
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM users
+             LEFT JOIN hr_employees employees
+                 ON employees.user_id = users.user_id
+                AND employees.deleted_at IS NULL
+             WHERE users.user_id = :user_id
+               AND users.active = TRUE
+               AND users.deleted_at IS NULL
+               AND employees.employee_id IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     */
+    public function create(
+        array $values,
+        int $createdBy
+    ): int {
+        $statement = \db()->prepare(
+            'INSERT INTO hr_employees
+                (
+                    employee_number,
+                    user_id,
+                    first_name,
+                    middle_name,
+                    last_name,
+                    preferred_name,
+                    work_email,
+                    work_phone,
+                    department_id,
+                    job_title,
+                    employment_type,
+                    employment_status,
+                    hire_date,
+                    termination_date,
+                    manager_employee_id,
+                    created_by,
+                    updated_by
+                )
+             VALUES
+                (
+                    :employee_number,
+                    :user_id,
+                    :first_name,
+                    :middle_name,
+                    :last_name,
+                    :preferred_name,
+                    :work_email,
+                    :work_phone,
+                    :department_id,
+                    :job_title,
+                    :employment_type,
+                    :employment_status,
+                    :hire_date,
+                    :termination_date,
+                    :manager_employee_id,
+                    :created_by,
+                    :updated_by
+                )'
+        );
+        $statement->execute([
+            'employee_number' =>
+                $values['employee_number'],
+            'user_id' => $values['user_id'],
+            'first_name' => $values['first_name'],
+            'middle_name' => $values['middle_name'],
+            'last_name' => $values['last_name'],
+            'preferred_name' =>
+                $values['preferred_name'],
+            'work_email' => $values['work_email'],
+            'work_phone' => $values['work_phone'],
+            'department_id' =>
+                $values['department_id'],
+            'job_title' => $values['job_title'],
+            'employment_type' =>
+                $values['employment_type'],
+            'employment_status' =>
+                $values['employment_status'],
+            'hire_date' => $values['hire_date'],
+            'termination_date' =>
+                $values['termination_date'],
+            'manager_employee_id' =>
+                $values['manager_employee_id'],
+            'created_by' => $createdBy,
+            'updated_by' => $createdBy,
+        ]);
+
+        return (int) \db()->lastInsertId();
+    }
+
     /**
      * @param array<string, mixed> $filters
      */
@@ -309,5 +504,38 @@ final class Employee
                     : \PDO::PARAM_STR
             );
         }
+    }
+
+    private function uniqueValueExists(
+        string $column,
+        string $value
+    ): bool {
+        $allowedColumns = [
+            'employee_number',
+            'work_email',
+        ];
+
+        if (!in_array(
+            $column,
+            $allowedColumns,
+            true
+        )) {
+            throw new \InvalidArgumentException(
+                'Unsupported employee uniqueness column.'
+            );
+        }
+
+        $statement = \db()->prepare(
+            'SELECT 1
+             FROM hr_employees
+             WHERE ' . $column . ' = :value
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'value' => $value,
+        ]);
+
+        return $statement->fetchColumn() !== false;
     }
 }

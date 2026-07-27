@@ -17,6 +17,9 @@ $directReports = is_array(
 $canManageUsers = !empty(
     $data['canManageUsers']
 );
+$notice = is_array($data['notice'] ?? null)
+    ? $data['notice']
+    : null;
 
 $formatDate = static function (mixed $value): string {
     if (!is_string($value) || trim($value) === '') {
@@ -38,6 +41,12 @@ $initial = strtoupper(substr(
     1
 ));
 ?>
+
+<?php if ($notice !== null): ?>
+    <div class="alert alert-success" role="status">
+        <?= e($notice['message'] ?? '') ?>
+    </div>
+<?php endif; ?>
 
 <div class="details-toolbar">
     <a

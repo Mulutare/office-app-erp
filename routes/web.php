@@ -42,6 +42,22 @@ $router->get(
     [$hrController, 'show']
 );
 $router->get(
+    '/hr/employees/create',
+    [$hrController, 'createEmployee']
+);
+$router->post(
+    '/hr/employees',
+    [$hrController, 'storeEmployee']
+);
+$router->get(
+    '/hr/departments/create',
+    [$hrController, 'createDepartment']
+);
+$router->post(
+    '/hr/departments',
+    [$hrController, 'storeDepartment']
+);
+$router->get(
     '/administration/audit-logs',
     [$auditLogController, 'index']
 );
