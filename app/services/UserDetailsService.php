@@ -45,6 +45,11 @@ final class UserDetailsService
         $user['is_locked'] = $this->isLocked(
             $user['locked_until'] ?? null
         );
+        $user['is_primary_owner'] =
+            $this->users->isPrimaryCompanyOwner(
+                $companyId,
+                $userId
+            );
 
         return [
             'user' => $user,

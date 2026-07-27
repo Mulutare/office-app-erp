@@ -127,6 +127,10 @@ $router->post(
     '/administration/companies',
     [$companyAdministrationController, 'store']
 );
+$router->post(
+    '/administration/companies/approve',
+    [$companyAdministrationController, 'approve']
+);
 $router->get(
     '/administration/audit-logs/view',
     [$auditLogController, 'show']

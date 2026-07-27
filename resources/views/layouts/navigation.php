@@ -63,7 +63,11 @@ foreach ($enabledModules as $module) {
 }
 
 $navigation[] = [
-    'label' => 'Administration',
+    'label' => !empty(
+        $user['is_platform_admin']
+    )
+        ? 'Vendor Administration'
+        : 'Company Administration',
     'path' =>
         '/office_app/public/administration',
     'icon' => 'AD',

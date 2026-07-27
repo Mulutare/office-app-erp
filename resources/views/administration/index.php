@@ -29,6 +29,7 @@ $modules = [
             '/office_app/public/administration/companies',
         'permission' =>
             'administration.companies.manage',
+        'platformOnly' => true,
     ],
     [
         'title' => 'Company modules',
@@ -38,6 +39,7 @@ $modules = [
             '/office_app/public/administration/modules',
         'permission' =>
             'administration.modules.manage',
+        'platformOnly' => true,
     ],
     [
         'title' => 'Audit logs',
@@ -55,6 +57,9 @@ $permissions = is_array(
 )
     ? $data['user']['permissions']
     : [];
+$isPlatformAdmin = !empty(
+    $data['user']['is_platform_admin']
+);
 ?>
 
 <section class="module-grid">
@@ -66,6 +71,13 @@ $permissions = is_array(
                 $permissions,
                 true
             )
+        ) {
+            continue;
+        }
+
+        if (
+            !empty($module['platformOnly'])
+            && !$isPlatformAdmin
         ) {
             continue;
         }

@@ -25,7 +25,7 @@ final class Role
                 roles.active,
                 roles.created_at,
                 COUNT(
-                    DISTINCT role_permissions.permission_id
+                    DISTINCT company_role_permissions.permission_id
                 ) AS permission_count,
                 COUNT(
                     DISTINCT users.user_id
@@ -38,8 +38,11 @@ final class Role
                     END
                 ) AS active_user_count
              FROM roles
-             LEFT JOIN role_permissions
-                 ON role_permissions.role_id = roles.role_id
+             LEFT JOIN company_role_permissions
+                ON company_role_permissions.role_id =
+                    roles.role_id
+                AND company_role_permissions.company_id =
+                    :permissions_company_id
              LEFT JOIN company_user_roles
                  ON company_user_roles.role_id =
                     roles.role_id
@@ -66,6 +69,8 @@ final class Role
         );
         $statement->execute([
             'company_id' => $companyId,
+            'permissions_company_id' =>
+                $companyId,
         ]);
 
         $roles = $statement->fetchAll(
@@ -111,6 +116,7 @@ final class Role
      * @return list<array<string, mixed>>
      */
     public function permissionsForRole(
+        int $companyId,
         int $roleId
     ): array {
         $statement = \db()->prepare(
@@ -121,18 +127,22 @@ final class Role
                 permissions.module,
                 permissions.description,
                 permissions.active,
-                role_permissions.granted_at
-             FROM role_permissions
+                company_role_permissions.granted_at
+             FROM company_role_permissions
              INNER JOIN permissions
                  ON permissions.permission_id =
-                    role_permissions.permission_id
-             WHERE role_permissions.role_id = :role_id
+                    company_role_permissions.permission_id
+             WHERE company_role_permissions.company_id =
+                    :company_id
+               AND company_role_permissions.role_id =
+                    :role_id
              ORDER BY
                 permissions.module,
                 permissions.name'
         );
 
         $statement->execute([
+            'company_id' => $companyId,
             'role_id' => $roleId,
         ]);
 
@@ -214,9 +224,11 @@ final class Role
     /**
      * @return list<array<string, mixed>>
      */
-    public function activePermissions(): array
+    public function activePermissions(
+        bool $includePlatformPermissions = false
+    ): array
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT
                 permission_id,
                 code,
@@ -225,8 +237,19 @@ final class Role
                 description
              FROM permissions
              WHERE active = TRUE
+               AND (
+                    :include_platform_permissions = 1
+                    OR code NOT IN (
+                        \'administration.companies.manage\',
+                        \'administration.modules.manage\'
+                    )
+               )
              ORDER BY module, name'
         );
+        $statement->execute([
+            'include_platform_permissions' =>
+                $includePlatformPermissions ? 1 : 0,
+        ]);
 
         $permissions = $statement->fetchAll(
             \PDO::FETCH_ASSOC
@@ -240,16 +263,21 @@ final class Role
     /**
      * @return list<int>
      */
-    public function permissionIds(int $roleId): array
+    public function permissionIds(
+        int $companyId,
+        int $roleId
+    ): array
     {
         $statement = \db()->prepare(
             'SELECT permission_id
-             FROM role_permissions
-             WHERE role_id = :role_id
+             FROM company_role_permissions
+             WHERE company_id = :company_id
+               AND role_id = :role_id
              ORDER BY permission_id'
         );
 
         $statement->execute([
+            'company_id' => $companyId,
             'role_id' => $roleId,
         ]);
 
@@ -263,7 +291,8 @@ final class Role
      * @param list<int> $permissionIds
      */
     public function validActivePermissionIds(
-        array $permissionIds
+        array $permissionIds,
+        bool $includePlatformPermissions = false
     ): array {
         $permissionIds = array_values(array_unique(
             array_filter(
@@ -285,15 +314,28 @@ final class Role
             'SELECT permission_id
              FROM permissions
              WHERE active = TRUE
+               AND (
+                    ? = 1
+                    OR code NOT IN (
+                        \'administration.companies.manage\',
+                        \'administration.modules.manage\'
+                    )
+               )
                AND permission_id IN ('
                 . $placeholders . ')'
+        );
+
+        $statement->bindValue(
+            1,
+            $includePlatformPermissions ? 1 : 0,
+            \PDO::PARAM_INT
         );
 
         foreach (
             $permissionIds as $index => $permissionId
         ) {
             $statement->bindValue(
-                $index + 1,
+                $index + 2,
                 $permissionId,
                 \PDO::PARAM_INT
             );
@@ -331,16 +373,22 @@ final class Role
     }
 
     public function lockForPermissionUpdate(
+        int $companyId,
         int $roleId
     ): bool {
         $statement = \db()->prepare(
-            'SELECT role_id
+            'SELECT roles.role_id
              FROM roles
-             WHERE role_id = :role_id
+             INNER JOIN companies
+                 ON companies.company_id =
+                    :company_id
+             WHERE roles.role_id = :role_id
+               AND companies.deleted_at IS NULL
              FOR UPDATE'
         );
 
         $statement->execute([
+            'company_id' => $companyId,
             'role_id' => $roleId,
         ]);
 
@@ -351,28 +399,44 @@ final class Role
      * @param list<int> $permissionIds
      */
     public function replacePermissions(
+        int $companyId,
         int $roleId,
-        array $permissionIds
+        array $permissionIds,
+        int $grantedBy
     ): void {
         $delete = \db()->prepare(
-            'DELETE FROM role_permissions
-             WHERE role_id = :role_id'
+            'DELETE FROM company_role_permissions
+             WHERE company_id = :company_id
+               AND role_id = :role_id'
         );
         $delete->execute([
+            'company_id' => $companyId,
             'role_id' => $roleId,
         ]);
 
         $insert = \db()->prepare(
-            'INSERT INTO role_permissions
-                (role_id, permission_id)
+            'INSERT INTO company_role_permissions
+                (
+                    company_id,
+                    role_id,
+                    permission_id,
+                    granted_by
+                )
              VALUES
-                (:role_id, :permission_id)'
+                (
+                    :company_id,
+                    :role_id,
+                    :permission_id,
+                    :granted_by
+                )'
         );
 
         foreach ($permissionIds as $permissionId) {
             $insert->execute([
+                'company_id' => $companyId,
                 'role_id' => $roleId,
                 'permission_id' => $permissionId,
+                'granted_by' => $grantedBy,
             ]);
         }
     }
@@ -380,9 +444,11 @@ final class Role
     /**
      * @return list<array<string, mixed>>
      */
-    public function activeRoles(): array
+    public function activeRoles(
+        bool $includePlatformRoles = false
+    ): array
     {
-        $statement = \db()->query(
+        $statement = \db()->prepare(
             'SELECT
                 role_id,
                 code,
@@ -390,8 +456,16 @@ final class Role
                 description
              FROM roles
              WHERE active = TRUE
+               AND (
+                    :include_platform_roles = 1
+                    OR code <> \'system_administrator\'
+               )
              ORDER BY name'
         );
+        $statement->execute([
+            'include_platform_roles' =>
+                $includePlatformRoles ? 1 : 0,
+        ]);
 
         $roles = $statement->fetchAll(
             \PDO::FETCH_ASSOC
@@ -410,7 +484,8 @@ final class Role
      * @return list<int>
      */
     public function validActiveRoleIds(
-        array $roleIds
+        array $roleIds,
+        bool $includePlatformRoles = false
     ): array {
         $roleIds = array_values(
             array_unique(
@@ -435,12 +510,22 @@ final class Role
             'SELECT role_id
              FROM roles
              WHERE active = TRUE
+               AND (
+                    ? = 1
+                    OR code <> \'system_administrator\'
+               )
                AND role_id IN (' . $placeholders . ')'
+        );
+
+        $statement->bindValue(
+            1,
+            $includePlatformRoles ? 1 : 0,
+            \PDO::PARAM_INT
         );
 
         foreach ($roleIds as $index => $roleId) {
             $statement->bindValue(
-                $index + 1,
+                $index + 2,
                 $roleId,
                 \PDO::PARAM_INT
             );
@@ -454,5 +539,32 @@ final class Role
                 \PDO::FETCH_COLUMN
             )
         );
+    }
+
+    public function copyPermissionTemplatesToCompany(
+        int $companyId,
+        int $grantedBy
+    ): void {
+        $statement = \db()->prepare(
+            'INSERT INTO company_role_permissions
+                (
+                    company_id,
+                    role_id,
+                    permission_id,
+                    granted_by
+                )
+             SELECT
+                :company_id,
+                templates.role_id,
+                templates.permission_id,
+                :granted_by
+             FROM role_permissions templates
+             ON DUPLICATE KEY UPDATE
+                granted_by = VALUES(granted_by)'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'granted_by' => $grantedBy,
+        ]);
     }
 }

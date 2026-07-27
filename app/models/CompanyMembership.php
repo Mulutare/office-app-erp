@@ -9,7 +9,10 @@ final class CompanyMembership
     /**
      * @return list<array<string, mixed>>
      */
-    public function activeForUser(int $userId): array
+    public function activeForUser(
+        int $userId,
+        bool $platformOnly = false
+    ): array
     {
         $statement = \db()->prepare(
             'SELECT
@@ -29,7 +32,13 @@ final class CompanyMembership
              WHERE memberships.user_id = :user_id
                AND memberships.active = TRUE
                AND companies.active = TRUE
+               AND companies.approval_status =
+                    \'approved\'
                AND companies.deleted_at IS NULL
+               AND (
+                    :platform_only = 0
+                    OR companies.code = \'default\'
+               )
                AND companies.subscription_status
                     IN (\'active\', \'trial\')
                AND (
@@ -44,6 +53,8 @@ final class CompanyMembership
         );
         $statement->execute([
             'user_id' => $userId,
+            'platform_only' =>
+                $platformOnly ? 1 : 0,
         ]);
         $memberships = $statement->fetchAll(
             \PDO::FETCH_ASSOC
@@ -72,7 +83,8 @@ final class CompanyMembership
      */
     public function activeMembership(
         int $userId,
-        int $companyId
+        int $companyId,
+        bool $platformOnly = false
     ): ?array {
         $statement = \db()->prepare(
             'SELECT
@@ -93,7 +105,13 @@ final class CompanyMembership
                AND memberships.company_id = :company_id
                AND memberships.active = TRUE
                AND companies.active = TRUE
+               AND companies.approval_status =
+                    \'approved\'
                AND companies.deleted_at IS NULL
+               AND (
+                    :platform_only = 0
+                    OR companies.code = \'default\'
+               )
                AND companies.subscription_status
                     IN (\'active\', \'trial\')
                AND (
@@ -107,6 +125,8 @@ final class CompanyMembership
         $statement->execute([
             'user_id' => $userId,
             'company_id' => $companyId,
+            'platform_only' =>
+                $platformOnly ? 1 : 0,
         ]);
         $membership = $statement->fetch(
             \PDO::FETCH_ASSOC
@@ -170,8 +190,10 @@ final class CompanyMembership
              INNER JOIN roles
                  ON roles.role_id =
                     assignments.role_id
-             INNER JOIN role_permissions grants
-                 ON grants.role_id = roles.role_id
+             INNER JOIN company_role_permissions grants
+                 ON grants.company_id =
+                    assignments.company_id
+                AND grants.role_id = roles.role_id
              INNER JOIN permissions
                  ON permissions.permission_id =
                     grants.permission_id
@@ -273,7 +295,7 @@ final class CompanyMembership
         int $userId,
         string $roleCode,
         int $assignedBy
-    ): void {
+    ): bool {
         $statement = \db()->prepare(
             'INSERT INTO company_user_roles
                 (
@@ -299,6 +321,8 @@ final class CompanyMembership
             'assigned_by' => $assignedBy,
             'role_code' => $roleCode,
         ]);
+
+        return $statement->rowCount() > 0;
     }
 
     public function setActive(

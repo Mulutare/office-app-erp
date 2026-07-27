@@ -70,8 +70,14 @@ final class AuthService
         }
 
         $userId = (int) $user['user_id'];
+        $isPlatformAdmin = !empty(
+            $user['is_platform_admin']
+        );
         $companyId = $this
-            ->authenticationCompanyId($userId);
+            ->authenticationCompanyId(
+                $userId,
+                $isPlatformAdmin
+            );
 
         if (!(bool) $user['active']) {
             $this->loginAttempts->record(
@@ -185,8 +191,16 @@ final class AuthService
             (string) $user['username'];
         $_SESSION['auth']['display_name'] =
             (string) $user['display_name'];
+        $isPlatformAdmin = !empty(
+            $user['is_platform_admin']
+        );
+        $_SESSION['auth']['is_platform_admin'] =
+            $isPlatformAdmin;
         $companies = $this->memberships
-            ->activeForUser($userId);
+            ->activeForUser(
+                $userId,
+                $isPlatformAdmin
+            );
         $currentCompanyId = $_SESSION['auth'][
             'company'
         ]['company_id'] ?? null;
@@ -196,7 +210,8 @@ final class AuthService
             ? $this->memberships
                 ->activeMembership(
                     $userId,
-                    $currentCompanyId
+                    $currentCompanyId,
+                    $isPlatformAdmin
                 )
             : null;
 
@@ -223,10 +238,12 @@ final class AuthService
         $_SESSION['auth']['companies'] =
             $companies;
         $_SESSION['auth']['modules'] =
-            $this->companyModules
-                ->enabledNavigationModules(
-                    $currentCompanyId
-                );
+            $isPlatformAdmin
+                ? []
+                : $this->companyModules
+                    ->enabledNavigationModules(
+                        $currentCompanyId
+                    );
 
         return true;
     }
@@ -242,7 +259,8 @@ final class AuthService
         $membership = $this->memberships
             ->activeMembership(
                 $userId,
-                $companyId
+                $companyId,
+                $this->isPlatformAdministrator()
             );
 
         if ($membership === null) {
@@ -259,7 +277,10 @@ final class AuthService
             $userId,
             $membership,
             $this->memberships
-                ->activeForUser($userId)
+                ->activeForUser(
+                    $userId,
+                    $this->isPlatformAdministrator()
+                )
         );
 
         session_regenerate_id(true);
@@ -348,6 +369,13 @@ public function canAny(array $permissionCodes): bool
     }
 
     return false;
+}
+
+public function isPlatformAdministrator(): bool
+{
+    return !empty(
+        $_SESSION['auth']['is_platform_admin']
+    );
 }
     /**
      * @param array<string, mixed> $user
@@ -501,8 +529,14 @@ public function changePassword(
 private function completeLogin(array $user): array
 {
     $userId = (int) $user['user_id'];
+    $isPlatformAdmin = !empty(
+        $user['is_platform_admin']
+    );
     $companies = $this->memberships
-        ->activeForUser($userId);
+        ->activeForUser(
+            $userId,
+            $isPlatformAdmin
+        );
 
     if ($companies === []) {
         $this->loginAttempts->record(
@@ -551,10 +585,12 @@ private function completeLogin(array $user): array
                 $userId,
                 $companyId
             );
-        $modules = $this->companyModules
-            ->enabledNavigationModules(
-                $companyId
-            );
+        $modules = $isPlatformAdmin
+            ? []
+            : $this->companyModules
+                ->enabledNavigationModules(
+                    $companyId
+                );
 
         $this->auditLogs->record(
             $userId,
@@ -593,6 +629,8 @@ private function completeLogin(array $user): array
         'username' => (string) $user['username'],
         'display_name' =>
             (string) $user['display_name'],
+        'is_platform_admin' =>
+            $isPlatformAdmin,
         'roles' => $roles,
         'permissions' => $permissions,
         'company' => $company,
@@ -653,10 +691,14 @@ private function completeLogin(array $user): array
     }
 
     private function authenticationCompanyId(
-        int $userId
+        int $userId,
+        bool $platformOnly = false
     ): ?int {
         $companies = $this->memberships
-            ->activeForUser($userId);
+            ->activeForUser(
+                $userId,
+                $platformOnly
+            );
 
         if ($companies === []) {
             return null;
@@ -728,9 +770,11 @@ private function completeLogin(array $user): array
                 $companyId
             );
         $_SESSION['auth']['modules'] =
-            $this->companyModules
-                ->enabledNavigationModules(
-                    $companyId
-                );
+            $this->isPlatformAdministrator()
+                ? []
+                : $this->companyModules
+                    ->enabledNavigationModules(
+                        $companyId
+                    );
     }
 }

@@ -13,12 +13,15 @@ final class UserPasswordResetService
     private User $users;
     private TenantContext $tenant;
     private AuditLog $auditLogs;
+    private TemporaryPasswordGenerator $passwords;
 
     public function __construct()
     {
         $this->users = new User();
         $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
+        $this->passwords =
+            new TemporaryPasswordGenerator();
     }
 
     /**
@@ -68,8 +71,22 @@ final class UserPasswordResetService
             ];
         }
 
+        if ($this->users->isPrimaryCompanyOwner(
+            $companyId,
+            $userId
+        )) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'form' =>
+                        'The primary company owner password can only be recovered by the software vendor.',
+                ],
+            ];
+        }
+
         $temporaryPassword =
-            $this->generateTemporaryPassword();
+            $this->passwords->generate();
         $passwordHash = password_hash(
             $temporaryPassword,
             PASSWORD_DEFAULT
@@ -134,48 +151,4 @@ final class UserPasswordResetService
         ];
     }
 
-    private function generateTemporaryPassword(): string
-    {
-        $groups = [
-            'ABCDEFGHJKLMNPQRSTUVWXYZ',
-            'abcdefghijkmnopqrstuvwxyz',
-            '23456789',
-            '!@#$%&*?',
-        ];
-        $characters = [];
-
-        foreach ($groups as $group) {
-            $characters[] = $group[
-                random_int(0, strlen($group) - 1)
-            ];
-        }
-
-        $allCharacters = implode('', $groups);
-
-        while (count($characters) < 16) {
-            $characters[] = $allCharacters[
-                random_int(
-                    0,
-                    strlen($allCharacters) - 1
-                )
-            ];
-        }
-
-        for (
-            $index = count($characters) - 1;
-            $index > 0;
-            $index--
-        ) {
-            $swapIndex = random_int(0, $index);
-            [
-                $characters[$index],
-                $characters[$swapIndex],
-            ] = [
-                $characters[$swapIndex],
-                $characters[$index],
-            ];
-        }
-
-        return implode('', $characters);
-    }
 }

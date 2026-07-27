@@ -7,6 +7,8 @@ namespace App\Services;
 use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\CompanyMembership;
+use App\Models\Role;
+use App\Models\User;
 use DateTimeImmutable;
 use DateTimeZone;
 use PDOException;
@@ -18,14 +20,21 @@ final class CompanyProvisioningService
 
     private Company $companies;
     private CompanyMembership $memberships;
+    private Role $roles;
+    private User $users;
     private AuditLog $auditLogs;
+    private TemporaryPasswordGenerator $passwords;
 
     public function __construct()
     {
         $this->companies = new Company();
         $this->memberships =
             new CompanyMembership();
+        $this->roles = new Role();
+        $this->users = new User();
         $this->auditLogs = new AuditLog();
+        $this->passwords =
+            new TemporaryPasswordGenerator();
     }
 
     /**
@@ -43,6 +52,7 @@ final class CompanyProvisioningService
         );
         $allowedStatuses = [
             'all',
+            'pending',
             'active',
             'trial',
             'expired',
@@ -173,6 +183,7 @@ final class CompanyProvisioningService
         $company = $this->normalizeCompany(
             $input
         );
+        $owner = $this->normalizeOwner($input);
         $selectedCodes = $this->normalizeCodes(
             $input['module_codes'] ?? []
         );
@@ -194,6 +205,7 @@ final class CompanyProvisioningService
             $selectedCodes,
             $availableCodes
         );
+        $errors += $this->validateOwner($owner);
 
         if ($errors !== []) {
             return [
@@ -207,6 +219,18 @@ final class CompanyProvisioningService
             === 'trial'
                 ? 'trial'
                 : 'active';
+        $temporaryPassword =
+            $this->passwords->generate();
+        $passwordHash = password_hash(
+            $temporaryPassword,
+            PASSWORD_DEFAULT
+        );
+
+        if (!is_string($passwordHash)) {
+            throw new \RuntimeException(
+                'Unable to securely hash the owner password.'
+            );
+        }
 
         try {
             \db()->beginTransaction();
@@ -226,19 +250,43 @@ final class CompanyProvisioningService
                 ],
                 $provisionedBy
             );
+            $this->roles
+                ->copyPermissionTemplatesToCompany(
+                    $companyId,
+                    $provisionedBy
+                );
+            $ownerUserId = $this->users
+                ->createAdministrationUser(
+                    $owner['username'],
+                    $owner['email'],
+                    $owner['display_name'],
+                    $passwordHash,
+                    true
+                );
+            $this->companies->assignOwner(
+                $companyId,
+                $ownerUserId
+            );
             $this->memberships->add(
                 $companyId,
+                $ownerUserId,
                 $provisionedBy,
-                $provisionedBy,
-                false,
-                true
+                true,
+                false
             );
-            $this->memberships->assignRoleCode(
+            $roleAssigned =
+                $this->memberships->assignRoleCode(
                 $companyId,
-                $provisionedBy,
-                'system_administrator',
+                $ownerUserId,
+                'company_owner',
                 $provisionedBy
             );
+
+            if (!$roleAssigned) {
+                throw new \RuntimeException(
+                    'The Company Owner role is not configured.'
+                );
+            }
             $this->auditLogs->record(
                 $provisionedBy,
                 'PROVISION_COMPANY',
@@ -259,7 +307,12 @@ final class CompanyProvisioningService
                         ],
                     'module_codes' =>
                         $selectedCodes,
-                ]
+                    'approval_status' => 'pending',
+                    'owner_user_id' => $ownerUserId,
+                    'owner_username' =>
+                        $owner['username'],
+                ],
+                $companyId
             );
 
             \db()->commit();
@@ -272,6 +325,30 @@ final class CompanyProvisioningService
                 $exception instanceof PDOException
                 && $exception->getCode() === '23000'
             ) {
+                if ($this->users->usernameExists(
+                    $owner['username']
+                )) {
+                    return [
+                        'successful' => false,
+                        'errors' => [
+                            'owner_username' =>
+                                'That owner username is already in use.',
+                        ],
+                    ];
+                }
+
+                if ($this->users->emailExists(
+                    $owner['email']
+                )) {
+                    return [
+                        'successful' => false,
+                        'errors' => [
+                            'owner_email' =>
+                                'That owner email is already in use.',
+                        ],
+                    ];
+                }
+
                 return [
                     'successful' => false,
                     'errors' => [
@@ -288,6 +365,111 @@ final class CompanyProvisioningService
             'successful' => true,
             'errors' => [],
             'companyId' => $companyId,
+            'ownerUsername' => $owner['username'],
+            'temporaryPassword' =>
+                $temporaryPassword,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function approve(
+        int $companyId,
+        int $approvedBy
+    ): array {
+        $company = $this->companies
+            ->findForAdministration($companyId);
+
+        if ($company === null) {
+            return [
+                'successful' => false,
+                'notFound' => true,
+                'errors' => [],
+            ];
+        }
+
+        if (
+            (string) (
+                $company['approval_status'] ?? ''
+            ) === 'approved'
+        ) {
+            return [
+                'successful' => true,
+                'notFound' => false,
+                'changed' => false,
+                'errors' => [],
+            ];
+        }
+
+        $ownerUserId = (int) (
+            $company['owner_user_id'] ?? 0
+        );
+
+        if ($ownerUserId < 1) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'changed' => false,
+                'errors' => [
+                    'form' =>
+                        'Assign a company owner before approval.',
+                ],
+            ];
+        }
+
+        try {
+            \db()->beginTransaction();
+            $changed = $this->companies->approve(
+                $companyId,
+                $approvedBy
+            );
+
+            if ($changed) {
+                $this->memberships->setActive(
+                    $companyId,
+                    $ownerUserId,
+                    true
+                );
+                $this->auditLogs->record(
+                    $approvedBy,
+                    'APPROVE_COMPANY',
+                    'administration',
+                    'companies',
+                    (string) $companyId,
+                    [
+                        'approval_status' =>
+                            $company[
+                                'approval_status'
+                            ],
+                        'active' =>
+                            (bool) $company['active'],
+                    ],
+                    [
+                        'approval_status' =>
+                            'approved',
+                        'active' => true,
+                        'owner_user_id' =>
+                            $ownerUserId,
+                    ],
+                    $companyId
+                );
+            }
+
+            \db()->commit();
+        } catch (Throwable $exception) {
+            if (\db()->inTransaction()) {
+                \db()->rollBack();
+            }
+
+            throw $exception;
+        }
+
+        return [
+            'successful' => true,
+            'notFound' => false,
+            'changed' => $changed,
+            'errors' => [],
         ];
     }
 
@@ -435,6 +617,87 @@ final class CompanyProvisioningService
                 )
             ),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, string>
+     */
+    private function normalizeOwner(array $input): array
+    {
+        return [
+            'display_name' => trim(
+                (string) (
+                    $input['owner_display_name']
+                    ?? ''
+                )
+            ),
+            'username' => strtolower(trim(
+                (string) (
+                    $input['owner_username']
+                    ?? ''
+                )
+            )),
+            'email' => strtolower(trim(
+                (string) (
+                    $input['owner_email']
+                    ?? ''
+                )
+            )),
+        ];
+    }
+
+    /**
+     * @param array<string, string> $owner
+     *
+     * @return array<string, string>
+     */
+    private function validateOwner(array $owner): array
+    {
+        $errors = [];
+        $displayNameLength = mb_strlen(
+            $owner['display_name']
+        );
+
+        if (
+            $displayNameLength < 2
+            || $displayNameLength > 120
+        ) {
+            $errors['owner_display_name'] =
+                'Owner name must contain 2-120 characters.';
+        }
+
+        if (!preg_match(
+            '/^[a-z][a-z0-9._-]{2,49}$/',
+            $owner['username']
+        )) {
+            $errors['owner_username'] =
+                'Use 3-50 lowercase letters, numbers, dots, hyphens or underscores.';
+        } elseif ($this->users->usernameExists(
+            $owner['username']
+        )) {
+            $errors['owner_username'] =
+                'That owner username is already in use.';
+        }
+
+        if (
+            strlen($owner['email']) > 190
+            || !filter_var(
+                $owner['email'],
+                FILTER_VALIDATE_EMAIL
+            )
+        ) {
+            $errors['owner_email'] =
+                'Enter a valid owner email address.';
+        } elseif ($this->users->emailExists(
+            $owner['email']
+        )) {
+            $errors['owner_email'] =
+                'That owner email is already in use.';
+        }
+
+        return $errors;
     }
 
     /**
@@ -688,6 +951,20 @@ final class CompanyProvisioningService
         );
 
         if (empty($company['active'])) {
+            if (
+                (string) (
+                    $company['approval_status']
+                    ?? ''
+                ) === 'pending'
+            ) {
+                return [
+                    'statusLabel' =>
+                        'Pending approval',
+                    'statusTone' => 'warning',
+                    'isExpired' => $expired,
+                ];
+            }
+
             return [
                 'statusLabel' => 'Inactive',
                 'statusTone' => 'muted',

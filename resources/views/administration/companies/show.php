@@ -21,6 +21,16 @@ $notice = is_string(
 )
     ? $data['notice']
     : null;
+$ownerCredentials = is_array(
+    $data['ownerCredentials'] ?? null
+)
+    ? $data['ownerCredentials']
+    : null;
+$approvalErrors = is_array(
+    $data['approvalErrors'] ?? null
+)
+    ? $data['approvalErrors']
+    : [];
 $enabledModuleCount = (int) (
     $data['enabledModuleCount'] ?? 0
 );
@@ -37,6 +47,52 @@ $companyInitials = strtoupper(substr(
     </div>
 <?php endif; ?>
 
+<?php if ($ownerCredentials !== null): ?>
+    <section
+        class="alert alert-success credential-alert"
+        role="status"
+    >
+        <strong>
+            Company owner credentials
+        </strong>
+        <p>
+            Transfer these credentials securely. The
+            temporary password is displayed only once.
+        </p>
+        <dl class="credential-list">
+            <div>
+                <dt>Username</dt>
+                <dd>
+                    <?= e(
+                        $ownerCredentials['username']
+                        ?? ''
+                    ) ?>
+                </dd>
+            </div>
+            <div>
+                <dt>Temporary password</dt>
+                <dd>
+                    <code><?= e(
+                        $ownerCredentials[
+                            'temporary_password'
+                        ] ?? ''
+                    ) ?></code>
+                </dd>
+            </div>
+        </dl>
+        <p class="credential-warning">
+            The owner cannot sign in until the vendor
+            approves this company.
+        </p>
+    </section>
+<?php endif; ?>
+
+<?php if (!empty($approvalErrors['form'])): ?>
+    <div class="alert alert-danger" role="alert">
+        <?= e($approvalErrors['form']) ?>
+    </div>
+<?php endif; ?>
+
 <div class="company-profile-actions">
     <a
         href="/office_app/public/administration/companies"
@@ -44,6 +100,31 @@ $companyInitials = strtoupper(substr(
     >
         Back to companies
     </a>
+
+    <?php if (
+        ($company['approval_status'] ?? '')
+        === 'pending'
+    ): ?>
+        <form
+            method="post"
+            action="/office_app/public/administration/companies/approve"
+        >
+            <?= csrfField() ?>
+            <input
+                type="hidden"
+                name="company_id"
+                value="<?= e(
+                    $company['company_id'] ?? 0
+                ) ?>"
+            >
+            <button
+                type="submit"
+                class="btn btn-primary"
+            >
+                Approve and activate
+            </button>
+        </form>
+    <?php endif; ?>
 </div>
 
 <section class="card company-profile-hero">
@@ -132,6 +213,39 @@ $companyInitials = strtoupper(substr(
     </article>
 
     <article class="card company-profile-panel">
+        <h2>Company owner</h2>
+        <dl class="company-profile-list">
+            <div>
+                <dt>Name</dt>
+                <dd>
+                    <?= e(
+                        $company['owner_name']
+                        ?? 'Not assigned'
+                    ) ?>
+                </dd>
+            </div>
+            <div>
+                <dt>Username</dt>
+                <dd>
+                    <?= e(
+                        $company['owner_username']
+                        ?? 'Not assigned'
+                    ) ?>
+                </dd>
+            </div>
+            <div>
+                <dt>Email</dt>
+                <dd>
+                    <?= e(
+                        $company['owner_email']
+                        ?? 'Not assigned'
+                    ) ?>
+                </dd>
+            </div>
+        </dl>
+    </article>
+
+    <article class="card company-profile-panel">
         <h2>Workspace defaults</h2>
         <dl class="company-profile-list">
             <div>
@@ -203,6 +317,15 @@ $companyInitials = strtoupper(substr(
                     ) ?>
                 </dd>
             </div>
+            <div>
+                <dt>Approved by</dt>
+                <dd>
+                    <?= e(
+                        $company['approved_by_name']
+                        ?? 'Pending vendor approval'
+                    ) ?>
+                </dd>
+            </div>
         </dl>
     </article>
 </section>
@@ -215,8 +338,9 @@ $companyInitials = strtoupper(substr(
             </span>
             <h2>ERP module subscription</h2>
             <p>
-                This profile is read-only in the current
-                provisioning milestone.
+                These utilities were licensed by the vendor.
+                They become available only after approval
+                and user permission assignment.
             </p>
         </div>
         <span>

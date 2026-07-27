@@ -27,6 +27,10 @@ final class AdministrationController
                 'audit.logs.view',
             ]);
 
+        $isPlatformAdmin = !empty(
+            $_SESSION['auth']['is_platform_admin']
+        );
+
         \view('layouts.app', [
             'applicationName' => \config(
                 'name',
@@ -36,9 +40,13 @@ final class AdministrationController
                 'environment',
                 'unknown'
             ),
-            'pageTitle' => 'Administration',
+            'pageTitle' => $isPlatformAdmin
+                ? 'Vendor Administration'
+                : 'Company Administration',
             'pageDescription' =>
-                'Manage customer companies, modules, users, access and system activity.',
+                $isPlatformAdmin
+                    ? 'Approve customer companies, assign licensed utilities and govern the software platform.'
+                    : 'Manage this company’s users, roles, permissions and audit activity.',
             'contentView' => 'administration.index',
             'user' => $_SESSION['auth'],
         ]);

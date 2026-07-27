@@ -107,6 +107,7 @@ $companyListUrl = static function (
                 <?php
                 $statuses = [
                     'all' => 'All companies',
+                    'pending' => 'Pending approval',
                     'active' => 'Active',
                     'trial' => 'Trial',
                     'expired' => 'Expired',

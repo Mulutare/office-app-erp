@@ -23,9 +23,7 @@ final class ModuleAdministrationController
     public function index(): void
     {
         $this->authorization
-            ->requirePermission(
-                'administration.modules.manage'
-            );
+            ->requirePlatformAdministrator();
         $catalog = $this->modules->catalog();
 
         \view('layouts.app', [
@@ -58,9 +56,7 @@ final class ModuleAdministrationController
     public function update(): void
     {
         $this->authorization
-            ->requirePermission(
-                'administration.modules.manage'
-            );
+            ->requirePlatformAdministrator();
 
         if (
             !\verifyCsrfToken(

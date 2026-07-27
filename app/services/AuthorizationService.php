@@ -69,6 +69,17 @@ final class AuthorizationService
         $this->deny();
     }
 
+    public function requirePlatformAdministrator(): void
+    {
+        $this->requireAuthentication();
+
+        if ($this->auth->isPlatformAdministrator()) {
+            return;
+        }
+
+        $this->deny();
+    }
+
     public function requireModule(
         string $moduleCode
     ): void {

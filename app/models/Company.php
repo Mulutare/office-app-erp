@@ -57,8 +57,12 @@ final class Company
                 companies.subscription_status,
                 companies.subscription_expires_at,
                 companies.brand_primary_color,
+                companies.approval_status,
+                companies.approved_at,
                 companies.active,
                 companies.created_at,
+                owner.display_name AS owner_name,
+                owner.username AS owner_username,
                 provisioner.display_name
                     AS provisioned_by_name,
                 COUNT(company_modules.module_id)
@@ -80,6 +84,9 @@ final class Company
              LEFT JOIN users provisioner
                  ON provisioner.user_id =
                     companies.provisioned_by
+             LEFT JOIN users owner
+                 ON owner.user_id =
+                    companies.owner_user_id
              LEFT JOIN company_modules
                  ON company_modules.company_id =
                     companies.company_id
@@ -99,8 +106,12 @@ final class Company
                 companies.subscription_status,
                 companies.subscription_expires_at,
                 companies.brand_primary_color,
+                companies.approval_status,
+                companies.approved_at,
                 companies.active,
                 companies.created_at,
+                owner.display_name,
+                owner.username,
                 provisioner.display_name
              ORDER BY
                 companies.created_at DESC,
@@ -198,6 +209,10 @@ final class Company
                     subscription_status,
                     subscription_expires_at,
                     brand_primary_color,
+                    approval_status,
+                    approved_at,
+                    approved_by,
+                    owner_user_id,
                     active,
                     provisioned_by
                 )
@@ -214,7 +229,11 @@ final class Company
                     :subscription_status,
                     :subscription_expires_at,
                     :brand_primary_color,
-                    TRUE,
+                    \'pending\',
+                    NULL,
+                    NULL,
+                    NULL,
+                    FALSE,
                     :provisioned_by
                 )'
         );
@@ -329,15 +348,28 @@ final class Company
                 companies.subscription_status,
                 companies.subscription_expires_at,
                 companies.brand_primary_color,
+                companies.approval_status,
+                companies.approved_at,
                 companies.active,
                 companies.created_at,
                 companies.updated_at,
+                owner.user_id AS owner_user_id,
+                owner.username AS owner_username,
+                owner.email AS owner_email,
+                owner.display_name AS owner_name,
+                approver.display_name AS approved_by_name,
                 provisioner.display_name
                     AS provisioned_by_name
              FROM companies
              LEFT JOIN users provisioner
                  ON provisioner.user_id =
                     companies.provisioned_by
+             LEFT JOIN users owner
+                 ON owner.user_id =
+                    companies.owner_user_id
+             LEFT JOIN users approver
+                 ON approver.user_id =
+                    companies.approved_by
              WHERE companies.company_id =
                     :company_id
                AND companies.deleted_at IS NULL
@@ -353,6 +385,45 @@ final class Company
         return is_array($company)
             ? $company
             : null;
+    }
+
+    public function assignOwner(
+        int $companyId,
+        int $ownerUserId
+    ): void {
+        $statement = \db()->prepare(
+            'UPDATE companies
+             SET owner_user_id = :owner_user_id
+             WHERE company_id = :company_id
+               AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'owner_user_id' => $ownerUserId,
+            'company_id' => $companyId,
+        ]);
+    }
+
+    public function approve(
+        int $companyId,
+        int $approvedBy
+    ): bool {
+        $statement = \db()->prepare(
+            'UPDATE companies
+             SET approval_status = \'approved\',
+                 approved_at = NOW(),
+                 approved_by = :approved_by,
+                 active = TRUE
+             WHERE company_id = :company_id
+               AND approval_status = \'pending\'
+               AND owner_user_id IS NOT NULL
+               AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'approved_by' => $approvedBy,
+            'company_id' => $companyId,
+        ]);
+
+        return $statement->rowCount() === 1;
     }
 
     /**
@@ -427,9 +498,13 @@ final class Company
                 $searchValue;
         }
 
-        if ($status === 'active') {
+        if ($status === 'pending') {
             $conditions[] =
-                'companies.active = TRUE
+                'companies.approval_status = \'pending\'';
+        } elseif ($status === 'active') {
+            $conditions[] =
+                'companies.approval_status = \'approved\'
+                 AND companies.active = TRUE
                  AND companies.subscription_status = \'active\'
                  AND (
                     companies.subscription_expires_at IS NULL

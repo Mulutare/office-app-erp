@@ -10,8 +10,8 @@ use Throwable;
 
 final class UserAccountStatusService
 {
-    private const SYSTEM_ADMINISTRATOR =
-        'system_administrator';
+    private const COMPANY_OWNER =
+        'company_owner';
 
     private User $users;
     private TenantContext $tenant;
@@ -76,15 +76,32 @@ final class UserAccountStatusService
 
         if (
             !$active
+            && $this->users->isPrimaryCompanyOwner(
+                $companyId,
+                $userId
+            )
+        ) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'form' =>
+                        'The primary company owner cannot be deactivated.',
+                ],
+            ];
+        }
+
+        if (
+            !$active
             && $currentlyActive
             && $this->users->hasRoleCode(
                 $companyId,
                 $userId,
-                self::SYSTEM_ADMINISTRATOR
+                self::COMPANY_OWNER
             )
             && $this->users->activeUserCountForRole(
                 $companyId,
-                self::SYSTEM_ADMINISTRATOR
+                self::COMPANY_OWNER
             ) <= 1
         ) {
             return [
@@ -92,7 +109,7 @@ final class UserAccountStatusService
                 'notFound' => false,
                 'errors' => [
                     'form' =>
-                        'The last active system administrator cannot be deactivated.',
+                        'The last active company owner cannot be deactivated.',
                 ],
             ];
         }

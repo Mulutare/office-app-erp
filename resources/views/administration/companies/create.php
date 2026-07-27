@@ -236,6 +236,111 @@ if (
                 <div class="company-form-heading">
                     <span>02</span>
                     <div>
+                        <h2>Company owner</h2>
+                        <p>
+                            Create the first tenant owner.
+                            Access remains blocked until vendor
+                            approval.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="owner_display_name">
+                            Owner name
+                        </label>
+                        <input
+                            id="owner_display_name"
+                            name="owner_display_name"
+                            type="text"
+                            value="<?= e(
+                                $old[
+                                    'owner_display_name'
+                                ] ?? ''
+                            ) ?>"
+                            maxlength="120"
+                            placeholder="Primary company owner"
+                            required
+                        >
+                        <?php if (!empty(
+                            $errors[
+                                'owner_display_name'
+                            ]
+                        )): ?>
+                            <small class="field-error">
+                                <?= e($errors[
+                                    'owner_display_name'
+                                ]) ?>
+                            </small>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="owner_username">
+                            Owner username
+                        </label>
+                        <input
+                            id="owner_username"
+                            name="owner_username"
+                            type="text"
+                            value="<?= e(
+                                $old['owner_username']
+                                ?? ''
+                            ) ?>"
+                            maxlength="50"
+                            autocomplete="off"
+                            placeholder="company.owner"
+                            required
+                        >
+                        <?php if (!empty(
+                            $errors['owner_username']
+                        )): ?>
+                            <small class="field-error">
+                                <?= e($errors[
+                                    'owner_username'
+                                ]) ?>
+                            </small>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="form-field form-field-wide">
+                        <label for="owner_email">
+                            Owner email
+                        </label>
+                        <input
+                            id="owner_email"
+                            name="owner_email"
+                            type="email"
+                            value="<?= e(
+                                $old['owner_email'] ?? ''
+                            ) ?>"
+                            maxlength="190"
+                            autocomplete="off"
+                            placeholder="owner@company.com"
+                            required
+                        >
+                        <?php if (!empty(
+                            $errors['owner_email']
+                        )): ?>
+                            <small class="field-error">
+                                <?= e($errors[
+                                    'owner_email'
+                                ]) ?>
+                            </small>
+                        <?php endif; ?>
+                        <small class="field-help">
+                            A secure temporary password will be
+                            shown once after provisioning.
+                        </small>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card company-form-section">
+                <div class="company-form-heading">
+                    <span>03</span>
+                    <div>
                         <h2>Locale and branding</h2>
                         <p>
                             Establish accounting, time and
@@ -389,7 +494,7 @@ if (
 
             <section class="card company-form-section">
                 <div class="company-form-heading">
-                    <span>03</span>
+                    <span>04</span>
                     <div>
                         <h2>Module subscription</h2>
                         <p>
@@ -552,8 +657,9 @@ if (
                 <div class="company-provisioning-note">
                     <strong>Atomic provisioning</strong>
                     <p>
-                        The workspace, module licenses and
-                        audit entry are created together.
+                        The pending workspace, owner account,
+                        module licenses and audit entry are
+                        created together.
                     </p>
                 </div>
             </section>

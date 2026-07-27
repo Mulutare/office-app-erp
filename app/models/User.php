@@ -25,6 +25,7 @@ final class User
                 email,
                 password_hash,
                 display_name,
+                is_platform_admin,
                 active,
                 must_change_password,
                 failed_login_count,
@@ -65,6 +66,7 @@ final class User
                 username,
                 email,
                 display_name,
+                is_platform_admin,
                 active,
                 must_change_password,
                 failed_login_count,
@@ -389,10 +391,11 @@ public function permissionCodes(
     $statement = \db()->prepare(
         'SELECT DISTINCT p.code
          FROM permissions p
-         INNER JOIN role_permissions rp
+         INNER JOIN company_role_permissions rp
              ON rp.permission_id = p.permission_id
          INNER JOIN company_user_roles ur
-             ON ur.role_id = rp.role_id
+             ON ur.company_id = rp.company_id
+            AND ur.role_id = rp.role_id
          INNER JOIN roles r
              ON r.role_id = ur.role_id
          WHERE ur.user_id = :user_id
@@ -866,7 +869,6 @@ public function unlockAdministrationAccount(
     );
 
     $statement->execute([
-        'company_id' => $companyId,
         'user_id' => $userId,
     ]);
 }
@@ -891,6 +893,26 @@ public function hasRoleCode(
         'user_id' => $userId,
         'company_id' => $companyId,
         'role_code' => $roleCode,
+    ]);
+
+    return $statement->fetchColumn() !== false;
+}
+
+public function isPrimaryCompanyOwner(
+    int $companyId,
+    int $userId
+): bool {
+    $statement = \db()->prepare(
+        'SELECT 1
+         FROM companies
+         WHERE company_id = :company_id
+           AND owner_user_id = :user_id
+           AND deleted_at IS NULL
+         LIMIT 1'
+    );
+    $statement->execute([
+        'company_id' => $companyId,
+        'user_id' => $userId,
     ]);
 
     return $statement->fetchColumn() !== false;
@@ -1037,10 +1059,11 @@ public function administrationPermissions(
             p.module,
             p.description
          FROM permissions p
-         INNER JOIN role_permissions rp
+         INNER JOIN company_role_permissions rp
              ON rp.permission_id = p.permission_id
          INNER JOIN company_user_roles ur
-             ON ur.role_id = rp.role_id
+             ON ur.company_id = rp.company_id
+            AND ur.role_id = rp.role_id
          INNER JOIN roles r
              ON r.role_id = ur.role_id
          WHERE ur.user_id = :user_id

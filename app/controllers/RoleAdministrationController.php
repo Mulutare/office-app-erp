@@ -85,9 +85,17 @@ final class RoleAdministrationController
                 $details['permissions'],
             'assignedUsers' => $details['users'],
             'canEditPermissions' =>
-                (string) (
-                    $details['role']['code'] ?? ''
-                ) !== 'system_administrator',
+                !in_array(
+                    (string) (
+                        $details['role']['code']
+                        ?? ''
+                    ),
+                    [
+                        'system_administrator',
+                        'company_owner',
+                    ],
+                    true
+                ),
             'successMessage' => \getFlash(
                 'role_permission_success'
             ),
@@ -108,13 +116,17 @@ final class RoleAdministrationController
             $this->notFound();
         }
 
-        if (
-            (string) $formData['role']['code']
-            === 'system_administrator'
-        ) {
+        if (in_array(
+            (string) $formData['role']['code'],
+            [
+                'system_administrator',
+                'company_owner',
+            ],
+            true
+        )) {
             \flash(
                 'role_permission_success',
-                'The System Administrator permission baseline is protected.'
+                'This ownership permission baseline is protected.'
             );
 
             \redirect(

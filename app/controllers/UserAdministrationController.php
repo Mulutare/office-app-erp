@@ -64,6 +64,15 @@ final class UserAdministrationController
         }
 
         $profile = $details['user'];
+        $currentUserId = (int) (
+            $_SESSION['auth']['user_id'] ?? 0
+        );
+        $isSelf = (int) (
+            $profile['user_id'] ?? 0
+        ) === $currentUserId;
+        $isProtectedOwner =
+            !empty($profile['is_primary_owner'])
+            && !$isSelf;
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -98,30 +107,20 @@ final class UserAdministrationController
                 'administration.roles.manage',
                 $_SESSION['auth']['permissions'] ?? [],
                 true
-            ),
-            'canResetPassword' => (int) (
-                $profile['user_id'] ?? 0
-            ) !== (int) (
-                $_SESSION['auth']['user_id'] ?? 0
-            ),
+            ) && !$isProtectedOwner,
+            'canResetPassword' =>
+                !$isSelf && !$isProtectedOwner,
             'resetCredentials' => \getFlash(
                 'reset_user_credentials'
             ),
-            'canChangeStatus' => (int) (
-                $profile['user_id'] ?? 0
-            ) !== (int) (
-                $_SESSION['auth']['user_id'] ?? 0
-            ),
+            'canChangeStatus' =>
+                !$isSelf && !$isProtectedOwner,
             'canUnlock' => (
                 !empty($profile['is_locked'])
                 || (int) (
                     $profile['failed_login_count'] ?? 0
                 ) > 0
-            ) && (int) (
-                $profile['user_id'] ?? 0
-            ) !== (int) (
-                $_SESSION['auth']['user_id'] ?? 0
-            ),
+            ) && !$isSelf,
             'canViewActivity' => in_array(
                 'audit.logs.view',
                 $_SESSION['auth']['permissions'] ?? [],

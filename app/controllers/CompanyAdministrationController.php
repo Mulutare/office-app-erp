@@ -22,9 +22,8 @@ final class CompanyAdministrationController
 
     public function index(): void
     {
-        $this->authorization->requirePermission(
-            'administration.companies.manage'
-        );
+        $this->authorization
+            ->requirePlatformAdministrator();
         $listing = $this->companies->listing(
             $this->queryString('search'),
             $this->queryString(
@@ -61,9 +60,8 @@ final class CompanyAdministrationController
 
     public function create(): void
     {
-        $this->authorization->requirePermission(
-            'administration.companies.manage'
-        );
+        $this->authorization
+            ->requirePlatformAdministrator();
         $options = $this->companies
             ->formOptions();
 
@@ -98,9 +96,8 @@ final class CompanyAdministrationController
 
     public function store(): void
     {
-        $this->authorization->requirePermission(
-            'administration.companies.manage'
-        );
+        $this->authorization
+            ->requirePlatformAdministrator();
 
         if (
             !\verifyCsrfToken(
@@ -148,6 +145,14 @@ final class CompanyAdministrationController
                 ),
             'module_codes' =>
                 $_POST['module_codes'] ?? [],
+            'owner_display_name' =>
+                \postString(
+                    'owner_display_name'
+                ),
+            'owner_username' =>
+                \postString('owner_username'),
+            'owner_email' =>
+                \postString('owner_email'),
         ];
         $result = $this->companies->create(
             $input,
@@ -170,7 +175,16 @@ final class CompanyAdministrationController
 
         \flash(
             'company_notice',
-            'Customer company was provisioned successfully.'
+            'Customer company is pending vendor approval.'
+        );
+        \flash(
+            'company_owner_credentials',
+            [
+                'username' =>
+                    $result['ownerUsername'],
+                'temporary_password' =>
+                    $result['temporaryPassword'],
+            ]
         );
         \redirect(
             '/administration/companies/view?id='
@@ -180,9 +194,8 @@ final class CompanyAdministrationController
 
     public function show(): void
     {
-        $this->authorization->requirePermission(
-            'administration.companies.manage'
-        );
+        $this->authorization
+            ->requirePlatformAdministrator();
         $details = $this->companies->details(
             $this->queryInteger('id')
         );
@@ -216,7 +229,69 @@ final class CompanyAdministrationController
             'notice' => \getFlash(
                 'company_notice'
             ),
+            'ownerCredentials' => \getFlash(
+                'company_owner_credentials'
+            ),
+            'approvalErrors' => \getFlash(
+                'company_approval_errors',
+                []
+            ),
         ]);
+    }
+
+    public function approve(): void
+    {
+        $this->authorization
+            ->requirePlatformAdministrator();
+        $companyId = $this->postInteger(
+            'company_id'
+        );
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('company_approval_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+            \redirect(
+                '/administration/companies/view?id='
+                . $companyId
+            );
+        }
+
+        $result = $this->companies->approve(
+            $companyId,
+            (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            )
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'company_approval_errors',
+                $result['errors']
+            );
+            \redirect(
+                '/administration/companies/view?id='
+                . $companyId
+            );
+        }
+
+        \flash(
+            'company_notice',
+            !empty($result['changed'])
+                ? 'Company approved. The owner can now sign in.'
+                : 'The company was already approved.'
+        );
+        \redirect(
+            '/administration/companies/view?id='
+            . $companyId
+        );
     }
 
     private function queryString(
@@ -244,6 +319,21 @@ final class CompanyAdministrationController
             && ctype_digit($value)
                 ? (int) $value
                 : $default;
+    }
+
+    private function postInteger(
+        string $key
+    ): int {
+        $value = $_POST[$key] ?? null;
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        return is_string($value)
+            && ctype_digit($value)
+                ? (int) $value
+                : 0;
     }
 
     private function notFound(): void

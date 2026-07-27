@@ -3413,7 +3413,10 @@ a {
 
 .company-profile-actions {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
     margin-bottom: 16px;
 }
 
@@ -3471,7 +3474,7 @@ a {
 .company-profile-grid {
     display: grid;
     grid-template-columns:
-        repeat(3, minmax(0, 1fr));
+        repeat(2, minmax(0, 1fr));
     gap: 16px;
     margin-top: 16px;
 }

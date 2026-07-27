@@ -10,8 +10,10 @@ use Throwable;
 
 final class RolePermissionUpdateService
 {
-    private const PROTECTED_ROLE =
-        'system_administrator';
+    private const PROTECTED_ROLES = [
+        'system_administrator',
+        'company_owner',
+    ];
 
     private Role $roles;
     private TenantContext $tenant;
@@ -29,6 +31,7 @@ final class RolePermissionUpdateService
      */
     public function formData(int $roleId): ?array
     {
+        $companyId = $this->tenant->companyId();
         $role = $this->roles
             ->findForAdministration($roleId);
 
@@ -39,9 +42,18 @@ final class RolePermissionUpdateService
         return [
             'role' => $role,
             'permissions' =>
-                $this->roles->activePermissions(),
+                $this->roles->activePermissions(
+                    !empty(
+                        $_SESSION['auth'][
+                            'is_platform_admin'
+                        ]
+                    )
+                ),
             'selectedPermissionIds' =>
-                $this->roles->permissionIds($roleId),
+                $this->roles->permissionIds(
+                    $companyId,
+                    $roleId
+                ),
         ];
     }
 
@@ -64,16 +76,17 @@ final class RolePermissionUpdateService
             ];
         }
 
-        if (
-            (string) $role['code']
-            === self::PROTECTED_ROLE
-        ) {
+        if (in_array(
+            (string) $role['code'],
+            self::PROTECTED_ROLES,
+            true
+        )) {
             return [
                 'successful' => false,
                 'notFound' => false,
                 'errors' => [
                     'form' =>
-                        'The System Administrator permission baseline is protected.',
+                        'This ownership permission baseline is protected.',
                 ],
             ];
         }
@@ -108,8 +121,14 @@ final class RolePermissionUpdateService
             ];
         }
 
+        $includePlatformPermissions = !empty(
+            $_SESSION['auth']['is_platform_admin']
+        );
         $validPermissionIds = $this->roles
-            ->validActivePermissionIds($permissionIds);
+            ->validActivePermissionIds(
+                $permissionIds,
+                $includePlatformPermissions
+            );
         sort($permissionIds);
         sort($validPermissionIds);
 
@@ -127,7 +146,9 @@ final class RolePermissionUpdateService
         $codeMap = [];
 
         foreach (
-            $this->roles->activePermissions()
+            $this->roles->activePermissions(
+                $includePlatformPermissions
+            )
             as $permission
         ) {
             $codeMap[(int) $permission['permission_id']] =
@@ -138,6 +159,7 @@ final class RolePermissionUpdateService
             \db()->beginTransaction();
 
             if (!$this->roles->lockForPermissionUpdate(
+                $this->tenant->companyId(),
                 $roleId
             )) {
                 \db()->rollBack();
@@ -167,7 +189,10 @@ final class RolePermissionUpdateService
             }
 
             $existingIds = $this->roles
-                ->permissionIds($roleId);
+                ->permissionIds(
+                    $this->tenant->companyId(),
+                    $roleId
+                );
             sort($existingIds);
 
             if ($existingIds === $validPermissionIds) {
@@ -182,8 +207,10 @@ final class RolePermissionUpdateService
             }
 
             $this->roles->replacePermissions(
+                $this->tenant->companyId(),
                 $roleId,
-                $validPermissionIds
+                $validPermissionIds,
+                $updatedBy
             );
 
             $this->auditLogs->record(

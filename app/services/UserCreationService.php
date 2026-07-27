@@ -17,6 +17,7 @@ final class UserCreationService
     private CompanyMembership $memberships;
     private TenantContext $tenant;
     private AuditLog $auditLogs;
+    private TemporaryPasswordGenerator $passwords;
 
     public function __construct()
     {
@@ -26,6 +27,8 @@ final class UserCreationService
             new CompanyMembership();
         $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
+        $this->passwords =
+            new TemporaryPasswordGenerator();
     }
 
     /**
@@ -33,7 +36,7 @@ final class UserCreationService
      */
     public function roles(): array
     {
-        return $this->roles->activeRoles();
+        return $this->roles->activeRoles(false);
     }
 
     /**
@@ -83,7 +86,10 @@ final class UserCreationService
         }
 
         $validRoleIds = $this->roles
-            ->validActiveRoleIds($roleIds);
+            ->validActiveRoleIds(
+                $roleIds,
+                false
+            );
 
         sort($roleIds);
         sort($validRoleIds);
@@ -99,7 +105,7 @@ final class UserCreationService
         }
 
         $temporaryPassword =
-            $this->generateTemporaryPassword();
+            $this->passwords->generate();
 
         $passwordHash = password_hash(
             $temporaryPassword,
@@ -274,75 +280,4 @@ final class UserCreationService
         );
     }
 
-    private function generateTemporaryPassword(): string
-    {
-        $uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-        $lowercase = 'abcdefghijkmnopqrstuvwxyz';
-        $numbers = '23456789';
-        $symbols = '!@#$%&*?';
-
-        $characters = [
-            $uppercase[
-                random_int(
-                    0,
-                    strlen($uppercase) - 1
-                )
-            ],
-            $lowercase[
-                random_int(
-                    0,
-                    strlen($lowercase) - 1
-                )
-            ],
-            $numbers[
-                random_int(
-                    0,
-                    strlen($numbers) - 1
-                )
-            ],
-            $symbols[
-                random_int(
-                    0,
-                    strlen($symbols) - 1
-                )
-            ],
-        ];
-
-        $allCharacters =
-            $uppercase
-            . $lowercase
-            . $numbers
-            . $symbols;
-
-        while (count($characters) < 16) {
-            $characters[] =
-                $allCharacters[
-                    random_int(
-                        0,
-                        strlen($allCharacters) - 1
-                    )
-                ];
-        }
-
-        for (
-            $index = count($characters) - 1;
-            $index > 0;
-            $index--
-        ) {
-            $swapIndex = random_int(
-                0,
-                $index
-            );
-
-            [
-                $characters[$index],
-                $characters[$swapIndex],
-            ] = [
-                $characters[$swapIndex],
-                $characters[$index],
-            ];
-        }
-
-        return implode('', $characters);
-    }
 }

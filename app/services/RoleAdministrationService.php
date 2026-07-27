@@ -44,13 +44,18 @@ final class RoleAdministrationService
             return null;
         }
 
+        $companyId = $this->tenant->companyId();
+
         return [
             'role' => $role,
             'permissions' => $this->roles
-                ->permissionsForRole($roleId),
+                ->permissionsForRole(
+                    $companyId,
+                    $roleId
+                ),
             'users' => $this->roles
                 ->usersForRole(
-                    $this->tenant->companyId(),
+                    $companyId,
                     $roleId
                 ),
         ];

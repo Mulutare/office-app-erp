@@ -48,7 +48,8 @@ final class UserUpdateService
 
         return [
             'profile' => $user,
-            'roles' => $this->roles->activeRoles(),
+            'roles' => $this->roles
+                ->activeRoles(false),
         ];
     }
 
@@ -76,6 +77,23 @@ final class UserUpdateService
             ];
         }
 
+        if (
+            $userId !== $updatedBy
+            && $this->users->isPrimaryCompanyOwner(
+                $companyId,
+                $userId
+            )
+        ) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'form' =>
+                        'The primary company owner can only update their own profile.',
+                ],
+            ];
+        }
+
         $username = strtolower(trim(
             (string) ($input['username'] ?? '')
         ));
@@ -99,7 +117,10 @@ final class UserUpdateService
         );
 
         $validRoleIds = $this->roles
-            ->validActiveRoleIds($roleIds);
+            ->validActiveRoleIds(
+                $roleIds,
+                false
+            );
 
         sort($roleIds);
         sort($validRoleIds);
