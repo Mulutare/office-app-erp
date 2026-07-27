@@ -7,6 +7,7 @@ use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
 use App\Controllers\DashboardController;
 use App\Controllers\HomeController;
+use App\Controllers\HrController;
 use App\Controllers\RoleAdministrationController;
 use App\Controllers\UserActivityController;
 
@@ -18,6 +19,7 @@ $userActivityController =
     new UserActivityController();
 $auditLogController =
     new AuditLogController();
+$hrController = new HrController();
 
 $router = new Router();
 
@@ -30,6 +32,14 @@ $dashboardController =
 $router->get(
     '/administration/users',
     [$userAdministrationController, 'index']
+);
+$router->get(
+    '/hr',
+    [$hrController, 'index']
+);
+$router->get(
+    '/hr/employees/view',
+    [$hrController, 'show']
 );
 $router->get(
     '/administration/audit-logs',
