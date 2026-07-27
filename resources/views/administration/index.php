@@ -22,9 +22,18 @@ $modules = [
             'administration.roles.manage',
     ],
     [
+        'title' => 'Customer companies',
+        'description' =>
+            'Provision customer workspaces and their initial ERP subscriptions.',
+        'path' =>
+            '/office_app/public/administration/companies',
+        'permission' =>
+            'administration.companies.manage',
+    ],
+    [
         'title' => 'Company modules',
         'description' =>
-            'Enable licensed ERP modules for this company.',
+            'Enable licensed modules for the configured workspace.',
         'path' =>
             '/office_app/public/administration/modules',
         'permission' =>

@@ -70,6 +70,7 @@ $navigation[] = [
     'permissions' => [
         'administration.users.manage',
         'administration.roles.manage',
+        'administration.companies.manage',
         'administration.modules.manage',
         'audit.logs.view',
     ],

@@ -5,6 +5,7 @@ use App\Controllers\AuditLogController;
 use App\Controllers\UserAdministrationController;
 use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
+use App\Controllers\CompanyAdministrationController;
 use App\Controllers\DashboardController;
 use App\Controllers\EmployeeActivityController;
 use App\Controllers\FinanceController;
@@ -28,6 +29,8 @@ $employeeActivityController =
 $financeController = new FinanceController();
 $moduleAdministrationController =
     new ModuleAdministrationController();
+$companyAdministrationController =
+    new CompanyAdministrationController();
 
 $router = new Router();
 
@@ -104,6 +107,22 @@ $router->get(
 $router->post(
     '/administration/modules',
     [$moduleAdministrationController, 'update']
+);
+$router->get(
+    '/administration/companies',
+    [$companyAdministrationController, 'index']
+);
+$router->get(
+    '/administration/companies/create',
+    [$companyAdministrationController, 'create']
+);
+$router->get(
+    '/administration/companies/view',
+    [$companyAdministrationController, 'show']
+);
+$router->post(
+    '/administration/companies',
+    [$companyAdministrationController, 'store']
 );
 $router->get(
     '/administration/audit-logs/view',
