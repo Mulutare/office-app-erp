@@ -82,7 +82,10 @@ $user = is_array($data['user'] ?? null)
                 </p>
 
                 <p class="brand-subtitle">
-                    Enterprise Management System
+                    <?= e(
+                        $user['company']['name']
+                        ?? 'Enterprise Management System'
+                    ) ?>
                 </p>
             </div>
         </div>

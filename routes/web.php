@@ -10,6 +10,7 @@ use App\Controllers\EmployeeActivityController;
 use App\Controllers\FinanceController;
 use App\Controllers\HomeController;
 use App\Controllers\HrController;
+use App\Controllers\ModuleAdministrationController;
 use App\Controllers\RoleAdministrationController;
 use App\Controllers\UserActivityController;
 
@@ -25,6 +26,8 @@ $hrController = new HrController();
 $employeeActivityController =
     new EmployeeActivityController();
 $financeController = new FinanceController();
+$moduleAdministrationController =
+    new ModuleAdministrationController();
 
 $router = new Router();
 
@@ -93,6 +96,14 @@ $router->post(
 $router->get(
     '/administration/audit-logs',
     [$auditLogController, 'index']
+);
+$router->get(
+    '/administration/modules',
+    [$moduleAdministrationController, 'index']
+);
+$router->post(
+    '/administration/modules',
+    [$moduleAdministrationController, 'update']
 );
 $router->get(
     '/administration/audit-logs/view',

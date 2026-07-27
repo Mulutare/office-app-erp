@@ -22,6 +22,15 @@ $modules = [
             'administration.roles.manage',
     ],
     [
+        'title' => 'Company modules',
+        'description' =>
+            'Enable licensed ERP modules for this company.',
+        'path' =>
+            '/office_app/public/administration/modules',
+        'permission' =>
+            'administration.modules.manage',
+    ],
+    [
         'title' => 'Audit logs',
         'description' =>
             'Review security and business activity records.',

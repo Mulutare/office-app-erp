@@ -5,15 +5,18 @@ declare(strict_types=1);
 $currentPath = (string) (
     $data['currentPath'] ?? ''
 );
-
 $user = is_array($data['user'] ?? null)
     ? $data['user']
     : [];
-
 $permissions = is_array(
     $user['permissions'] ?? null
 )
     ? $user['permissions']
+    : [];
+$enabledModules = is_array(
+    $user['modules'] ?? null
+)
+    ? $user['modules']
     : [];
 
 $navigation = [
@@ -21,69 +24,60 @@ $navigation = [
         'label' => 'Dashboard',
         'path' =>
             '/office_app/public/dashboard',
-        'icon' => '⌂',
+        'icon' => 'DB',
         'permissions' => [
             'dashboard.view',
         ],
     ],
-    [
-        'label' => 'Human Resources',
-        'path' =>
-            '/office_app/public/hr',
-        'icon' => '◉',
-        'permissions' => [
-            'hr.records.view',
-            'hr.records.manage',
-        ],
-    ],
-    [
-        'label' => 'Finance',
-        'path' =>
-            '/office_app/public/finance',
-        'icon' => '¤',
-        'permissions' => [
-            'finance.records.view',
-            'finance.records.manage',
-            'finance.requests.approve',
-        ],
-    ],
-    [
-        'label' => 'IT Management',
-        'path' =>
-            '/office_app/public/it',
-        'icon' => '⚙',
-        'permissions' => [
-            'it.records.view',
-            'it.records.manage',
-        ],
-    ],
-    [
-        'label' => 'Business Development',
-        'path' =>
-            '/office_app/public/business',
-        'icon' => '◆',
-        'permissions' => [
-            'business.records.view',
-            'business.records.manage',
-        ],
-    ],
-    [
-        'label' => 'Administration',
-        'path' =>
-            '/office_app/public/administration',
-        'icon' => '♙',
-        'permissions' => [
-            'administration.users.manage',
-            'administration.roles.manage',
-            'audit.logs.view',
-        ],
+];
+
+foreach ($enabledModules as $module) {
+    if (!is_array($module)) {
+        continue;
+    }
+
+    $routePath = (string) (
+        $module['route_path'] ?? ''
+    );
+    $namespace = (string) (
+        $module['permission_namespace'] ?? ''
+    );
+
+    if ($routePath === '' || $namespace === '') {
+        continue;
+    }
+
+    $navigation[] = [
+        'label' => (string) (
+            $module['navigation_label']
+            ?? $module['name']
+            ?? ''
+        ),
+        'path' => '/office_app/public'
+            . '/' . ltrim($routePath, '/'),
+        'icon' => (string) (
+            $module['icon_text'] ?? 'MD'
+        ),
+        'permission_namespace' => $namespace,
+    ];
+}
+
+$navigation[] = [
+    'label' => 'Administration',
+    'path' =>
+        '/office_app/public/administration',
+    'icon' => 'AD',
+    'permissions' => [
+        'administration.users.manage',
+        'administration.roles.manage',
+        'administration.modules.manage',
+        'audit.logs.view',
     ],
 ];
 
 /**
- * Determine whether the user has any required permission.
- *
  * @param list<string> $requiredPermissions
+ * @param list<string> $userPermissions
  */
 function navigationAllowed(
     array $requiredPermissions,
@@ -103,6 +97,30 @@ function navigationAllowed(
 
     return false;
 }
+
+/**
+ * @param list<string> $userPermissions
+ */
+function moduleNavigationAllowed(
+    string $namespace,
+    array $userPermissions
+): bool {
+    $prefix = $namespace . '.';
+
+    foreach ($userPermissions as $permission) {
+        if (
+            is_string($permission)
+            && str_starts_with(
+                $permission,
+                $prefix
+            )
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
 ?>
 
 <nav aria-label="Primary navigation">
@@ -113,12 +131,21 @@ function navigationAllowed(
 
         <?php foreach ($navigation as $item): ?>
             <?php
-            if (
-                !navigationAllowed(
-                    $item['permissions'],
+            $allowed = isset(
+                $item['permission_namespace']
+            )
+                ? moduleNavigationAllowed(
+                    (string) $item[
+                        'permission_namespace'
+                    ],
                     $permissions
                 )
-            ) {
+                : navigationAllowed(
+                    $item['permissions'] ?? [],
+                    $permissions
+                );
+
+            if (!$allowed) {
                 continue;
             }
 

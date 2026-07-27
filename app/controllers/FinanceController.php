@@ -23,6 +23,8 @@ final class FinanceController
     public function index(): void
     {
         $this->authorization
+            ->requireModule('finance');
+        $this->authorization
             ->requireAnyPermission([
                 'finance.records.view',
                 'finance.records.manage',

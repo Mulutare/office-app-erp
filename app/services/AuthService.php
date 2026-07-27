@@ -18,12 +18,15 @@ final class AuthService
     private User $users;
     private LoginAttempt $loginAttempts;
     private AuditLog $auditLogs;
+    private CompanyModuleService $companyModules;
 
     public function __construct()
     {
         $this->users = new User();
         $this->loginAttempts = new LoginAttempt();
         $this->auditLogs = new AuditLog();
+        $this->companyModules =
+            new CompanyModuleService();
     }
 
     /**
@@ -179,6 +182,11 @@ final class AuthService
             $this->users->permissionCodes($userId);
         $_SESSION['auth']['must_change_password'] =
             (bool) $user['must_change_password'];
+        $_SESSION['auth']['company'] =
+            $this->companyModules->company();
+        $_SESSION['auth']['modules'] =
+            $this->companyModules
+                ->enabledNavigationModules();
 
         return true;
     }
@@ -422,6 +430,10 @@ private function completeLogin(array $user): array
 
         $permissions = $this->users
             ->permissionCodes($userId);
+        $company = $this->companyModules
+            ->company();
+        $modules = $this->companyModules
+            ->enabledNavigationModules();
 
         $this->auditLogs->record(
             $userId,
@@ -434,6 +446,12 @@ private function completeLogin(array $user): array
                 'username' => $user['username'],
                 'roles' => $roles,
                 'permissions' => $permissions,
+                'company_code' => $company['code'],
+                'modules' => array_values(array_map(
+                    static fn (array $module): string =>
+                        (string) $module['code'],
+                    $modules
+                )),
             ]
         );
 
@@ -455,6 +473,8 @@ private function completeLogin(array $user): array
             (string) $user['display_name'],
         'roles' => $roles,
         'permissions' => $permissions,
+        'company' => $company,
+        'modules' => $modules,
         'must_change_password' =>
             (bool) $user['must_change_password'],
         'authenticated_at' => time(),

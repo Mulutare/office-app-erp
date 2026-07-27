@@ -23,6 +23,8 @@ final class EmployeeActivityController
     public function index(): void
     {
         $this->authorization
+            ->requireModule('hr');
+        $this->authorization
             ->requireAnyPermission([
                 'hr.records.view',
                 'hr.records.manage',

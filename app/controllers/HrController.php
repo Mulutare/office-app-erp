@@ -578,6 +578,8 @@ final class HrController
     private function requireHrAccess(): void
     {
         $this->authorization
+            ->requireModule('hr');
+        $this->authorization
             ->requireAnyPermission([
                 'hr.records.view',
                 'hr.records.manage',
@@ -586,6 +588,8 @@ final class HrController
 
     private function requireHrManagement(): void
     {
+        $this->authorization
+            ->requireModule('hr');
         $this->authorization
             ->requirePermission('hr.records.manage');
     }

@@ -7,10 +7,13 @@ namespace App\Services;
 final class AuthorizationService
 {
     private AuthService $auth;
+    private CompanyModuleService $modules;
 
     public function __construct()
     {
         $this->auth = new AuthService();
+        $this->modules =
+            new CompanyModuleService();
     }
 
     public function requireAuthentication(): void
@@ -64,6 +67,31 @@ final class AuthorizationService
         }
 
         $this->deny();
+    }
+
+    public function requireModule(
+        string $moduleCode
+    ): void {
+        $this->requireAuthentication();
+
+        if (
+            $this->modules->isEnabled(
+                $moduleCode
+            )
+        ) {
+            return;
+        }
+
+        http_response_code(404);
+
+        \view('errors.module-disabled', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+        ]);
+
+        exit;
     }
 
     private function deny(): void

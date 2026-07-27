@@ -22,6 +22,7 @@ final class AdministrationController
             ->requireAnyPermission([
                 'administration.users.manage',
                 'administration.roles.manage',
+                'administration.modules.manage',
                 'audit.logs.view',
             ]);
 
@@ -36,7 +37,7 @@ final class AdministrationController
             ),
             'pageTitle' => 'Administration',
             'pageDescription' =>
-                'Manage users, roles, permissions and system activity.',
+                'Manage company modules, users, roles, permissions and system activity.',
             'contentView' => 'administration.index',
             'user' => $_SESSION['auth'],
         ]);
