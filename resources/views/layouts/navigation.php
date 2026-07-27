@@ -123,7 +123,11 @@ function navigationAllowed(
             }
 
             $isActive =
-                $currentPath === $item['path'];
+                $currentPath === $item['path']
+                || str_starts_with(
+                    $currentPath,
+                    $item['path'] . '/'
+                );
             ?>
 
             <a

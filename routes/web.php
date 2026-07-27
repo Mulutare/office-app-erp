@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use App\Controllers\AuditLogController;
 use App\Controllers\UserAdministrationController;
 use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
@@ -15,6 +16,8 @@ $roleAdministrationController =
     new RoleAdministrationController();
 $userActivityController =
     new UserActivityController();
+$auditLogController =
+    new AuditLogController();
 
 $router = new Router();
 
@@ -27,6 +30,14 @@ $dashboardController =
 $router->get(
     '/administration/users',
     [$userAdministrationController, 'index']
+);
+$router->get(
+    '/administration/audit-logs',
+    [$auditLogController, 'index']
+);
+$router->get(
+    '/administration/audit-logs/view',
+    [$auditLogController, 'show']
 );
 $router->get(
     '/administration/users/activity',

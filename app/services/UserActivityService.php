@@ -13,11 +13,14 @@ final class UserActivityService
 
     private User $users;
     private UserActivity $activity;
+    private AuditChangePresenter $changes;
 
     public function __construct()
     {
         $this->users = new User();
         $this->activity = new UserActivity();
+        $this->changes =
+            new AuditChangePresenter();
     }
 
     /**
@@ -150,7 +153,7 @@ final class UserActivityService
         $event['tone'] = $this->toneFor(
             $action
         );
-        $event['changes'] = $this->changesFor(
+        $event['changes'] = $this->changes->changes(
             $event['old_values'] ?? null,
             $event['new_values'] ?? null
         );
@@ -244,89 +247,4 @@ final class UserActivityService
         return 'information';
     }
 
-    /**
-     * @return list<array{
-     *     field: string,
-     *     old: string,
-     *     new: string
-     * }>
-     */
-    private function changesFor(
-        mixed $oldValues,
-        mixed $newValues
-    ): array {
-        $old = $this->decodeValues($oldValues);
-        $new = $this->decodeValues($newValues);
-        $fields = array_values(array_unique(
-            array_merge(
-                array_keys($old),
-                array_keys($new)
-            )
-        ));
-        $changes = [];
-
-        foreach (array_slice($fields, 0, 12) as $field) {
-            $oldValue = $this->formatValue(
-                $old[$field] ?? null
-            );
-            $newValue = $this->formatValue(
-                $new[$field] ?? null
-            );
-
-            if ($oldValue === $newValue) {
-                continue;
-            }
-
-            $changes[] = [
-                'field' => ucwords(str_replace(
-                    '_',
-                    ' ',
-                    (string) $field
-                )),
-                'old' => $oldValue,
-                'new' => $newValue,
-            ];
-        }
-
-        return $changes;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function decodeValues(mixed $value): array
-    {
-        if (!is_string($value) || $value === '') {
-            return [];
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : [];
-    }
-
-    private function formatValue(mixed $value): string
-    {
-        if ($value === null) {
-            return 'Not set';
-        }
-
-        if (is_bool($value)) {
-            return $value ? 'Yes' : 'No';
-        }
-
-        if (is_array($value)) {
-            $encoded = json_encode(
-                $value,
-                JSON_UNESCAPED_SLASHES
-                | JSON_UNESCAPED_UNICODE
-            );
-
-            return is_string($encoded)
-                ? mb_substr($encoded, 0, 300)
-                : 'Recorded value';
-        }
-
-        return mb_substr((string) $value, 0, 300);
-    }
 }
