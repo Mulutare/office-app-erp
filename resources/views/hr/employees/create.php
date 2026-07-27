@@ -31,6 +31,18 @@ $errors = is_array($data['errors'] ?? null)
 $old = is_array($data['old'] ?? null)
     ? $data['old']
     : [];
+$isEdit = ($data['formMode'] ?? 'create')
+    === 'edit';
+$employeeId = (int) (
+    $data['employeeId'] ?? 0
+);
+$formAction = $isEdit
+    ? '/office_app/public/hr/employees/update'
+    : '/office_app/public/hr/employees';
+$cancelUrl = $isEdit
+    ? '/office_app/public/hr/employees/view?id='
+        . $employeeId
+    : '/office_app/public/hr';
 
 $oldValue = static function (
     string $key,
@@ -63,10 +75,17 @@ $oldValue = static function (
 
 <form
     method="post"
-    action="/office_app/public/hr/employees"
+    action="<?= e($formAction) ?>"
     class="card enterprise-form hr-record-form"
 >
     <?= csrfField() ?>
+    <?php if ($isEdit): ?>
+        <input
+            type="hidden"
+            name="employee_id"
+            value="<?= e($employeeId) ?>"
+        >
+    <?php endif; ?>
 
     <section class="form-section">
         <div class="section-heading">
@@ -546,6 +565,9 @@ $oldValue = static function (
                         (@<?= e(
                             $user['username'] ?? ''
                         ) ?>)
+                        <?= empty($user['active'])
+                            ? ' (Inactive)'
+                            : '' ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -561,7 +583,7 @@ $oldValue = static function (
 
     <div class="form-actions">
         <a
-            href="/office_app/public/hr"
+            href="<?= e($cancelUrl) ?>"
             class="btn btn-secondary"
         >
             Cancel
@@ -573,7 +595,9 @@ $oldValue = static function (
                 ? 'disabled'
                 : '' ?>
         >
-            Create employee
+            <?= $isEdit
+                ? 'Save employee changes'
+                : 'Create employee' ?>
         </button>
     </div>
 </form>

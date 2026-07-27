@@ -14,6 +14,7 @@ $directReports = is_array(
 )
     ? $data['directReports']
     : [];
+$canManage = !empty($data['canManage']);
 $canManageUsers = !empty(
     $data['canManageUsers']
 );
@@ -55,6 +56,16 @@ $initial = strtoupper(substr(
     >
         Back to employees
     </a>
+    <?php if ($canManage): ?>
+        <a
+            href="/office_app/public/hr/employees/edit?id=<?= e(
+                $employee['employee_id'] ?? 0
+            ) ?>"
+            class="btn btn-primary"
+        >
+            Edit employee
+        </a>
+    <?php endif; ?>
 </div>
 
 <section class="card profile-summary-card">

@@ -1751,6 +1751,30 @@ a {
     min-width: 170px;
 }
 
+.department-table th,
+.department-table td {
+    white-space: normal;
+}
+
+.department-table th:first-child,
+.department-table td:first-child {
+    min-width: 175px;
+}
+
+.department-description {
+    min-width: 240px;
+    max-width: 420px;
+    color: var(--color-muted);
+    line-height: 1.5;
+}
+
+.table-summary-note {
+    display: block;
+    margin-top: 4px;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+}
+
 .employee-profile-grid {
     display: grid;
     grid-template-columns:

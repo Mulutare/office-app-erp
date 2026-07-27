@@ -87,10 +87,10 @@ $totalEmployees = array_sum(array_map(
 <?php if ($canManage): ?>
     <div class="hr-action-bar">
         <a
-            href="/office_app/public/hr/departments/create"
+            href="/office_app/public/hr/departments"
             class="btn btn-secondary"
         >
-            Create department
+            Manage departments
         </a>
         <a
             href="/office_app/public/hr/employees/create"

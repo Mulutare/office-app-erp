@@ -45,17 +45,37 @@ $router->get(
     '/hr/employees/create',
     [$hrController, 'createEmployee']
 );
+$router->get(
+    '/hr/employees/edit',
+    [$hrController, 'editEmployee']
+);
 $router->post(
     '/hr/employees',
     [$hrController, 'storeEmployee']
+);
+$router->post(
+    '/hr/employees/update',
+    [$hrController, 'updateEmployee']
+);
+$router->get(
+    '/hr/departments',
+    [$hrController, 'departments']
 );
 $router->get(
     '/hr/departments/create',
     [$hrController, 'createDepartment']
 );
+$router->get(
+    '/hr/departments/edit',
+    [$hrController, 'editDepartment']
+);
 $router->post(
     '/hr/departments',
     [$hrController, 'storeDepartment']
+);
+$router->post(
+    '/hr/departments/update',
+    [$hrController, 'updateDepartment']
 );
 $router->get(
     '/administration/audit-logs',

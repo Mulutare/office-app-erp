@@ -10,6 +10,17 @@ $errors = is_array($data['errors'] ?? null)
 $old = is_array($data['old'] ?? null)
     ? $data['old']
     : [];
+$isEdit = ($data['formMode'] ?? 'create')
+    === 'edit';
+$departmentId = (int) (
+    $data['departmentId'] ?? 0
+);
+$formAction = $isEdit
+    ? '/office_app/public/hr/departments/update'
+    : '/office_app/public/hr/departments';
+$cancelUrl = $isEdit
+    ? '/office_app/public/hr/departments'
+    : '/office_app/public/hr';
 ?>
 
 <?php if (!empty($errors['form'])): ?>
@@ -20,10 +31,17 @@ $old = is_array($data['old'] ?? null)
 
 <form
     method="post"
-    action="/office_app/public/hr/departments"
+    action="<?= e($formAction) ?>"
     class="card enterprise-form hr-record-form"
 >
     <?= csrfField() ?>
+    <?php if ($isEdit): ?>
+        <input
+            type="hidden"
+            name="department_id"
+            value="<?= e($departmentId) ?>"
+        >
+    <?php endif; ?>
 
     <section class="form-section">
         <div class="section-heading">
@@ -130,11 +148,16 @@ $old = is_array($data['old'] ?? null)
                 </small>
             </span>
         </label>
+        <?php if (!empty($errors['active'])): ?>
+            <small class="field-error">
+                <?= e($errors['active']) ?>
+            </small>
+        <?php endif; ?>
     </section>
 
     <div class="form-actions">
         <a
-            href="/office_app/public/hr"
+            href="<?= e($cancelUrl) ?>"
             class="btn btn-secondary"
         >
             Cancel
@@ -143,7 +166,9 @@ $old = is_array($data['old'] ?? null)
             type="submit"
             class="btn btn-primary"
         >
-            Create department
+            <?= $isEdit
+                ? 'Save department changes'
+                : 'Create department' ?>
         </button>
     </div>
 </form>

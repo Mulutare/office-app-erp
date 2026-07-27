@@ -7,43 +7,66 @@ namespace App\Models;
 final class Employee
 {
     public function employeeNumberExists(
-        string $employeeNumber
+        string $employeeNumber,
+        ?int $ignoreEmployeeId = null
     ): bool {
         return $this->uniqueValueExists(
             'employee_number',
-            $employeeNumber
+            $employeeNumber,
+            $ignoreEmployeeId
         );
     }
 
     public function workEmailExists(
-        string $workEmail
+        string $workEmail,
+        ?int $ignoreEmployeeId = null
     ): bool {
         return $this->uniqueValueExists(
             'work_email',
-            $workEmail
+            $workEmail,
+            $ignoreEmployeeId
         );
     }
 
     /**
      * @return list<array<string, mixed>>
      */
-    public function managerOptions(): array
-    {
-        $statement = \db()->query(
+    public function managerOptions(
+        ?int $excludeEmployeeId = null,
+        ?int $includeManagerId = null
+    ): array {
+        $statement = \db()->prepare(
             'SELECT
                 employee_id,
                 employee_number,
                 first_name,
                 last_name,
                 preferred_name,
-                job_title
+                job_title,
+                employment_status
              FROM hr_employees
              WHERE deleted_at IS NULL
-               AND employment_status
-                    <> \'terminated\'
+               AND (
+                   employment_status <> \'terminated\'
+                   OR employee_id =
+                        :include_manager_id
+               )
+               AND (
+                   :exclude_employee_null IS NULL
+                   OR employee_id
+                        <> :exclude_employee_value
+               )
              ORDER BY last_name, first_name
              LIMIT 250'
         );
+        $statement->execute([
+            'exclude_employee_null' =>
+                $excludeEmployeeId,
+            'exclude_employee_value' =>
+                $excludeEmployeeId,
+            'include_manager_id' =>
+                $includeManagerId ?? 0,
+        ]);
         $employees = $statement->fetchAll(
             \PDO::FETCH_ASSOC
         );
@@ -56,19 +79,36 @@ final class Employee
     /**
      * @return list<array<string, mixed>>
      */
-    public function availableUserOptions(): array
-    {
-        $statement = \db()->query(
+    public function availableUserOptions(
+        ?int $currentEmployeeId = null
+    ): array {
+        $statement = \db()->prepare(
             'SELECT
                 users.user_id,
                 users.username,
                 users.display_name,
-                users.email
+                users.email,
+                users.active
              FROM users
              LEFT JOIN hr_employees employees
                  ON employees.user_id = users.user_id
                 AND employees.deleted_at IS NULL
-             WHERE users.active = TRUE
+                AND (
+                    :current_employee_null IS NULL
+                    OR employees.employee_id
+                        <> :current_employee_value
+                )
+             WHERE (
+                   users.active = TRUE
+                   OR users.user_id = (
+                       SELECT current_employee.user_id
+                       FROM hr_employees current_employee
+                       WHERE current_employee.employee_id =
+                            :current_user_employee_id
+                         AND current_employee.deleted_at
+                            IS NULL
+                   )
+               )
                AND users.deleted_at IS NULL
                AND employees.employee_id IS NULL
              ORDER BY
@@ -76,6 +116,14 @@ final class Employee
                 users.username
              LIMIT 250'
         );
+        $statement->execute([
+            'current_employee_null' =>
+                $currentEmployeeId,
+            'current_employee_value' =>
+                $currentEmployeeId,
+            'current_user_employee_id' =>
+                $currentEmployeeId ?? 0,
+        ]);
         $users = $statement->fetchAll(
             \PDO::FETCH_ASSOC
         );
@@ -101,22 +149,45 @@ final class Employee
         return $statement->fetchColumn() !== false;
     }
 
-    public function availableUserExists(int $userId): bool
-    {
+    public function availableUserExists(
+        int $userId,
+        ?int $currentEmployeeId = null
+    ): bool {
         $statement = \db()->prepare(
             'SELECT 1
              FROM users
              LEFT JOIN hr_employees employees
                  ON employees.user_id = users.user_id
                 AND employees.deleted_at IS NULL
+                AND (
+                    :current_employee_null IS NULL
+                    OR employees.employee_id
+                        <> :current_employee_value
+                )
              WHERE users.user_id = :user_id
-               AND users.active = TRUE
+               AND (
+                   users.active = TRUE
+                   OR users.user_id = (
+                       SELECT current_employee.user_id
+                       FROM hr_employees current_employee
+                       WHERE current_employee.employee_id =
+                            :current_user_employee_id
+                         AND current_employee.deleted_at
+                            IS NULL
+                   )
+               )
                AND users.deleted_at IS NULL
                AND employees.employee_id IS NULL
              LIMIT 1'
         );
         $statement->execute([
             'user_id' => $userId,
+            'current_employee_null' =>
+                $currentEmployeeId,
+            'current_employee_value' =>
+                $currentEmployeeId,
+            'current_user_employee_id' =>
+                $currentEmployeeId ?? 0,
         ]);
 
         return $statement->fetchColumn() !== false;
@@ -199,6 +270,113 @@ final class Employee
         ]);
 
         return (int) \db()->lastInsertId();
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     */
+    public function update(
+        int $employeeId,
+        array $values,
+        int $updatedBy
+    ): void {
+        $statement = \db()->prepare(
+            'UPDATE hr_employees
+             SET employee_number = :employee_number,
+                 user_id = :user_id,
+                 first_name = :first_name,
+                 middle_name = :middle_name,
+                 last_name = :last_name,
+                 preferred_name = :preferred_name,
+                 work_email = :work_email,
+                 work_phone = :work_phone,
+                 department_id = :department_id,
+                 job_title = :job_title,
+                 employment_type =
+                    :employment_type,
+                 employment_status =
+                    :employment_status,
+                 hire_date = :hire_date,
+                 termination_date =
+                    :termination_date,
+                 manager_employee_id =
+                    :manager_employee_id,
+                 updated_by = :updated_by
+             WHERE employee_id = :employee_id
+               AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'employee_number' =>
+                $values['employee_number'],
+            'user_id' => $values['user_id'],
+            'first_name' => $values['first_name'],
+            'middle_name' => $values['middle_name'],
+            'last_name' => $values['last_name'],
+            'preferred_name' =>
+                $values['preferred_name'],
+            'work_email' => $values['work_email'],
+            'work_phone' => $values['work_phone'],
+            'department_id' =>
+                $values['department_id'],
+            'job_title' => $values['job_title'],
+            'employment_type' =>
+                $values['employment_type'],
+            'employment_status' =>
+                $values['employment_status'],
+            'hire_date' => $values['hire_date'],
+            'termination_date' =>
+                $values['termination_date'],
+            'manager_employee_id' =>
+                $values['manager_employee_id'],
+            'updated_by' => $updatedBy,
+            'employee_id' => $employeeId,
+        ]);
+    }
+
+    public function wouldCreateManagerCycle(
+        int $employeeId,
+        int $managerEmployeeId
+    ): bool {
+        $currentId = $managerEmployeeId;
+        $visited = [];
+        $statement = \db()->prepare(
+            'SELECT manager_employee_id
+             FROM hr_employees
+             WHERE employee_id = :employee_id
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+
+        while ($currentId > 0) {
+            if ($currentId === $employeeId) {
+                return true;
+            }
+
+            if (isset($visited[$currentId])) {
+                return true;
+            }
+
+            $visited[$currentId] = true;
+            $statement->execute([
+                'employee_id' => $currentId,
+            ]);
+            $managerId = $statement->fetchColumn();
+
+            if (
+                $managerId === false
+                || $managerId === null
+            ) {
+                return false;
+            }
+
+            $currentId = (int) $managerId;
+
+            if (count($visited) >= 250) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -508,7 +686,8 @@ final class Employee
 
     private function uniqueValueExists(
         string $column,
-        string $value
+        string $value,
+        ?int $ignoreEmployeeId = null
     ): bool {
         $allowedColumns = [
             'employee_number',
@@ -530,10 +709,19 @@ final class Employee
              FROM hr_employees
              WHERE ' . $column . ' = :value
                AND deleted_at IS NULL
+               AND (
+                   :ignore_employee_null IS NULL
+                   OR employee_id
+                        <> :ignore_employee_value
+               )
              LIMIT 1'
         );
         $statement->execute([
             'value' => $value,
+            'ignore_employee_null' =>
+                $ignoreEmployeeId,
+            'ignore_employee_value' =>
+                $ignoreEmployeeId,
         ]);
 
         return $statement->fetchColumn() !== false;
