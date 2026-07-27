@@ -1866,3 +1866,120 @@ a {
         justify-content: center;
     }
 }
+
+.finance-summary-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.finance-summary-card {
+    display: grid;
+    gap: 8px;
+    min-height: 112px;
+    align-content: center;
+}
+
+.finance-summary-card span {
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.finance-summary-card strong {
+    color: var(--color-primary-dark);
+    font-size: 1.9rem;
+}
+
+.finance-filter-panel {
+    margin-bottom: 20px;
+}
+
+.finance-filter-form {
+    display: grid;
+    grid-template-columns:
+        minmax(280px, 2fr)
+        minmax(190px, 1fr)
+        auto;
+    align-items: end;
+    gap: 14px;
+}
+
+.finance-filter-form .filter-actions {
+    flex-wrap: nowrap;
+}
+
+.finance-request-table th,
+.finance-request-table td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.finance-request-table {
+    min-width: 880px;
+    table-layout: fixed;
+}
+
+.finance-request-table th:first-child {
+    width: 20%;
+}
+
+.finance-request-table th:nth-child(2) {
+    width: 16%;
+}
+
+.finance-request-table th:nth-child(3) {
+    width: 13%;
+}
+
+.finance-request-table th:nth-child(4) {
+    width: 13%;
+}
+
+.finance-request-table th:nth-child(5) {
+    width: 13%;
+}
+
+.finance-request-table th:nth-child(6) {
+    width: 12%;
+}
+
+.finance-request-table th:nth-child(7) {
+    width: 13%;
+}
+
+@media (max-width: 1050px) {
+    .finance-summary-grid {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+
+    .finance-filter-form {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .finance-filter-form {
+        grid-template-columns: 1fr;
+    }
+
+    .finance-filter-form .filter-actions {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 620px) {
+    .finance-summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .finance-summary-card {
+        min-height: 96px;
+    }
+}
