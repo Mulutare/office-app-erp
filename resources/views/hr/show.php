@@ -56,16 +56,28 @@ $initial = strtoupper(substr(
     >
         Back to employees
     </a>
-    <?php if ($canManage): ?>
+
+    <div class="details-actions">
         <a
-            href="/office_app/public/hr/employees/edit?id=<?= e(
+            href="/office_app/public/hr/employees/activity?id=<?= e(
                 $employee['employee_id'] ?? 0
             ) ?>"
-            class="btn btn-primary"
+            class="btn btn-secondary"
         >
-            Edit employee
+            View activity
         </a>
-    <?php endif; ?>
+
+        <?php if ($canManage): ?>
+            <a
+                href="/office_app/public/hr/employees/edit?id=<?= e(
+                    $employee['employee_id'] ?? 0
+                ) ?>"
+                class="btn btn-primary"
+            >
+                Edit employee
+            </a>
+        <?php endif; ?>
+    </div>
 </div>
 
 <section class="card profile-summary-card">
