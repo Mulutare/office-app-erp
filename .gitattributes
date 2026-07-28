@@ -1,0 +1,2 @@
+# Linux executes these files directly inside containers.
+*.sh text eol=lf

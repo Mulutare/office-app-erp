@@ -18,16 +18,18 @@ final class AuthorizationService
 
     public function requireAuthentication(): void
     {
-        if ($this->auth->check()) {
-            return;
+        if (!$this->auth->check()) {
+            \flash(
+                'auth_error',
+                'Please sign in to continue.'
+            );
+
+            \redirect('/login');
         }
 
-        \flash(
-            'auth_error',
-            'Please sign in to continue.'
-        );
-
-        \redirect('/login');
+        if ($this->auth->mustChangePassword()) {
+            \redirect('/change-password');
+        }
     }
 
     public function requirePermission(

@@ -208,10 +208,6 @@ $router->post(
 );
 
 $router->get(
-    '/diagnostics/user-model',
-    [$homeController, 'userModelHealth']
-);
-$router->get(
     '/administration/users/create',
     [$userAdministrationController, 'create']
 );

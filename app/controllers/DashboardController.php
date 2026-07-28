@@ -4,38 +4,26 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Services\AuthService;
+use App\Services\AuthorizationService;
 use App\Services\DashboardService;
 
 final class DashboardController
 {
-    private AuthService $auth;
+    private AuthorizationService $authorization;
     private DashboardService $dashboard;
 
     public function __construct()
     {
-        $this->auth = new AuthService();
+        $this->authorization =
+            new AuthorizationService();
         $this->dashboard = new DashboardService();
     }
 
     public function index(): void
     {
-        if (!$this->auth->check()) {
-            \flash(
-                'auth_error',
-                'Please sign in to continue.'
-            );
-
-            \redirect('/login');
-        }
-
-        if (
-            !empty(
-                $_SESSION['auth']['must_change_password']
-            )
-        ) {
-            \redirect('/change-password');
-        }
+        $this->authorization->requirePermission(
+            'dashboard.view'
+        );
 
         \view('layouts.app', [
             'applicationName' => \config(

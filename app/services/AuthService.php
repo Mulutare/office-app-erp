@@ -248,6 +248,13 @@ final class AuthService
         return true;
     }
 
+    public function mustChangePassword(): bool
+    {
+        return !empty(
+            $_SESSION['auth']['must_change_password']
+        );
+    }
+
     public function switchCompany(int $companyId): bool
     {
         $userId = $this->userId();

@@ -445,6 +445,11 @@ try {
         'Effective RBAC permissions include dashboard access'
     );
 
+    $check(
+        !$authentication->mustChangePassword(),
+        'Standard authenticated account is not forced into password change'
+    );
+
     $dashboardStatistics =
         (new DashboardService())->statistics();
 
@@ -523,6 +528,44 @@ try {
             'Successful authentication is audited'
         );
     }
+
+    $restrictedAuthentication = new AuthService();
+    $restrictedLogin =
+        $restrictedAuthentication->attempt(
+            'test_no_dashboard',
+            is_string($password) ? $password : ''
+        );
+
+    $check(
+        $restrictedLogin['successful'] === true,
+        'Restricted access-gate fixture can authenticate'
+    );
+
+    $check(
+        !$restrictedAuthentication->can(
+            'dashboard.view'
+        ),
+        'Restricted access-gate fixture lacks dashboard.view'
+    );
+
+    $passwordChangeAuthentication =
+        new AuthService();
+    $passwordChangeLogin =
+        $passwordChangeAuthentication->attempt(
+            'test_password_change',
+            is_string($password) ? $password : ''
+        );
+
+    $check(
+        $passwordChangeLogin['successful'] === true,
+        'Password-change access-gate fixture can authenticate'
+    );
+
+    $check(
+        $passwordChangeAuthentication
+            ->mustChangePassword(),
+        'Password-change fixture is marked for the central gate'
+    );
 } catch (Throwable $exception) {
     $failures++;
     $results[] = [

@@ -4,29 +4,19 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Models\User;
+use App\Services\AuthService;
 
 final class HomeController
 {
     public function index(): void
     {
-        $driver = \databaseDriver();
-        $databaseName = $driver->databaseName(
-            \db()
-        );
+        $auth = new AuthService();
 
-        \view('home.index', [
-            'applicationName' => \config(
-                'name',
-                'OfficeApp ERP'
-            ),
-            'environment' => \config(
-                'environment',
-                'unknown'
-            ),
-            'databaseName' => $databaseName,
-            'serverTime' => date('Y-m-d H:i:s'),
-        ]);
+        if ($auth->check()) {
+            \redirect('/dashboard');
+        }
+
+        \redirect('/login');
     }
 
     public function health(): void
@@ -49,23 +39,4 @@ final class HomeController
         );
     }
 
-    public function userModelHealth(): void
-    {
-        $userModel = new User();
-
-        header(
-            'Content-Type: application/json; charset=UTF-8'
-        );
-
-        echo json_encode(
-            [
-                'status' => 'working',
-                'model' => User::class,
-                'users_table_count' => $userModel->count(),
-                'test_missing_user' =>
-                    $userModel->findById(999999) === null,
-            ],
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
-        );
-    }
 }
