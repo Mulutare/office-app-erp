@@ -21,7 +21,7 @@ use App\Services\AuthService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
 use App\Services\DashboardService;
-use App\Services\DepartmentManagementService;
+use App\Services\DepartmentCatalogueService;
 use App\Services\EmployeeActivityService;
 use App\Services\EmployeeDirectoryService;
 use App\Services\EmployeeUpdateService;
@@ -260,8 +260,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 8,
-        'Oracle migration catalog contains eight valid definitions'
+        && count($oracleMigrationFiles) === 9,
+        'Oracle migration catalog contains nine valid definitions'
     );
 
     $check(
@@ -281,6 +281,7 @@ try {
                 '060',
                 '070',
                 '080',
+                '090',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -389,8 +390,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 49,
-        'All 49 foreign-key relationships were created'
+        $foreignKeyCount === 50,
+        'All 50 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -800,6 +801,16 @@ try {
         'Tenant A administrator has job-title management permissions'
     );
 
+    $check(
+        $tenantAAuthentication->can(
+            'organization.departments.view'
+        )
+        && $tenantAAuthentication->can(
+            'organization.departments.manage'
+        ),
+        'Tenant A administrator has department-management permissions'
+    );
+
     $tenantAModules = is_array(
         $_SESSION['auth']['modules'] ?? null
     )
@@ -883,7 +894,64 @@ try {
     );
 
     $departmentManagement =
-        new DepartmentManagementService();
+        new DepartmentCatalogueService();
+    $departmentCatalogue =
+        $departmentManagement->catalogue();
+    $departmentNames = array_map(
+        static fn (array $department): string =>
+            (string) ($department['name'] ?? ''),
+        $departmentCatalogue['departments']
+    );
+
+    $check(
+        in_array(
+            'Tenant A Security',
+            $departmentNames,
+            true
+        )
+        && in_array(
+            'Tenant A Security Operations',
+            $departmentNames,
+            true
+        )
+        && !in_array(
+            'Tenant B Confidential',
+            $departmentNames,
+            true
+        ),
+        'Tenant A department catalogue excludes Tenant B records'
+    );
+
+    $hierarchyFixture = null;
+
+    foreach (
+        $departmentCatalogue['departments']
+        as $department
+    ) {
+        if (
+            (int) ($department['department_id'] ?? 0)
+            === 9203
+        ) {
+            $hierarchyFixture = $department;
+            break;
+        }
+    }
+
+    $check(
+        is_array($hierarchyFixture)
+        && (int) (
+            $hierarchyFixture[
+                'parent_department_id'
+            ] ?? 0
+        ) === 9201
+        && (
+            $hierarchyFixture[
+                'parent_department_name'
+            ] ?? null
+        ) === 'Tenant A Security',
+        'Department catalogue resolves tenant-scoped hierarchy'
+    );
+
     $check(
         $departmentManagement->form(
             $foreignDepartmentId
@@ -904,6 +972,117 @@ try {
             $foreignDepartmentUpdate['notFound']
         ),
         'Tenant A cannot update a Tenant B department'
+    );
+
+    $crossTenantParent =
+        $departmentManagement->create(
+            [
+                'code' => 'BAD-PARENT',
+                'name' =>
+                    'Cross Tenant Parent Attempt',
+                'parent_department_id' => 9202,
+                'description' =>
+                    'Must be rejected',
+                'active' => true,
+            ],
+            $tenantAActorId
+        );
+    $check(
+        $crossTenantParent['successful'] === false
+        && isset(
+            $crossTenantParent['errors'][
+                'parent_department_id'
+            ]
+        ),
+        'Department hierarchy rejects a foreign-company parent'
+    );
+
+    $cycleAttempt =
+        $departmentManagement->update(
+            9201,
+            [
+                'code' => 'TA-SEC',
+                'name' => 'Tenant A Security',
+                'parent_department_id' => 9203,
+                'description' =>
+                    'Cross-company isolation fixture',
+                'active' => true,
+            ],
+            $tenantAActorId
+        );
+    $check(
+        $cycleAttempt['successful'] === false
+        && isset(
+            $cycleAttempt['errors'][
+                'parent_department_id'
+            ]
+        ),
+        'Department hierarchy rejects cycles'
+    );
+
+    $departmentSuffix = strtoupper(
+        bin2hex(random_bytes(4))
+    );
+    $departmentInput = [
+        'code' => 'DP-' . $departmentSuffix,
+        'name' => 'Integration Department '
+            . $departmentSuffix,
+        'parent_department_id' => 9201,
+        'description' =>
+            'Automated department integration fixture',
+        'active' => true,
+    ];
+    $createdDepartment =
+        $departmentManagement->create(
+            $departmentInput,
+            $tenantAActorId
+        );
+
+    $check(
+        $createdDepartment['successful'] === true
+        && (int) (
+            $createdDepartment['departmentId'] ?? 0
+        ) > 0,
+        'Tenant department creation succeeds with a valid parent'
+    );
+
+    $duplicateDepartment =
+        $departmentManagement->create(
+            $departmentInput,
+            $tenantAActorId
+        );
+    $check(
+        $duplicateDepartment['successful'] === false
+        && isset(
+            $duplicateDepartment['errors']['code']
+        ),
+        'Tenant department creation rejects duplicate codes'
+    );
+
+    $createdDepartmentId = (int) (
+        $createdDepartment['departmentId'] ?? 0
+    );
+    $departmentAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND action = :action
+           AND module = :module
+           AND table_name = :table_name
+           AND record_id = :record_id'
+    );
+    $departmentAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'action' => 'CREATE',
+        'module' => 'organization',
+        'table_name' => 'hr_departments',
+        'record_id' =>
+            (string) $createdDepartmentId,
+    ]);
+    $check(
+        (int) $departmentAuditStatement
+            ->fetchColumn() === 1,
+        'Department creation records a company-scoped audit event'
     );
 
     $branchManagement =

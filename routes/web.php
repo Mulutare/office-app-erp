@@ -9,6 +9,7 @@ use App\Controllers\BranchController;
 use App\Controllers\CompanyAdministrationController;
 use App\Controllers\CompanyContextController;
 use App\Controllers\DashboardController;
+use App\Controllers\DepartmentController;
 use App\Controllers\EmployeeActivityController;
 use App\Controllers\FinanceController;
 use App\Controllers\HomeController;
@@ -38,6 +39,7 @@ $companyContextController =
     new CompanyContextController();
 $branchController = new BranchController();
 $jobTitleController = new JobTitleController();
+$departmentController = new DepartmentController();
 
 $router = new Router();
 
@@ -98,6 +100,26 @@ $router->get(
 $router->post(
     '/organization/job-titles/update',
     [$jobTitleController, 'update']
+);
+$router->get(
+    '/organization/departments',
+    [$departmentController, 'index']
+);
+$router->get(
+    '/organization/departments/create',
+    [$departmentController, 'create']
+);
+$router->post(
+    '/organization/departments',
+    [$departmentController, 'store']
+);
+$router->get(
+    '/organization/departments/edit',
+    [$departmentController, 'edit']
+);
+$router->post(
+    '/organization/departments/update',
+    [$departmentController, 'update']
 );
 $router->get(
     '/hr/employees/view',

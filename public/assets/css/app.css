@@ -3875,3 +3875,100 @@ a {
         grid-template-columns: 1fr;
     }
 }
+
+/* Tenant organization: department catalogue */
+.department-overview {
+    display: grid;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.department-overview-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.department-overview-heading h2 {
+    margin: 5px 0 7px;
+    color: var(--color-primary-dark);
+    font-size: 1.25rem;
+}
+
+.department-overview-heading p {
+    max-width: 720px;
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.department-metrics {
+    display: grid;
+    grid-template-columns:
+        repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.department-metrics .card {
+    display: grid;
+    gap: 7px;
+    padding: 18px 20px;
+}
+
+.department-metrics span {
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.department-metrics strong {
+    color: var(--color-primary-dark);
+    font-size: 1.45rem;
+}
+
+.department-catalogue-description {
+    min-width: 240px;
+    max-width: 420px;
+    white-space: normal !important;
+}
+
+.hierarchy-reference {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 5px 10px;
+    border-left: 3px solid var(--color-accent);
+    background: #f6f9ff;
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+.department-catalogue-form {
+    max-width: 980px;
+}
+
+.department-catalogue-form select {
+    width: 100%;
+}
+
+@media (max-width: 980px) {
+    .department-metrics {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .department-overview-heading {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .department-overview-heading .btn {
+        justify-content: center;
+    }
+
+    .department-metrics {
+        grid-template-columns: 1fr;
+    }
+}

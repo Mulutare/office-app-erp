@@ -20,6 +20,10 @@ use App\Repositories\MySql\JobTitleRepository
     as MySqlJobTitleRepository;
 use App\Repositories\Oracle\JobTitleRepository
     as OracleJobTitleRepository;
+use App\Repositories\MySql\DepartmentRepository
+    as MySqlDepartmentRepository;
+use App\Repositories\Oracle\DepartmentRepository
+    as OracleDepartmentRepository;
 use RuntimeException;
 
 /**
@@ -27,6 +31,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function departments():
+        DepartmentRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlDepartmentRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleDepartmentRepository();
+        }
+
+        throw new RuntimeException(
+            'No department repository is available for the configured database driver.'
+        );
+    }
+
     public static function jobTitles():
         JobTitleRepository
     {

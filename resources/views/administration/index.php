@@ -62,6 +62,16 @@ $modules = [
         'tenantOnly' => true,
     ],
     [
+        'title' => 'Department catalogue',
+        'description' =>
+            'Maintain department hierarchy and review tenant-isolated workforce assignments.',
+        'path' =>
+            '/office_app/public/organization/departments',
+        'permission' =>
+            'organization.departments.view',
+        'tenantOnly' => true,
+    ],
+    [
         'title' => 'Audit logs',
         'description' =>
             'Review security and business activity records.',

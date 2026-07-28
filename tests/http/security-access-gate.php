@@ -332,6 +332,15 @@ $check(
     $platformJobTitles['status'] === 403,
     'Platform administrator is denied tenant job-title routes'
 );
+$platformDepartments = httpRequest(
+    $baseUrl,
+    '/organization/departments',
+    $platformAdminCookies
+);
+$check(
+    $platformDepartments['status'] === 403,
+    'Platform administrator is denied tenant department routes'
+);
 
 $companyAdminCookies = [];
 $companyAdminLogin = login(
@@ -534,6 +543,43 @@ $check(
     'Tenant A receives 404 for Tenant B job title'
 );
 
+$tenantADepartments = httpRequest(
+    $baseUrl,
+    '/organization/departments',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantADepartments['status'] === 200
+    && str_contains(
+        $tenantADepartments['body'],
+        'Tenant A Security'
+    )
+    && str_contains(
+        $tenantADepartments['body'],
+        'Tenant A Security Operations'
+    )
+    && !str_contains(
+        $tenantADepartments['body'],
+        'Tenant B Confidential'
+    ),
+    'Tenant A department catalogue exposes only Tenant A records'
+);
+
+$foreignOrganizationDepartment = httpRequest(
+    $baseUrl,
+    '/organization/departments/edit?id=9202',
+    $tenantAAdminCookies
+);
+$check(
+    $foreignOrganizationDepartment['status']
+        === 404
+    && !str_contains(
+        $foreignOrganizationDepartment['body'],
+        'Tenant B Confidential'
+    ),
+    'Tenant A receives 404 for Tenant B organization department'
+);
+
 $tenantADashboard = httpRequest(
     $baseUrl,
     '/dashboard',
@@ -663,6 +709,15 @@ $check(
 );
 
 $foreignHrMutations = [
+    [
+        'path' =>
+            '/organization/departments/update',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'department_id' => '9202',
+        ],
+        'label' => 'organization department update',
+    ],
     [
         'path' =>
             '/organization/job-titles/update',
@@ -848,6 +903,34 @@ $tenantBJobTitleCreate = httpRequest(
 $check(
     $tenantBJobTitleCreate['status'] === 403,
     'Tenant job-title viewer cannot open management forms'
+);
+
+$tenantBDepartments = httpRequest(
+    $baseUrl,
+    '/organization/departments',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBDepartments['status'] === 200
+    && str_contains(
+        $tenantBDepartments['body'],
+        'Tenant B Confidential'
+    )
+    && !str_contains(
+        $tenantBDepartments['body'],
+        'Tenant A Security'
+    ),
+    'Tenant B viewer sees only its own department catalogue'
+);
+
+$tenantBDepartmentCreate = httpRequest(
+    $baseUrl,
+    '/organization/departments/create',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBDepartmentCreate['status'] === 403,
+    'Tenant department viewer cannot open management forms'
 );
 
 $tenantBOwnFinance = httpRequest(

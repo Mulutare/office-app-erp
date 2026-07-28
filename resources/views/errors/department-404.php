@@ -34,7 +34,7 @@ $applicationName = (string) (
             address is incorrect.
         </p>
         <a
-            href="/office_app/public/hr/departments"
+            href="/office_app/public/organization/departments"
             class="btn btn-primary"
         >
             Back to departments

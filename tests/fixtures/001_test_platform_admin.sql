@@ -718,6 +718,7 @@ INSERT INTO hr_departments
         company_id,
         code,
         name,
+        parent_department_id,
         description,
         active,
         created_by,
@@ -729,6 +730,7 @@ VALUES
         @tenant_a_company_id,
         'TA-SEC',
         'Tenant A Security',
+        NULL,
         'Cross-company isolation fixture',
         TRUE,
         @tenant_a_admin_user_id,
@@ -739,15 +741,29 @@ VALUES
         @tenant_b_company_id,
         'TB-SEC',
         'Tenant B Confidential',
+        NULL,
         'Cross-company isolation fixture',
         TRUE,
         @tenant_b_user_id,
         @tenant_b_user_id
+    ),
+    (
+        9203,
+        @tenant_a_company_id,
+        'TA-SEC-OPS',
+        'Tenant A Security Operations',
+        9201,
+        'Tenant A department hierarchy fixture',
+        TRUE,
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
     )
 ON DUPLICATE KEY UPDATE
     company_id = VALUES(company_id),
     code = VALUES(code),
     name = VALUES(name),
+    parent_department_id =
+        VALUES(parent_department_id),
     description = VALUES(description),
     active = TRUE,
     deleted_at = NULL;

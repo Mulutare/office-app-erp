@@ -109,8 +109,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 49,
-        'Oracle schema contains all 49 foreign keys'
+        $foreignKeyCount === 50,
+        'Oracle schema contains all 50 foreign keys'
     );
 
     $check(
@@ -123,7 +123,7 @@ try {
     $check(
         (int) $connection
             ->query('SELECT COUNT(*) FROM permissions')
-            ->fetchColumn() === 19,
+            ->fetchColumn() === 21,
         'Oracle permission catalog matches MySQL'
     );
 
@@ -270,6 +270,59 @@ try {
             'name' => 'Operations',
         ]);
     }
+
+    $departmentIdSelect = $connection->prepare(
+        'SELECT department_id
+         FROM hr_departments
+         WHERE company_id = :company_id
+           AND code = :code'
+    );
+    $departmentIds = [];
+
+    foreach ($companyIds as $companyId) {
+        $departmentIdSelect->execute([
+            'company_id' => $companyId,
+            'code' => 'OPS',
+        ]);
+        $departmentIds[] = (int) (
+            $departmentIdSelect->fetchColumn()
+        );
+    }
+
+    $crossTenantHierarchyRejected = false;
+
+    try {
+        $crossTenantChild = $connection->prepare(
+            'INSERT INTO hr_departments
+                (
+                    company_id,
+                    code,
+                    name,
+                    parent_department_id
+                )
+             VALUES
+                (
+                    :company_id,
+                    :code,
+                    :name,
+                    :parent_department_id
+                )'
+        );
+        $crossTenantChild->execute([
+            'company_id' => $companyIds[0],
+            'code' => 'CROSS-PARENT',
+            'name' => 'Cross Tenant Parent',
+            'parent_department_id' =>
+                $departmentIds[1],
+        ]);
+    } catch (\PDOException $exception) {
+        $crossTenantHierarchyRejected = true;
+    }
+
+    $check(
+        $crossTenantHierarchyRejected,
+        'Oracle department hierarchy rejects cross-tenant parents'
+    );
 
     $tenantCount = $connection->prepare(
         'SELECT COUNT(*)

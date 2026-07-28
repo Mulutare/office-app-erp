@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Models\Department;
 use App\Models\Employee;
+use App\Repositories\DepartmentRepository;
+use App\Repositories\RepositoryFactory;
 use DateTimeImmutable;
 
 final class EmployeeRecordValidator
@@ -26,13 +27,14 @@ final class EmployeeRecordValidator
     ];
 
     private Employee $employees;
-    private Department $departments;
+    private DepartmentRepository $departments;
     private TenantContext $tenant;
 
     public function __construct()
     {
         $this->employees = new Employee();
-        $this->departments = new Department();
+        $this->departments =
+            RepositoryFactory::departments();
         $this->tenant = new TenantContext();
     }
 

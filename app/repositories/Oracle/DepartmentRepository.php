@@ -2,17 +2,14 @@
 
 declare(strict_types=1);
 
-namespace App\Repositories\MySql;
+namespace App\Repositories\Oracle;
 
 use App\Repositories\DepartmentRepository
     as DepartmentRepositoryContract;
 
-class DepartmentRepository extends MySqlRepository
+final class DepartmentRepository extends OracleRepository
     implements DepartmentRepositoryContract
 {
-    /**
-     * @return list<array<string, mixed>>
-     */
     public function activeOptions(int $companyId): array
     {
         $statement = $this->connection()->prepare(
@@ -23,9 +20,10 @@ class DepartmentRepository extends MySqlRepository
                 parent_department_id
              FROM hr_departments
              WHERE company_id = :company_id
-               AND active = TRUE
+               AND active = 1
                AND deleted_at IS NULL
-             ORDER BY name'
+             ORDER BY name
+             FETCH FIRST 250 ROWS ONLY'
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -39,139 +37,9 @@ class DepartmentRepository extends MySqlRepository
             : [];
     }
 
-    public function codeExists(
-        int $companyId,
-        string $code,
-        ?int $ignoreDepartmentId = null
-    ): bool {
-        $statement = $this->connection()->prepare(
-            'SELECT 1
-             FROM hr_departments
-             WHERE company_id = :company_id
-               AND code = :code
-               AND deleted_at IS NULL
-               AND (
-                   :ignore_department_null IS NULL
-                   OR department_id
-                        <> :ignore_department_value
-               )
-             LIMIT 1'
-        );
-        $statement->execute([
-            'company_id' => $companyId,
-            'code' => $code,
-            'ignore_department_null' =>
-                $ignoreDepartmentId,
-            'ignore_department_value' =>
-                $ignoreDepartmentId,
-        ]);
-
-        return $statement->fetchColumn() !== false;
-    }
-
-    public function nameExists(
-        int $companyId,
-        string $name,
-        ?int $ignoreDepartmentId = null
-    ): bool {
-        $statement = $this->connection()->prepare(
-            'SELECT 1
-             FROM hr_departments
-             WHERE company_id = :company_id
-               AND name = :name
-               AND deleted_at IS NULL
-               AND (
-                   :ignore_department_null IS NULL
-                   OR department_id
-                        <> :ignore_department_value
-               )
-             LIMIT 1'
-        );
-        $statement->execute([
-            'company_id' => $companyId,
-            'name' => $name,
-            'ignore_department_null' =>
-                $ignoreDepartmentId,
-            'ignore_department_value' =>
-                $ignoreDepartmentId,
-        ]);
-
-        return $statement->fetchColumn() !== false;
-    }
-
-    public function activeExists(
-        int $companyId,
-        int $departmentId
-    ): bool {
-        $statement = $this->connection()->prepare(
-            'SELECT 1
-             FROM hr_departments
-             WHERE company_id = :company_id
-               AND department_id = :department_id
-               AND active = TRUE
-               AND deleted_at IS NULL
-             LIMIT 1'
-        );
-        $statement->execute([
-            'company_id' => $companyId,
-            'department_id' => $departmentId,
-        ]);
-
-        return $statement->fetchColumn() !== false;
-    }
-
-    public function create(
-        int $companyId,
-        array $values,
-        int $createdBy
-    ): int {
-        $statement = $this->connection()->prepare(
-            'INSERT INTO hr_departments
-                (
-                    company_id,
-                    code,
-                    name,
-                    parent_department_id,
-                    description,
-                    active,
-                    created_by,
-                    updated_by
-                )
-             VALUES
-                (
-                    :company_id,
-                    :code,
-                    :name,
-                    :parent_department_id,
-                    :description,
-                    :active,
-                    :created_by,
-                    :updated_by
-                )'
-        );
-        $statement->execute([
-            'company_id' => $companyId,
-            'code' => $values['code'],
-            'name' => $values['name'],
-            'parent_department_id' =>
-                $values['parent_department_id'],
-            'description' =>
-                $values['description'],
-            'active' => !empty($values['active'])
-                ? 1
-                : 0,
-            'created_by' => $createdBy,
-            'updated_by' => $createdBy,
-        ]);
-
-        return (int) $this->connection()->lastInsertId();
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    public function listForCompany(int $companyId): array
-    {
+    public function listForCompany(
+        int $companyId
+    ): array {
         $statement = $this->connection()->prepare(
             'SELECT
                 departments.department_id,
@@ -187,7 +55,8 @@ class DepartmentRepository extends MySqlRepository
                     AS employee_count,
                 SUM(
                     CASE
-                        WHEN employees.employment_status
+                        WHEN employees.employee_id IS NOT NULL
+                         AND employees.employment_status
                             <> \'terminated\'
                         THEN 1
                         ELSE 0
@@ -221,7 +90,8 @@ class DepartmentRepository extends MySqlRepository
                 departments.updated_at
              ORDER BY
                 departments.active DESC,
-                departments.name'
+                departments.name
+             FETCH FIRST 250 ROWS ONLY'
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -235,19 +105,6 @@ class DepartmentRepository extends MySqlRepository
             : [];
     }
 
-    /**
-     * Backward-compatible alias for the original HR service.
-     *
-     * @return list<array<string, mixed>>
-     */
-    public function managementList(int $companyId): array
-    {
-        return $this->listForCompany($companyId);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
     public function find(
         int $companyId,
         int $departmentId
@@ -268,7 +125,7 @@ class DepartmentRepository extends MySqlRepository
              WHERE company_id = :company_id
                AND department_id = :department_id
                AND deleted_at IS NULL
-             LIMIT 1'
+             FETCH FIRST 1 ROWS ONLY'
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -281,6 +138,53 @@ class DepartmentRepository extends MySqlRepository
         return is_array($department)
             ? $department
             : null;
+    }
+
+    public function codeExists(
+        int $companyId,
+        string $code,
+        ?int $ignoreDepartmentId = null
+    ): bool {
+        return $this->valueExists(
+            $companyId,
+            'code',
+            $code,
+            $ignoreDepartmentId
+        );
+    }
+
+    public function nameExists(
+        int $companyId,
+        string $name,
+        ?int $ignoreDepartmentId = null
+    ): bool {
+        return $this->valueExists(
+            $companyId,
+            'name',
+            $name,
+            $ignoreDepartmentId
+        );
+    }
+
+    public function activeExists(
+        int $companyId,
+        int $departmentId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'SELECT 1
+             FROM hr_departments
+             WHERE company_id = :company_id
+               AND department_id = :department_id
+               AND active = 1
+               AND deleted_at IS NULL
+             FETCH FIRST 1 ROWS ONLY'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'department_id' => $departmentId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
     }
 
     public function currentEmployeeCount(
@@ -313,7 +217,7 @@ class DepartmentRepository extends MySqlRepository
              WHERE company_id = :company_id
                AND parent_department_id =
                     :department_id
-               AND active = TRUE
+               AND active = 1
                AND deleted_at IS NULL'
         );
         $statement->execute([
@@ -322,6 +226,59 @@ class DepartmentRepository extends MySqlRepository
         ]);
 
         return (int) $statement->fetchColumn();
+    }
+
+    public function create(
+        int $companyId,
+        array $values,
+        int $createdBy
+    ): int {
+        $statement = $this->connection()->prepare(
+            'INSERT INTO hr_departments
+                (
+                    company_id,
+                    code,
+                    name,
+                    parent_department_id,
+                    description,
+                    active,
+                    created_by,
+                    updated_by
+                )
+             VALUES
+                (
+                    :company_id,
+                    :code,
+                    :name,
+                    :parent_department_id,
+                    :description,
+                    :active,
+                    :created_by,
+                    :updated_by
+                )'
+        );
+        $statement->execute(
+            $this->writeParameters(
+                $companyId,
+                $values,
+                $createdBy
+            )
+        );
+
+        $lookup = $this->connection()->prepare(
+            'SELECT department_id
+             FROM hr_departments
+             WHERE company_id = :company_id
+               AND code = :code
+               AND deleted_at IS NULL
+             FETCH FIRST 1 ROWS ONLY'
+        );
+        $lookup->execute([
+            'company_id' => $companyId,
+            'code' => $values['code'],
+        ]);
+
+        return (int) $lookup->fetchColumn();
     }
 
     public function update(
@@ -338,26 +295,90 @@ class DepartmentRepository extends MySqlRepository
                     :parent_department_id,
                  description = :description,
                  active = :active,
-                 updated_by = :updated_by
+                 updated_by = :updated_by,
+                 updated_at = SYSTIMESTAMP
              WHERE company_id = :company_id
                AND department_id = :department_id
                AND deleted_at IS NULL'
         );
-        $statement->execute([
+        $parameters = $this->writeParameters(
+            $companyId,
+            $values,
+            $updatedBy
+        );
+        unset($parameters['created_by']);
+        $parameters['department_id'] = $departmentId;
+        $statement->execute($parameters);
+
+        return $statement->rowCount() > 0;
+    }
+
+    private function valueExists(
+        int $companyId,
+        string $column,
+        string $value,
+        ?int $ignoreDepartmentId
+    ): bool {
+        if (!in_array(
+            $column,
+            ['code', 'name'],
+            true
+        )) {
+            throw new \InvalidArgumentException(
+                'Unsupported department uniqueness column.'
+            );
+        }
+
+        $sql = 'SELECT 1
+                FROM hr_departments
+                WHERE company_id = :company_id
+                  AND ' . $column . ' = :value
+                  AND deleted_at IS NULL';
+        $parameters = [
+            'company_id' => $companyId,
+            'value' => $value,
+        ];
+
+        if ($ignoreDepartmentId !== null) {
+            $sql .= '
+                  AND department_id <>
+                      :ignore_department_id';
+            $parameters['ignore_department_id'] =
+                $ignoreDepartmentId;
+        }
+
+        $sql .= '
+                FETCH FIRST 1 ROWS ONLY';
+        $statement = $this->connection()->prepare(
+            $sql
+        );
+        $statement->execute($parameters);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     *
+     * @return array<string, mixed>
+     */
+    private function writeParameters(
+        int $companyId,
+        array $values,
+        int $actorId
+    ): array {
+        return [
             'company_id' => $companyId,
             'code' => $values['code'],
             'name' => $values['name'],
             'parent_department_id' =>
                 $values['parent_department_id'],
-            'description' =>
-                $values['description'],
+            'description' => $values['description'],
             'active' => !empty($values['active'])
                 ? 1
                 : 0,
-            'updated_by' => $updatedBy,
-            'department_id' => $departmentId,
-        ]);
-
-        return $statement->rowCount() > 0;
+            'created_by' => $actorId,
+            'updated_by' => $actorId,
+        ];
     }
 }

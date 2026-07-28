@@ -29,6 +29,8 @@ final class AdministrationController
                 'organization.branches.manage',
                 'organization.job_titles.view',
                 'organization.job_titles.manage',
+                'organization.departments.view',
+                'organization.departments.manage',
             ]);
 
         $isPlatformAdmin = !empty(
