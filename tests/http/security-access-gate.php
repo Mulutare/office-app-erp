@@ -280,6 +280,94 @@ $check(
     'Forced-password account can open the change-password form'
 );
 
+$companyAdminCookies = [];
+$companyAdminLogin = login(
+    $baseUrl,
+    'test_company_admin',
+    $password,
+    $companyAdminCookies
+);
+$check(
+    $companyAdminLogin['status'] === 302
+    && str_ends_with(
+        $companyAdminLogin['location'],
+        '/dashboard'
+    ),
+    'Company-administrator test user authenticates'
+);
+$platformSearch = httpRequest(
+    $baseUrl,
+    '/administration/users?search=test_platform_admin',
+    $companyAdminCookies
+);
+$platformUserId = 0;
+
+if (
+    preg_match(
+        '/administration\/users\/view\?id=(\d+)/',
+        $platformSearch['body'],
+        $matches
+    ) === 1
+) {
+    $platformUserId = (int) $matches[1];
+}
+
+if (
+    $platformSearch['status'] !== 200
+    || $platformUserId < 1
+) {
+    $bodySummary = preg_replace(
+        '/\s+/',
+        ' ',
+        strip_tags($platformSearch['body'])
+    );
+
+    echo 'DEBUG platform_search status=';
+    echo $platformSearch['status'];
+    echo ' location=';
+    echo $platformSearch['location'];
+    echo ' body=';
+    echo substr(
+        is_string($bodySummary)
+            ? $bodySummary
+            : '',
+        0,
+        500
+    );
+    echo PHP_EOL;
+}
+
+$check(
+    $platformSearch['status'] === 200
+    && $platformUserId > 0,
+    'Company administrator can identify the platform-account test target'
+);
+
+$protectedPlatformPaths = [
+    '/administration/users/edit?id='
+        . $platformUserId,
+    '/administration/users/reset-password?id='
+        . $platformUserId,
+    '/administration/users/account-status?id='
+        . $platformUserId,
+    '/administration/users/unlock?id='
+        . $platformUserId,
+];
+
+foreach ($protectedPlatformPaths as $path) {
+    $response = httpRequest(
+        $baseUrl,
+        $path,
+        $companyAdminCookies
+    );
+
+    $check(
+        $response['status'] === 403,
+        'Company administrator is denied platform-account route: '
+            . $path
+    );
+}
+
 foreach ($results as $result) {
     echo $result['passed'] ? 'PASS ' : 'FAIL ';
     echo $result['description'];

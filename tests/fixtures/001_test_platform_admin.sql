@@ -146,7 +146,7 @@ ON DUPLICATE KEY UPDATE
 /*
  * Least-privilege users used only by the HTTP access-gate smoke test.
  *
- * Both accounts use the documented test password from compose.test.yaml.
+ * These accounts use the documented test password from compose.test.yaml.
  * The restricted role intentionally receives no permissions.
  */
 INSERT INTO roles
@@ -185,6 +185,13 @@ SET @executive_viewer_role_id := (
     LIMIT 1
 );
 
+SET @company_owner_role_id := (
+    SELECT role_id
+    FROM roles
+    WHERE code = 'company_owner'
+    LIMIT 1
+);
+
 INSERT INTO users
     (
         username,
@@ -216,6 +223,16 @@ VALUES
         TRUE,
         TRUE,
         0
+    ),
+    (
+        'test_company_admin',
+        'company-admin@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Company Administrator',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
     )
 ON DUPLICATE KEY UPDATE
     password_hash = VALUES(password_hash),
@@ -242,6 +259,13 @@ SET @password_change_user_id := (
     LIMIT 1
 );
 
+SET @company_admin_user_id := (
+    SELECT user_id
+    FROM users
+    WHERE username = 'test_company_admin'
+    LIMIT 1
+);
+
 INSERT INTO company_users
     (
         company_id,
@@ -261,6 +285,13 @@ VALUES
     (
         @default_company_id,
         @password_change_user_id,
+        TRUE,
+        TRUE,
+        @test_user_id
+    ),
+    (
+        @default_company_id,
+        @company_admin_user_id,
         TRUE,
         TRUE,
         @test_user_id
@@ -286,6 +317,11 @@ VALUES
         @password_change_user_id,
         @executive_viewer_role_id,
         @test_user_id
+    ),
+    (
+        @company_admin_user_id,
+        @company_owner_role_id,
+        @test_user_id
     )
 ON DUPLICATE KEY UPDATE
     assigned_by = VALUES(assigned_by);
@@ -308,6 +344,12 @@ VALUES
         @default_company_id,
         @password_change_user_id,
         @executive_viewer_role_id,
+        @test_user_id
+    ),
+    (
+        @default_company_id,
+        @company_admin_user_id,
+        @company_owner_role_id,
         @test_user_id
     )
 ON DUPLICATE KEY UPDATE

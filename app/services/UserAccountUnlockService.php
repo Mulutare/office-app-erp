@@ -13,12 +13,16 @@ final class UserAccountUnlockService
     private User $users;
     private TenantContext $tenant;
     private AuditLog $auditLogs;
+    private PlatformAdministratorProtectionService
+        $platformAdministrators;
 
     public function __construct()
     {
         $this->users = new User();
         $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
+        $this->platformAdministrators =
+            new PlatformAdministratorProtectionService();
     }
 
     /**
@@ -64,6 +68,24 @@ final class UserAccountUnlockService
                 'errors' => [
                     'form' =>
                         'You cannot unlock your own account from user administration.',
+                ],
+            ];
+        }
+
+        $platformManagementError =
+            $this->platformAdministrators
+                ->managementError(
+                    $user,
+                    $unlockedBy
+                );
+
+        if ($platformManagementError !== null) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'form' =>
+                        $platformManagementError,
                 ],
             ];
         }

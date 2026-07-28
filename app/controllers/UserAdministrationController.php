@@ -73,6 +73,16 @@ final class UserAdministrationController
         $isProtectedOwner =
             !empty($profile['is_primary_owner'])
             && !$isSelf;
+        $isPlatformTarget = !empty(
+            $profile['is_platform_admin']
+        );
+        $platformManagementAllowed =
+            !$isPlatformTarget
+            || !empty(
+                $_SESSION['auth'][
+                    'is_platform_admin'
+                ]
+            );
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -107,20 +117,28 @@ final class UserAdministrationController
                 'administration.roles.manage',
                 $_SESSION['auth']['permissions'] ?? [],
                 true
-            ) && !$isProtectedOwner,
+            )
+                && !$isProtectedOwner
+                && $platformManagementAllowed,
             'canResetPassword' =>
-                !$isSelf && !$isProtectedOwner,
+                !$isSelf
+                && !$isProtectedOwner
+                && $platformManagementAllowed,
             'resetCredentials' => \getFlash(
                 'reset_user_credentials'
             ),
             'canChangeStatus' =>
-                !$isSelf && !$isProtectedOwner,
+                !$isSelf
+                && !$isProtectedOwner
+                && $platformManagementAllowed,
             'canUnlock' => (
                 !empty($profile['is_locked'])
                 || (int) (
                     $profile['failed_login_count'] ?? 0
                 ) > 0
-            ) && !$isSelf,
+            )
+                && !$isSelf
+                && $platformManagementAllowed,
             'canViewActivity' => in_array(
                 'audit.logs.view',
                 $_SESSION['auth']['permissions'] ?? [],
@@ -142,6 +160,10 @@ final class UserAdministrationController
         if ($profile === null) {
             $this->notFound();
         }
+
+        $this->requirePlatformTargetAuthority(
+            $profile
+        );
 
         if ($userId === (int) (
             $_SESSION['auth']['user_id'] ?? 0
@@ -251,6 +273,10 @@ final class UserAdministrationController
         if ($profile === null) {
             $this->notFound();
         }
+
+        $this->requirePlatformTargetAuthority(
+            $profile
+        );
 
         if ($userId === (int) (
             $_SESSION['auth']['user_id'] ?? 0
@@ -382,6 +408,10 @@ final class UserAdministrationController
             $this->notFound();
         }
 
+        $this->requirePlatformTargetAuthority(
+            $profile
+        );
+
         if ($userId === (int) (
             $_SESSION['auth']['user_id'] ?? 0
         )) {
@@ -488,6 +518,10 @@ final class UserAdministrationController
             $this->notFound();
         }
 
+        $this->requirePlatformTargetAuthority(
+            $formData['profile']
+        );
+
         $old = \getFlash('user_edit_old', []);
 
         if (is_array($old) && $old !== []) {
@@ -500,8 +534,15 @@ final class UserAdministrationController
         $isSelf = $userId === (int) (
             $_SESSION['auth']['user_id'] ?? 0
         );
+        $isAccessProtected =
+            $isSelf
+            || !empty(
+                $formData['profile'][
+                    'is_platform_admin'
+                ]
+            );
 
-        if ($isSelf) {
+        if ($isAccessProtected) {
             $current = $this->updates
                 ->formData($userId);
 
@@ -531,6 +572,8 @@ final class UserAdministrationController
             'profile' => $formData['profile'],
             'roles' => $formData['roles'],
             'isSelf' => $isSelf,
+            'isAccessProtected' =>
+                $isAccessProtected,
             'errors' => \getFlash(
                 'user_edit_errors',
                 []
@@ -696,6 +739,20 @@ final class UserAdministrationController
         }
 
         return $default;
+    }
+
+    /**
+     * @param array<string, mixed> $profile
+     */
+    private function requirePlatformTargetAuthority(
+        array $profile
+    ): void {
+        if (empty($profile['is_platform_admin'])) {
+            return;
+        }
+
+        $this->authorization
+            ->requirePlatformAdministrator();
     }
 
     private function postInteger(string $key): int

@@ -16,12 +16,16 @@ final class UserAccountStatusService
     private User $users;
     private TenantContext $tenant;
     private AuditLog $auditLogs;
+    private PlatformAdministratorProtectionService
+        $platformAdministrators;
 
     public function __construct()
     {
         $this->users = new User();
         $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
+        $this->platformAdministrators =
+            new PlatformAdministratorProtectionService();
     }
 
     /**
@@ -70,6 +74,24 @@ final class UserAccountStatusService
                 'errors' => [
                     'form' =>
                         'You cannot deactivate your own account.',
+                ],
+            ];
+        }
+
+        $platformManagementError =
+            $this->platformAdministrators
+                ->managementError(
+                    $user,
+                    $changedBy
+                );
+
+        if ($platformManagementError !== null) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'form' =>
+                        $platformManagementError,
                 ],
             ];
         }
@@ -126,6 +148,29 @@ final class UserAccountStatusService
 
         try {
             \db()->beginTransaction();
+
+            $platformDeactivationError =
+                $this->platformAdministrators
+                    ->deactivationError(
+                        $user,
+                        $active
+                    );
+
+            if (
+                $platformDeactivationError
+                !== null
+            ) {
+                \db()->rollBack();
+
+                return [
+                    'successful' => false,
+                    'notFound' => false,
+                    'errors' => [
+                        'form' =>
+                            $platformDeactivationError,
+                    ],
+                ];
+            }
 
             $this->users->setAdministrationActive(
                 $companyId,

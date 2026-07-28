@@ -14,6 +14,8 @@ final class UserPasswordResetService
     private TenantContext $tenant;
     private AuditLog $auditLogs;
     private TemporaryPasswordGenerator $passwords;
+    private PlatformAdministratorProtectionService
+        $platformAdministrators;
 
     public function __construct()
     {
@@ -22,6 +24,8 @@ final class UserPasswordResetService
         $this->auditLogs = new AuditLog();
         $this->passwords =
             new TemporaryPasswordGenerator();
+        $this->platformAdministrators =
+            new PlatformAdministratorProtectionService();
     }
 
     /**
@@ -67,6 +71,24 @@ final class UserPasswordResetService
                 'errors' => [
                     'form' =>
                         'You cannot reset your own password from user administration.',
+                ],
+            ];
+        }
+
+        $platformManagementError =
+            $this->platformAdministrators
+                ->managementError(
+                    $user,
+                    $resetBy
+                );
+
+        if ($platformManagementError !== null) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'form' =>
+                        $platformManagementError,
                 ],
             ];
         }

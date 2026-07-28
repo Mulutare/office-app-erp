@@ -19,6 +19,9 @@ $selectedRoles = is_array(
     ? array_map('intval', $profile['role_ids'])
     : [];
 $isSelf = !empty($data['isSelf']);
+$isAccessProtected = !empty(
+    $data['isAccessProtected']
+);
 ?>
 
 <?php if (!empty($errors['form'])): ?>
@@ -127,6 +130,13 @@ $isSelf = !empty($data['isSelf']);
                 Your own role assignments are protected
                 from self-modification.
             </div>
+        <?php elseif (
+            !empty($profile['is_platform_admin'])
+        ): ?>
+            <div class="alert alert-information">
+                Platform administrator role assignments
+                are protected from company-level changes.
+            </div>
         <?php endif; ?>
 
         <?php if (!empty($errors['roles'])): ?>
@@ -154,10 +164,15 @@ $isSelf = !empty($data['isSelf']);
                         name="role_ids[]"
                         value="<?= e($roleId) ?>"
                         <?= $selected ? 'checked' : '' ?>
-                        <?= $isSelf ? 'disabled' : '' ?>
+                        <?= $isAccessProtected
+                            ? 'disabled'
+                            : '' ?>
                     >
 
-                    <?php if ($isSelf && $selected): ?>
+                    <?php if (
+                        $isAccessProtected
+                        && $selected
+                    ): ?>
                         <input
                             type="hidden"
                             name="role_ids[]"
@@ -191,11 +206,13 @@ $isSelf = !empty($data['isSelf']);
                 <?= !empty($profile['active'])
                     ? 'checked'
                     : '' ?>
-                <?= $isSelf ? 'disabled' : '' ?>
+                <?= $isAccessProtected
+                    ? 'disabled'
+                    : '' ?>
             >
 
             <?php if (
-                $isSelf
+                $isAccessProtected
                 && !empty($profile['active'])
             ): ?>
                 <input
@@ -209,7 +226,8 @@ $isSelf = !empty($data['isSelf']);
                 <strong>Active account</strong>
                 <small>
                     Inactive accounts cannot sign in.
-                    You cannot deactivate your own account.
+                    Protected access changes use the
+                    dedicated account-status workflow.
                 </small>
             </span>
         </label>

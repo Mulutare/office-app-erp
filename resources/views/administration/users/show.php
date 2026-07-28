@@ -232,9 +232,19 @@ if (!empty($profile['is_locked'])) {
         </div>
     </div>
 
-    <span class="badge <?= e($statusClass) ?>">
-        <?= e($statusLabel) ?>
-    </span>
+    <div class="role-badges">
+        <?php if (!empty(
+            $profile['is_platform_admin']
+        )): ?>
+            <span class="badge badge-role">
+                Platform administrator
+            </span>
+        <?php endif; ?>
+
+        <span class="badge <?= e($statusClass) ?>">
+            <?= e($statusLabel) ?>
+        </span>
+    </div>
 </section>
 
 <div class="details-grid">

@@ -11,6 +11,7 @@ use App\Database\MySqlDialect;
 use App\Database\OracleDialect;
 use App\Database\OracleDriver;
 use App\Models\CompanyMembership;
+use App\Models\User;
 use App\Repositories\MySql\CompanyMembershipRepository;
 use App\Repositories\MySql\DashboardStatisticsRepository;
 use App\Repositories\Oracle\DashboardStatisticsRepository
@@ -18,6 +19,11 @@ use App\Repositories\Oracle\DashboardStatisticsRepository
 use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
 use App\Services\DashboardService;
+use App\Services\PlatformAdministratorProtectionService;
+use App\Services\UserAccountStatusService;
+use App\Services\UserAccountUnlockService;
+use App\Services\UserPasswordResetService;
+use App\Services\UserUpdateService;
 
 $results = [];
 $failures = 0;
@@ -566,6 +572,132 @@ try {
             ->mustChangePassword(),
         'Password-change fixture is marked for the central gate'
     );
+
+    $defaultCompanyId = is_array($company)
+        ? (int) ($company['company_id'] ?? 0)
+        : 0;
+    $platformProfile = is_int($userId)
+        ? (new User())->findByIdInCompany(
+            $userId,
+            $defaultCompanyId
+        )
+        : null;
+    $nonPlatformActorId = (int) (
+        $_SESSION['auth']['user_id'] ?? 0
+    );
+
+    $check(
+        is_array($platformProfile)
+        && !empty(
+            $platformProfile[
+                'is_platform_admin'
+            ]
+        ),
+        'Company-scoped user lookup identifies platform administrators'
+    );
+
+    if (
+        is_array($platformProfile)
+        && is_int($userId)
+    ) {
+        $protection =
+            new PlatformAdministratorProtectionService();
+        $managementError =
+            $protection->managementError(
+                $platformProfile,
+                $nonPlatformActorId
+            );
+
+        $check(
+            is_string($managementError)
+            && str_contains(
+                $managementError,
+                'only be managed'
+            ),
+            'Non-platform actors cannot manage a platform administrator'
+        );
+
+        $lastAdministratorError = null;
+        \db()->beginTransaction();
+
+        try {
+            $lastAdministratorError =
+                $protection->deactivationError(
+                    $platformProfile,
+                    false
+                );
+        } finally {
+            if (\db()->inTransaction()) {
+                \db()->rollBack();
+            }
+        }
+
+        $check(
+            is_string($lastAdministratorError)
+            && str_contains(
+                $lastAdministratorError,
+                'last active platform administrator'
+            ),
+            'Database-locked policy protects the final platform administrator'
+        );
+
+        $statusResult =
+            (new UserAccountStatusService())
+                ->change(
+                    $userId,
+                    false,
+                    $nonPlatformActorId
+                );
+        $check(
+            $statusResult['successful'] === false
+            && isset(
+                $statusResult['errors']['form']
+            ),
+            'Status service rejects unauthorized platform-account changes'
+        );
+
+        $updateResult =
+            (new UserUpdateService())->update(
+                $userId,
+                [],
+                $nonPlatformActorId
+            );
+        $check(
+            $updateResult['successful'] === false
+            && isset(
+                $updateResult['errors']['form']
+            ),
+            'Profile service rejects unauthorized platform-account changes'
+        );
+
+        $resetResult =
+            (new UserPasswordResetService())
+                ->reset(
+                    $userId,
+                    $nonPlatformActorId
+                );
+        $check(
+            $resetResult['successful'] === false
+            && isset(
+                $resetResult['errors']['form']
+            ),
+            'Password-reset service protects platform accounts'
+        );
+
+        $unlockResult =
+            (new UserAccountUnlockService())
+                ->unlock(
+                    $userId,
+                    $nonPlatformActorId
+                );
+        $check(
+            $unlockResult['successful'] === false
+            && isset(
+                $unlockResult['errors']['form']
+            ),
+            'Unlock service protects platform accounts'
+        );
+    }
 } catch (Throwable $exception) {
     $failures++;
     $results[] = [

@@ -16,6 +16,8 @@ final class UserUpdateService
     private Role $roles;
     private TenantContext $tenant;
     private AuditLog $auditLogs;
+    private PlatformAdministratorProtectionService
+        $platformAdministrators;
 
     public function __construct()
     {
@@ -23,6 +25,8 @@ final class UserUpdateService
         $this->roles = new Role();
         $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
+        $this->platformAdministrators =
+            new PlatformAdministratorProtectionService();
     }
 
     /**
@@ -49,7 +53,11 @@ final class UserUpdateService
         return [
             'profile' => $user,
             'roles' => $this->roles
-                ->activeRoles(false),
+                ->activeRoles(
+                    !empty(
+                        $user['is_platform_admin']
+                    )
+                ),
         ];
     }
 
@@ -74,6 +82,24 @@ final class UserUpdateService
                 'successful' => false,
                 'notFound' => true,
                 'errors' => [],
+            ];
+        }
+
+        $platformManagementError =
+            $this->platformAdministrators
+                ->managementError(
+                    $existing,
+                    $updatedBy
+                );
+
+        if ($platformManagementError !== null) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'form' =>
+                        $platformManagementError,
+                ],
             ];
         }
 
@@ -119,7 +145,11 @@ final class UserUpdateService
         $validRoleIds = $this->roles
             ->validActiveRoleIds(
                 $roleIds,
-                false
+                !empty(
+                    $existing[
+                        'is_platform_admin'
+                    ]
+                )
             );
 
         sort($roleIds);
@@ -136,6 +166,16 @@ final class UserUpdateService
                 $userId
             );
         sort($existingRoleIds);
+
+        if (
+            !empty(
+                $existing['is_platform_admin']
+            )
+            && $roleIds !== $existingRoleIds
+        ) {
+            $errors['roles'] =
+                'Platform administrator role assignments cannot be changed from company user administration.';
+        }
 
         if ($userId === $updatedBy) {
             if (!$active) {
@@ -175,6 +215,29 @@ final class UserUpdateService
 
         try {
             \db()->beginTransaction();
+
+            $platformDeactivationError =
+                $this->platformAdministrators
+                    ->deactivationError(
+                        $existing,
+                        $active
+                    );
+
+            if (
+                $platformDeactivationError
+                !== null
+            ) {
+                \db()->rollBack();
+
+                return [
+                    'successful' => false,
+                    'notFound' => false,
+                    'errors' => [
+                        'form' =>
+                            $platformDeactivationError,
+                    ],
+                ];
+            }
 
             $this->users->updateAdministrationUser(
                 $companyId,

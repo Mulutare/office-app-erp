@@ -107,6 +107,7 @@ class UserRepository extends MySqlRepository
                 users.username,
                 users.email,
                 users.display_name,
+                users.is_platform_admin,
                 (
                     users.active = TRUE
                     AND memberships.active = TRUE
@@ -439,12 +440,15 @@ public function administrationCount(
 
     if ($search !== '') {
         $conditions[] = '(
-            users.username LIKE :search
-            OR users.email LIKE :search
-            OR users.display_name LIKE :search
+            users.username LIKE :search_username
+            OR users.email LIKE :search_email
+            OR users.display_name LIKE :search_display_name
         )';
 
-        $parameters['search'] = '%' . $search . '%';
+        $searchPattern = '%' . $search . '%';
+        $parameters['search_username'] = $searchPattern;
+        $parameters['search_email'] = $searchPattern;
+        $parameters['search_display_name'] = $searchPattern;
     }
 
     if ($status === 'active') {
@@ -502,12 +506,15 @@ public function administrationPage(
 
     if ($search !== '') {
         $conditions[] = '(
-            users.username LIKE :search
-            OR users.email LIKE :search
-            OR users.display_name LIKE :search
+            users.username LIKE :search_username
+            OR users.email LIKE :search_email
+            OR users.display_name LIKE :search_display_name
         )';
 
-        $parameters['search'] = '%' . $search . '%';
+        $searchPattern = '%' . $search . '%';
+        $parameters['search_username'] = $searchPattern;
+        $parameters['search_email'] = $searchPattern;
+        $parameters['search_display_name'] = $searchPattern;
     }
 
     if ($status === 'active') {
@@ -946,6 +953,103 @@ public function activeUserCountForRole(
     ]);
 
     return (int) $statement->fetchColumn();
+}
+
+public function isOperationalPlatformAdministrator(
+    int $userId
+): bool {
+    $statement = $this->connection()->prepare(
+        'SELECT 1
+         FROM users
+         INNER JOIN company_users memberships
+             ON memberships.user_id = users.user_id
+         INNER JOIN companies
+             ON companies.company_id =
+                memberships.company_id
+         INNER JOIN company_user_roles assignments
+             ON assignments.company_id =
+                memberships.company_id
+            AND assignments.user_id = users.user_id
+         INNER JOIN roles
+             ON roles.role_id = assignments.role_id
+         WHERE users.user_id = :user_id
+           AND users.is_platform_admin = TRUE
+           AND users.active = TRUE
+           AND users.deleted_at IS NULL
+           AND memberships.active = TRUE
+           AND companies.code = \'default\'
+           AND companies.active = TRUE
+           AND companies.approval_status = \'approved\'
+           AND companies.deleted_at IS NULL
+           AND companies.subscription_status
+                IN (\'active\', \'trial\')
+           AND (
+                companies.subscription_expires_at
+                    IS NULL
+                OR companies.subscription_expires_at
+                    > NOW()
+           )
+           AND roles.code = \'system_administrator\'
+           AND roles.active = TRUE
+         LIMIT 1'
+    );
+    $statement->execute([
+        'user_id' => $userId,
+    ]);
+
+    return $statement->fetchColumn() !== false;
+}
+
+/**
+ * Lock and return every operational platform administrator.
+ *
+ * Call only from inside the transaction performing the protected
+ * mutation so concurrent requests cannot remove the final account.
+ *
+ * @return list<int>
+ */
+public function lockOperationalPlatformAdministratorIds(): array
+{
+    $statement = $this->connection()->query(
+        'SELECT users.user_id
+         FROM users
+         INNER JOIN company_users memberships
+             ON memberships.user_id = users.user_id
+         INNER JOIN companies
+             ON companies.company_id =
+                memberships.company_id
+         INNER JOIN company_user_roles assignments
+             ON assignments.company_id =
+                memberships.company_id
+            AND assignments.user_id = users.user_id
+         INNER JOIN roles
+             ON roles.role_id = assignments.role_id
+         WHERE users.is_platform_admin = TRUE
+           AND users.active = TRUE
+           AND users.deleted_at IS NULL
+           AND memberships.active = TRUE
+           AND companies.code = \'default\'
+           AND companies.active = TRUE
+           AND companies.approval_status = \'approved\'
+           AND companies.deleted_at IS NULL
+           AND companies.subscription_status
+                IN (\'active\', \'trial\')
+           AND (
+                companies.subscription_expires_at
+                    IS NULL
+                OR companies.subscription_expires_at
+                    > NOW()
+           )
+           AND roles.code = \'system_administrator\'
+           AND roles.active = TRUE
+         ORDER BY users.user_id
+         FOR UPDATE'
+    );
+
+    return array_map(
+        'intval',
+        $statement->fetchAll(\PDO::FETCH_COLUMN)
+    );
 }
 
 /**
