@@ -387,6 +387,39 @@ foreach ($protectedPlatformPaths as $path) {
     );
 }
 
+$lifecycleAccounts = [
+    'test_company_pending_user' =>
+        'Pending company login is rejected',
+    'test_company_inactive_user' =>
+        'Inactive company login is rejected',
+    'test_company_suspended_user' =>
+        'Suspended company login is rejected',
+    'test_company_expired_user' =>
+        'Expired company login is rejected',
+];
+
+foreach (
+    $lifecycleAccounts
+    as $lifecycleUsername => $description
+) {
+    $lifecycleCookies = [];
+    $lifecycleLogin = login(
+        $baseUrl,
+        $lifecycleUsername,
+        $password,
+        $lifecycleCookies
+    );
+
+    $check(
+        $lifecycleLogin['status'] === 302
+        && str_ends_with(
+            $lifecycleLogin['location'],
+            '/login'
+        ),
+        $description
+    );
+}
+
 $tenantAAdminCookies = [];
 $tenantAAdminLogin = login(
     $baseUrl,
@@ -401,6 +434,48 @@ $check(
         '/dashboard'
     ),
     'Tenant A administrator authenticates'
+);
+
+$tenantADashboard = httpRequest(
+    $baseUrl,
+    '/dashboard',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantADashboard['status'] === 200
+    && str_contains(
+        $tenantADashboard['body'],
+        'href="/office_app/public/hr"'
+    )
+    && !str_contains(
+        $tenantADashboard['body'],
+        'href="/office_app/public/finance"'
+    ),
+    'Tenant navigation shows HR but hides unlicensed Finance'
+);
+
+$licensedHr = httpRequest(
+    $baseUrl,
+    '/hr',
+    $tenantAAdminCookies
+);
+$check(
+    $licensedHr['status'] === 200,
+    'Licensed HR direct route is accessible'
+);
+
+$unlicensedFinance = httpRequest(
+    $baseUrl,
+    '/finance',
+    $tenantAAdminCookies
+);
+$check(
+    $unlicensedFinance['status'] === 404
+    && str_contains(
+        $unlicensedFinance['body'],
+        'Module unavailable'
+    ),
+    'Unlicensed Finance direct route is denied server-side'
 );
 
 $tenantBUserId = 910002;

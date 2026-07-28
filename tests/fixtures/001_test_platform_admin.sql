@@ -686,3 +686,296 @@ WHERE permissions.code = 'dashboard.view';
 DELETE FROM company_role_permissions
 WHERE company_id = @default_company_id
   AND role_id = @restricted_role_id;
+
+
+/*
+ * Phase A5 lifecycle and module-entitlement fixtures.
+ *
+ * Tenant A deliberately has HR licensed and enabled. Finance is marked
+ * enabled but not licensed so direct-route checks must fail closed.
+ */
+INSERT INTO company_modules
+    (
+        company_id,
+        module_id,
+        enabled,
+        license_status,
+        licensed_at,
+        expires_at,
+        updated_by
+    )
+SELECT
+    @tenant_a_company_id,
+    modules.module_id,
+    TRUE,
+    CASE
+        WHEN modules.code = 'hr'
+            THEN 'active'
+        ELSE 'not_licensed'
+    END,
+    CASE
+        WHEN modules.code = 'hr'
+            THEN NOW()
+        ELSE NULL
+    END,
+    NULL,
+    @test_user_id
+FROM erp_modules modules
+WHERE modules.code IN ('hr', 'finance')
+ON DUPLICATE KEY UPDATE
+    enabled = VALUES(enabled),
+    license_status = VALUES(license_status),
+    licensed_at = VALUES(licensed_at),
+    expires_at = NULL,
+    updated_by = VALUES(updated_by);
+
+INSERT INTO companies
+    (
+        code,
+        name,
+        contact_email,
+        country_code,
+        default_currency,
+        timezone,
+        subscription_status,
+        subscription_expires_at,
+        approval_status,
+        approved_at,
+        active
+    )
+VALUES
+    (
+        'test_company_pending',
+        'Test Pending Company',
+        'pending-company@example.test',
+        'KE',
+        'KES',
+        'Africa/Nairobi',
+        'active',
+        NULL,
+        'pending',
+        NULL,
+        TRUE
+    ),
+    (
+        'test_company_inactive',
+        'Test Inactive Company',
+        'inactive-company@example.test',
+        'KE',
+        'KES',
+        'Africa/Nairobi',
+        'active',
+        NULL,
+        'approved',
+        NOW(),
+        FALSE
+    ),
+    (
+        'test_company_suspended',
+        'Test Suspended Company',
+        'suspended-company@example.test',
+        'KE',
+        'KES',
+        'Africa/Nairobi',
+        'suspended',
+        NULL,
+        'approved',
+        NOW(),
+        TRUE
+    ),
+    (
+        'test_company_expired',
+        'Test Expired Company',
+        'expired-company@example.test',
+        'KE',
+        'KES',
+        'Africa/Nairobi',
+        'active',
+        DATE_SUB(NOW(), INTERVAL 1 DAY),
+        'approved',
+        NOW(),
+        TRUE
+    )
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    contact_email = VALUES(contact_email),
+    subscription_status =
+        VALUES(subscription_status),
+    subscription_expires_at =
+        VALUES(subscription_expires_at),
+    approval_status = VALUES(approval_status),
+    approved_at = VALUES(approved_at),
+    active = VALUES(active),
+    deleted_at = NULL;
+
+SET @pending_company_id := (
+    SELECT company_id
+    FROM companies
+    WHERE code = 'test_company_pending'
+    LIMIT 1
+);
+
+SET @inactive_company_id := (
+    SELECT company_id
+    FROM companies
+    WHERE code = 'test_company_inactive'
+    LIMIT 1
+);
+
+SET @suspended_company_id := (
+    SELECT company_id
+    FROM companies
+    WHERE code = 'test_company_suspended'
+    LIMIT 1
+);
+
+SET @expired_company_id := (
+    SELECT company_id
+    FROM companies
+    WHERE code = 'test_company_expired'
+    LIMIT 1
+);
+
+INSERT INTO users
+    (
+        user_id,
+        username,
+        email,
+        password_hash,
+        display_name,
+        is_platform_admin,
+        active,
+        must_change_password,
+        failed_login_count
+    )
+VALUES
+    (
+        910011,
+        'test_company_pending_user',
+        'pending-user@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Pending Company User',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
+    ),
+    (
+        910012,
+        'test_company_inactive_user',
+        'inactive-user@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Inactive Company User',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
+    ),
+    (
+        910013,
+        'test_company_suspended_user',
+        'suspended-user@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Suspended Company User',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
+    ),
+    (
+        910014,
+        'test_company_expired_user',
+        'expired-user@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Expired Company User',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
+    )
+ON DUPLICATE KEY UPDATE
+    password_hash = VALUES(password_hash),
+    display_name = VALUES(display_name),
+    is_platform_admin = FALSE,
+    active = TRUE,
+    must_change_password = FALSE,
+    failed_login_count = 0,
+    locked_until = NULL,
+    deleted_at = NULL;
+
+INSERT INTO company_users
+    (
+        company_id,
+        user_id,
+        active,
+        is_default,
+        assigned_by
+    )
+VALUES
+    (
+        @pending_company_id,
+        910011,
+        TRUE,
+        TRUE,
+        @test_user_id
+    ),
+    (
+        @inactive_company_id,
+        910012,
+        TRUE,
+        TRUE,
+        @test_user_id
+    ),
+    (
+        @suspended_company_id,
+        910013,
+        TRUE,
+        TRUE,
+        @test_user_id
+    ),
+    (
+        @expired_company_id,
+        910014,
+        TRUE,
+        TRUE,
+        @test_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    active = TRUE,
+    is_default = TRUE,
+    assigned_by = VALUES(assigned_by);
+
+INSERT INTO company_user_roles
+    (
+        company_id,
+        user_id,
+        role_id,
+        assigned_by
+    )
+VALUES
+    (
+        @pending_company_id,
+        910011,
+        @executive_viewer_role_id,
+        @test_user_id
+    ),
+    (
+        @inactive_company_id,
+        910012,
+        @executive_viewer_role_id,
+        @test_user_id
+    ),
+    (
+        @suspended_company_id,
+        910013,
+        @executive_viewer_role_id,
+        @test_user_id
+    ),
+    (
+        @expired_company_id,
+        910014,
+        @executive_viewer_role_id,
+        @test_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    assigned_by = VALUES(assigned_by);

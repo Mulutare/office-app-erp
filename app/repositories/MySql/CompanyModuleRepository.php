@@ -142,7 +142,17 @@ class CompanyModuleRepository extends MySqlRepository
              WHERE entitlements.company_id =
                     :company_id
                AND companies.active = TRUE
+               AND companies.approval_status =
+                    \'approved\'
                AND companies.deleted_at IS NULL
+               AND companies.subscription_status
+                    IN (\'active\', \'trial\')
+               AND (
+                    companies.subscription_expires_at
+                        IS NULL
+                    OR companies.subscription_expires_at
+                        > NOW()
+               )
                AND modules.active = TRUE
                AND modules.available = TRUE
                AND entitlements.enabled = TRUE
@@ -182,11 +192,26 @@ class CompanyModuleRepository extends MySqlRepository
                 modules.code,
                 entitlements.enabled
              FROM company_modules entitlements
+             INNER JOIN companies
+                 ON companies.company_id =
+                    entitlements.company_id
              INNER JOIN erp_modules modules
                  ON modules.module_id =
                     entitlements.module_id
              WHERE entitlements.company_id =
                     :company_id
+               AND companies.active = TRUE
+               AND companies.approval_status =
+                    \'approved\'
+               AND companies.deleted_at IS NULL
+               AND companies.subscription_status
+                    IN (\'active\', \'trial\')
+               AND (
+                    companies.subscription_expires_at
+                        IS NULL
+                    OR companies.subscription_expires_at
+                        > NOW()
+               )
                AND modules.active = TRUE
                AND modules.available = TRUE
                AND entitlements.license_status IN (

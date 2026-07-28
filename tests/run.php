@@ -18,6 +18,7 @@ use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
+use App\Services\CompanyModuleService;
 use App\Services\DashboardService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\RolePermissionUpdateService;
@@ -703,6 +704,39 @@ try {
         );
     }
 
+    $lifecycleAccounts = [
+        'test_company_pending_user' =>
+            'Pending companies cannot authenticate',
+        'test_company_inactive_user' =>
+            'Inactive companies cannot authenticate',
+        'test_company_suspended_user' =>
+            'Suspended subscriptions cannot authenticate',
+        'test_company_expired_user' =>
+            'Expired subscriptions cannot authenticate',
+    ];
+
+    foreach (
+        $lifecycleAccounts
+        as $lifecycleUsername => $description
+    ) {
+        unset($_SESSION['auth']);
+        $lifecycleAuthentication =
+            new AuthService();
+        $lifecycleLogin =
+            $lifecycleAuthentication->attempt(
+                $lifecycleUsername,
+                is_string($password)
+                    ? $password
+                    : ''
+            );
+
+        $check(
+            $lifecycleLogin['successful'] === false
+            && !isset($_SESSION['auth']),
+            $description
+        );
+    }
+
     $tenantAAuthentication = new AuthService();
     $tenantALogin = $tenantAAuthentication->attempt(
         'test_tenant_a_admin',
@@ -735,6 +769,35 @@ try {
             'administration.roles.manage'
         ),
         'Tenant A administrator has tenant user-management permissions'
+    );
+
+    $tenantAModules = is_array(
+        $_SESSION['auth']['modules'] ?? null
+    )
+        ? $_SESSION['auth']['modules']
+        : [];
+    $tenantAModuleCodes = array_values(
+        array_map(
+            static fn (array $module): string =>
+                (string) ($module['code'] ?? ''),
+            $tenantAModules
+        )
+    );
+    $companyModules = new CompanyModuleService();
+
+    $check(
+        $tenantAModuleCodes === ['hr'],
+        'Tenant navigation exposes only licensed and enabled modules'
+    );
+
+    $check(
+        $companyModules->isEnabled('hr'),
+        'Licensed HR module passes the central entitlement check'
+    );
+
+    $check(
+        !$companyModules->isEnabled('finance'),
+        'Unlicensed Finance module fails the central entitlement check'
     );
 
     $tenantBTargetStatement = db()->prepare(
