@@ -563,6 +563,74 @@ ON DUPLICATE KEY UPDATE
 
 
 /*
+ * Phase B1 cross-company branch records.
+ */
+INSERT INTO organization_branches
+    (
+        branch_id,
+        company_id,
+        code,
+        name,
+        contact_email,
+        contact_phone,
+        address_line,
+        city,
+        country_code,
+        timezone,
+        is_head_office,
+        active,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        930001,
+        @tenant_a_company_id,
+        'TA-HQ',
+        'Tenant A Headquarters',
+        'hq-a@example.test',
+        '+254700000001',
+        'Tenant A Avenue',
+        'Nairobi',
+        'KE',
+        'Africa/Nairobi',
+        TRUE,
+        TRUE,
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        930002,
+        @tenant_b_company_id,
+        'TB-CONF',
+        'Tenant B Confidential Branch',
+        'confidential-b@example.test',
+        '+254700000002',
+        'Tenant B Close',
+        'Mombasa',
+        'KE',
+        'Africa/Nairobi',
+        TRUE,
+        TRUE,
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    code = VALUES(code),
+    name = VALUES(name),
+    contact_email = VALUES(contact_email),
+    contact_phone = VALUES(contact_phone),
+    address_line = VALUES(address_line),
+    city = VALUES(city),
+    country_code = VALUES(country_code),
+    timezone = VALUES(timezone),
+    is_head_office = TRUE,
+    active = TRUE,
+    deleted_at = NULL;
+
+
+/*
  * Phase A6 cross-company HR and Finance records.
  */
 INSERT INTO company_modules

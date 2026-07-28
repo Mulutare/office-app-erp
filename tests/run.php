@@ -18,6 +18,7 @@ use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
+use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
 use App\Services\DashboardService;
 use App\Services\DepartmentManagementService;
@@ -258,8 +259,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 6,
-        'Oracle migration catalog contains six valid definitions'
+        && count($oracleMigrationFiles) === 7,
+        'Oracle migration catalog contains seven valid definitions'
     );
 
     $check(
@@ -277,6 +278,7 @@ try {
                 '040',
                 '050',
                 '060',
+                '070',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -295,8 +297,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 17
-        && $oracleIdentityCount === 11,
+        $oracleTableCount === 18
+        && $oracleIdentityCount === 12,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -372,8 +374,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 17,
-        'All 17 application tables were created'
+        $tableCount === 18,
+        'All 18 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -385,8 +387,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 43,
-        'All 43 foreign-key relationships were created'
+        $foreignKeyCount === 46,
+        'All 46 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -776,6 +778,16 @@ try {
         'Tenant A administrator has tenant user-management permissions'
     );
 
+    $check(
+        $tenantAAuthentication->can(
+            'organization.branches.view'
+        )
+        && $tenantAAuthentication->can(
+            'organization.branches.manage'
+        ),
+        'Tenant A administrator has branch-management permissions'
+    );
+
     $tenantAModules = is_array(
         $_SESSION['auth']['modules'] ?? null
     )
@@ -880,6 +892,139 @@ try {
             $foreignDepartmentUpdate['notFound']
         ),
         'Tenant A cannot update a Tenant B department'
+    );
+
+    $branchManagement =
+        new BranchManagementService();
+    $branchListing = $branchManagement->listing();
+    $branchNames = array_map(
+        static fn (array $branch): string =>
+            (string) ($branch['name'] ?? ''),
+        $branchListing['branches']
+    );
+
+    $check(
+        in_array(
+            'Tenant A Headquarters',
+            $branchNames,
+            true
+        )
+        && !in_array(
+            'Tenant B Confidential Branch',
+            $branchNames,
+            true
+        ),
+        'Tenant A branch directory excludes Tenant B branches'
+    );
+
+    $check(
+        $branchManagement->form(930002) === null,
+        'Tenant A cannot open a Tenant B branch'
+    );
+
+    $foreignBranchUpdate =
+        $branchManagement->update(
+            930002,
+            [],
+            $tenantAActorId
+        );
+    $check(
+        $foreignBranchUpdate['successful']
+            === false
+        && !empty(
+            $foreignBranchUpdate['notFound']
+        ),
+        'Tenant A cannot update a Tenant B branch'
+    );
+
+    $branchSuffix = strtoupper(
+        bin2hex(random_bytes(4))
+    );
+    $branchInput = [
+        'code' => 'BR-' . $branchSuffix,
+        'name' => 'Integration Branch '
+            . $branchSuffix,
+        'contact_email' =>
+            'branch-' . strtolower($branchSuffix)
+            . '@example.test',
+        'contact_phone' => '+254700009999',
+        'address_line' => 'Integration Avenue',
+        'city' => 'Nairobi',
+        'country_code' => 'KE',
+        'timezone' => 'Africa/Nairobi',
+        'is_head_office' => false,
+        'active' => true,
+    ];
+    $createdBranch = $branchManagement->create(
+        $branchInput,
+        $tenantAActorId
+    );
+
+    $check(
+        $createdBranch['successful'] === true
+        && (int) (
+            $createdBranch['branchId'] ?? 0
+        ) > 0,
+        'Tenant branch creation succeeds with valid data'
+    );
+
+    $duplicateBranch = $branchManagement->create(
+        $branchInput,
+        $tenantAActorId
+    );
+    $check(
+        $duplicateBranch['successful'] === false
+        && isset(
+            $duplicateBranch['errors']['code']
+        ),
+        'Tenant branch creation rejects duplicate codes'
+    );
+
+    $createdBranchId = (int) (
+        $createdBranch['branchId'] ?? 0
+    );
+    $branchAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND action = :action
+           AND module = :module
+           AND table_name = :table_name
+           AND record_id = :record_id'
+    );
+    $branchAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'action' => 'CREATE',
+        'module' => 'organization',
+        'table_name' =>
+            'organization_branches',
+        'record_id' => (string) $createdBranchId,
+    ]);
+    $check(
+        (int) $branchAuditStatement
+            ->fetchColumn() === 1,
+        'Branch creation records a company-scoped audit event'
+    );
+
+    $duplicateHeadOffice =
+        $branchManagement->create(
+            array_merge($branchInput, [
+                'code' => 'HQ-' . $branchSuffix,
+                'name' => 'Second Headquarters '
+                    . $branchSuffix,
+                'is_head_office' => true,
+            ]),
+            $tenantAActorId
+        );
+    $check(
+        $duplicateHeadOffice['successful']
+            === false
+        && isset(
+            $duplicateHeadOffice['errors'][
+                'is_head_office'
+            ]
+        ),
+        'Branch rules enforce one head office per company'
     );
 
     $financeDashboard =

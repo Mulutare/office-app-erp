@@ -71,6 +71,16 @@ final class AuthorizationService
         $this->deny();
     }
 
+    public function requireTenantPermission(
+        string $permissionCode
+    ): void {
+        $this->requirePermission($permissionCode);
+
+        if ($this->auth->isPlatformAdministrator()) {
+            $this->deny();
+        }
+    }
+
     public function requirePlatformAdministrator(): void
     {
         $this->requireAuthentication();

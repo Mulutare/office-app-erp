@@ -77,6 +77,8 @@ $navigation[] = [
         'administration.companies.manage',
         'administration.modules.manage',
         'audit.logs.view',
+        'organization.branches.view',
+        'organization.branches.manage',
     ],
 ];
 

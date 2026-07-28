@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Repositories\MySql;
 
+use App\Repositories\AuditLogWriter;
 use App\Services\TenantContext;
 
 class AuditLogRepository extends MySqlRepository
+    implements AuditLogWriter
 {
     /**
      * Return recent activity performed by or targeting a user.

@@ -25,6 +25,8 @@ final class AdministrationController
                 'administration.companies.manage',
                 'administration.modules.manage',
                 'audit.logs.view',
+                'organization.branches.view',
+                'organization.branches.manage',
             ]);
 
         $isPlatformAdmin = !empty(
@@ -46,7 +48,7 @@ final class AdministrationController
             'pageDescription' =>
                 $isPlatformAdmin
                     ? 'Approve customer companies, assign licensed utilities and govern the software platform.'
-                    : 'Manage this company’s users, roles, permissions and audit activity.',
+                    : 'Manage this company’s users, roles, branches, permissions and audit activity.',
             'contentView' => 'administration.index',
             'user' => $_SESSION['auth'],
         ]);

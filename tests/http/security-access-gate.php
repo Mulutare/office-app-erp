@@ -299,6 +299,31 @@ $check(
     'Forced-password account can open the change-password form'
 );
 
+$platformAdminCookies = [];
+$platformAdminLogin = login(
+    $baseUrl,
+    'test_platform_admin',
+    $password,
+    $platformAdminCookies
+);
+$check(
+    $platformAdminLogin['status'] === 302
+    && str_ends_with(
+        $platformAdminLogin['location'],
+        '/dashboard'
+    ),
+    'Platform administrator authenticates'
+);
+$platformBranches = httpRequest(
+    $baseUrl,
+    '/organization/branches',
+    $platformAdminCookies
+);
+$check(
+    $platformBranches['status'] === 403,
+    'Platform administrator is denied tenant branch routes'
+);
+
 $companyAdminCookies = [];
 $companyAdminLogin = login(
     $baseUrl,
@@ -436,6 +461,38 @@ $check(
     'Tenant A administrator authenticates'
 );
 
+$tenantABranches = httpRequest(
+    $baseUrl,
+    '/organization/branches',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantABranches['status'] === 200
+    && str_contains(
+        $tenantABranches['body'],
+        'Tenant A Headquarters'
+    )
+    && !str_contains(
+        $tenantABranches['body'],
+        'Tenant B Confidential Branch'
+    ),
+    'Tenant A branch directory exposes only Tenant A locations'
+);
+
+$foreignBranch = httpRequest(
+    $baseUrl,
+    '/organization/branches/edit?id=930002',
+    $tenantAAdminCookies
+);
+$check(
+    $foreignBranch['status'] === 404
+    && !str_contains(
+        $foreignBranch['body'],
+        'Tenant B Confidential Branch'
+    ),
+    'Tenant A receives 404 for Tenant B branch'
+);
+
 $tenantADashboard = httpRequest(
     $baseUrl,
     '/dashboard',
@@ -566,6 +623,14 @@ $check(
 
 $foreignHrMutations = [
     [
+        'path' => '/organization/branches/update',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'branch_id' => '930002',
+        ],
+        'label' => 'branch update',
+    ],
+    [
         'path' => '/hr/employees/update',
         'form' => [
             '_token' => $tenantACsrf,
@@ -677,6 +742,34 @@ $check(
         '/dashboard'
     ),
     'Tenant B credentials remain valid after rejected attacks'
+);
+
+$tenantBBranches = httpRequest(
+    $baseUrl,
+    '/organization/branches',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBBranches['status'] === 200
+    && str_contains(
+        $tenantBBranches['body'],
+        'Tenant B Confidential Branch'
+    )
+    && !str_contains(
+        $tenantBBranches['body'],
+        'Tenant A Headquarters'
+    ),
+    'Tenant B viewer sees only its own branch directory'
+);
+
+$tenantBBranchCreate = httpRequest(
+    $baseUrl,
+    '/organization/branches/create',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBBranchCreate['status'] === 403,
+    'Tenant branch viewer cannot open branch management'
 );
 
 $tenantBOwnFinance = httpRequest(

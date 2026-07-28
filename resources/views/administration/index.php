@@ -42,6 +42,16 @@ $modules = [
         'platformOnly' => true,
     ],
     [
+        'title' => 'Company branches',
+        'description' =>
+            'Maintain company locations, head office details and operational availability.',
+        'path' =>
+            '/office_app/public/organization/branches',
+        'permission' =>
+            'organization.branches.view',
+        'tenantOnly' => true,
+    ],
+    [
         'title' => 'Audit logs',
         'description' =>
             'Review security and business activity records.',
@@ -78,6 +88,13 @@ $isPlatformAdmin = !empty(
         if (
             !empty($module['platformOnly'])
             && !$isPlatformAdmin
+        ) {
+            continue;
+        }
+
+        if (
+            !empty($module['tenantOnly'])
+            && $isPlatformAdmin
         ) {
             continue;
         }

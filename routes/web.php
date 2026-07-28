@@ -5,6 +5,7 @@ use App\Controllers\AuditLogController;
 use App\Controllers\UserAdministrationController;
 use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
+use App\Controllers\BranchController;
 use App\Controllers\CompanyAdministrationController;
 use App\Controllers\CompanyContextController;
 use App\Controllers\DashboardController;
@@ -34,6 +35,7 @@ $companyAdministrationController =
     new CompanyAdministrationController();
 $companyContextController =
     new CompanyContextController();
+$branchController = new BranchController();
 
 $router = new Router();
 
@@ -54,6 +56,26 @@ $router->get(
 $router->get(
     '/finance',
     [$financeController, 'index']
+);
+$router->get(
+    '/organization/branches',
+    [$branchController, 'index']
+);
+$router->get(
+    '/organization/branches/create',
+    [$branchController, 'create']
+);
+$router->post(
+    '/organization/branches',
+    [$branchController, 'store']
+);
+$router->get(
+    '/organization/branches/edit',
+    [$branchController, 'edit']
+);
+$router->post(
+    '/organization/branches/update',
+    [$branchController, 'update']
 );
 $router->get(
     '/hr/employees/view',
