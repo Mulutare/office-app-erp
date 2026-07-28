@@ -54,11 +54,45 @@ and `utf8mb4` by default. Connection failures are logged without credentials,
 hostnames, database names, or exception messages. Users receive a generic
 connection error.
 
+## Checkpoint 4 repository and dialect boundary
+
+MySQL-specific application queries now live under:
+
+```text
+app/repositories/MySql/
+```
+
+The classes in `app/models/` remain as small compatibility facades so the
+existing service API and verified ERP behavior do not change during the
+refactor. They contain no SQL.
+
+`SqlDialect` defines the cross-engine SQL-fragment contract.
+`MySqlDialect` currently supplies:
+
+- current timestamp expressions;
+- current-day range predicates;
+- single-row limiting;
+- limit/offset pagination.
+
+Dynamic identifier input is rejected unless it is a valid internal qualified
+column identifier. User-controlled values remain prepared-statement
+parameters.
+
+`DashboardService` now depends on `DashboardStatisticsRepository`, selected by
+the allowlisted `RepositoryFactory`. `HomeController` delegates connection
+health and database metadata queries to `DatabaseDriver`, so controllers and
+services do not contain database-specific SQL.
+
+## Compatibility facades
+
+The model facades are temporary compatibility boundaries, not domain entities.
+New business services should depend on repository interfaces. Existing
+services can be migrated incrementally without changing controllers, routes or
+views.
+
 ## Next boundary
 
-Checkpoint 4 will move MySQL-specific SQL from models and services into
-MySQL repository and dialect implementations. Until that work is complete,
-the connection layer is portable but application queries remain MySQL-specific.
-
-Oracle configuration, drivers, migrations, pagination, generated IDs, date
-handling, and LOB behavior are intentionally deferred to the Oracle checkpoints.
+Checkpoint 5 can add an Oracle driver and repository skeleton behind the same
+selection points. Oracle configuration, migrations, pagination, generated
+IDs, date handling and LOB behavior remain intentionally unavailable until
+their dedicated checkpoints and real integration tests pass.

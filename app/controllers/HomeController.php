@@ -10,9 +10,10 @@ final class HomeController
 {
     public function index(): void
     {
-        $databaseName = \db()
-            ->query('SELECT DATABASE()')
-            ->fetchColumn();
+        $driver = \databaseDriver();
+        $databaseName = $driver->databaseName(
+            \db()
+        );
 
         \view('home.index', [
             'applicationName' => \config(
@@ -30,9 +31,9 @@ final class HomeController
 
     public function health(): void
     {
-        \db()
-            ->query('SELECT 1')
-            ->fetchColumn();
+        \databaseDriver()->assertHealthy(
+            \db()
+        );
 
         header(
             'Content-Type: application/json; charset=UTF-8'

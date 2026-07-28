@@ -15,8 +15,14 @@ interface DatabaseDriver
 {
     public function name(): string;
 
+    public function dialect(): SqlDialect;
+
     /**
      * @param array<string, mixed> $config
      */
     public function connect(array $config): PDO;
+
+    public function assertHealthy(PDO $connection): void;
+
+    public function databaseName(PDO $connection): string;
 }

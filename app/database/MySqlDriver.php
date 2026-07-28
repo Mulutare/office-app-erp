@@ -22,6 +22,11 @@ final class MySqlDriver implements DatabaseDriver
         return 'mysql';
     }
 
+    public function dialect(): SqlDialect
+    {
+        return new MySqlDialect();
+    }
+
     /**
      * @param array<string, mixed> $config
      */
@@ -82,6 +87,20 @@ final class MySqlDriver implements DatabaseDriver
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]
         );
+    }
+
+    public function assertHealthy(PDO $connection): void
+    {
+        $connection
+            ->query('SELECT 1')
+            ->fetchColumn();
+    }
+
+    public function databaseName(PDO $connection): string
+    {
+        return (string) $connection
+            ->query('SELECT DATABASE()')
+            ->fetchColumn();
     }
 
     /**

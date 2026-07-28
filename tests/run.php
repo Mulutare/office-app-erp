@@ -6,8 +6,13 @@ require_once __DIR__
     . '/../app/helpers/bootstrap.php';
 
 use App\Database\ConnectionManager;
+use App\Database\MySqlDialect;
 use App\Models\CompanyMembership;
+use App\Repositories\MySql\CompanyMembershipRepository;
+use App\Repositories\MySql\DashboardStatisticsRepository;
+use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
+use App\Services\DashboardService;
 
 $results = [];
 $failures = 0;
@@ -83,6 +88,43 @@ try {
     $check(
         databaseDriver()->name() === 'mysql',
         'Connection manager selected the MySQL driver'
+    );
+
+    $dialect = databaseDriver()->dialect();
+
+    $check(
+        $dialect instanceof MySqlDialect
+        && $dialect->name() === 'mysql',
+        'Connection driver exposes the MySQL dialect'
+    );
+
+    $invalidIdentifierRejected = false;
+
+    try {
+        $dialect->todayRangePredicate(
+            'attempted_at; DROP TABLE users'
+        );
+    } catch (InvalidArgumentException $exception) {
+        $invalidIdentifierRejected = true;
+    }
+
+    $check(
+        $invalidIdentifierRejected,
+        'SQL dialect rejects unsafe identifier fragments'
+    );
+
+    $check(
+        RepositoryFactory::dashboardStatistics()
+            instanceof DashboardStatisticsRepository,
+        'Repository factory selects the MySQL dashboard repository'
+    );
+
+    $check(
+        is_subclass_of(
+            CompanyMembership::class,
+            CompanyMembershipRepository::class
+        ),
+        'Legacy model API delegates to the MySQL repository'
     );
 
     $unsupportedDriverRejected = false;
@@ -199,6 +241,19 @@ try {
     $check(
         $authentication->can('dashboard.view'),
         'Effective RBAC permissions include dashboard access'
+    );
+
+    $dashboardStatistics =
+        (new DashboardService())->statistics();
+
+    $check(
+        array_keys($dashboardStatistics) === [
+            'users',
+            'successfulLogins',
+            'failedLogins',
+            'securityAlerts',
+        ],
+        'Dashboard service obtains metrics through its repository contract'
     );
 
     $tenantStatement = db()->prepare(
