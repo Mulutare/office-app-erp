@@ -24,6 +24,10 @@ use App\Repositories\MySql\DepartmentRepository
     as MySqlDepartmentRepository;
 use App\Repositories\Oracle\DepartmentRepository
     as OracleDepartmentRepository;
+use App\Repositories\MySql\PositionRepository
+    as MySqlPositionRepository;
+use App\Repositories\Oracle\PositionRepository
+    as OraclePositionRepository;
 use RuntimeException;
 
 /**
@@ -31,6 +35,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function positions():
+        PositionRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlPositionRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OraclePositionRepository();
+        }
+
+        throw new RuntimeException(
+            'No position repository is available for the configured database driver.'
+        );
+    }
+
     public static function departments():
         DepartmentRepository
     {

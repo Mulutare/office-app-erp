@@ -28,6 +28,7 @@ use App\Services\EmployeeUpdateService;
 use App\Services\FinanceDashboardService;
 use App\Services\JobTitleManagementService;
 use App\Services\PlatformAdministratorProtectionService;
+use App\Services\PositionManagementService;
 use App\Services\RolePermissionUpdateService;
 use App\Services\UserAccountStatusService;
 use App\Services\UserAccountUnlockService;
@@ -260,8 +261,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 9,
-        'Oracle migration catalog contains nine valid definitions'
+        && count($oracleMigrationFiles) === 10,
+        'Oracle migration catalog contains ten valid definitions'
     );
 
     $check(
@@ -282,6 +283,7 @@ try {
                 '070',
                 '080',
                 '090',
+                '100',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -300,8 +302,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 19
-        && $oracleIdentityCount === 13,
+        $oracleTableCount === 20
+        && $oracleIdentityCount === 14,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -377,8 +379,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 19,
-        'All 19 application tables were created'
+        $tableCount === 20,
+        'All 20 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -390,8 +392,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 50,
-        'All 50 foreign-key relationships were created'
+        $foreignKeyCount === 56,
+        'All 56 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -809,6 +811,16 @@ try {
             'organization.departments.manage'
         ),
         'Tenant A administrator has department-management permissions'
+    );
+
+    $check(
+        $tenantAAuthentication->can(
+            'organization.positions.view'
+        )
+        && $tenantAAuthentication->can(
+            'organization.positions.manage'
+        ),
+        'Tenant A administrator has position-management permissions'
     );
 
     $tenantAModules = is_array(
@@ -1327,6 +1339,152 @@ try {
         (int) $jobTitleAuditStatement
             ->fetchColumn() === 1,
         'Job-title creation records a company-scoped audit event'
+    );
+
+    $positionManagement =
+        new PositionManagementService();
+    $positionListing =
+        $positionManagement->listing();
+    $positionNames = array_map(
+        static fn (array $position): string =>
+            (string) ($position['name'] ?? ''),
+        $positionListing['positions']
+    );
+
+    $check(
+        in_array(
+            'Tenant A Security Analyst Position',
+            $positionNames,
+            true
+        )
+        && !in_array(
+            'Tenant B Confidential Position',
+            $positionNames,
+            true
+        ),
+        'Tenant A position catalogue excludes Tenant B records'
+    );
+
+    $check(
+        (
+            $positionListing['summary'][
+                'approvedHeadcount'
+            ] ?? 0
+        ) >= 3,
+        'Position catalogue summarizes approved headcount'
+    );
+
+    $check(
+        $positionManagement->form(950002) === null,
+        'Tenant A cannot open a Tenant B position'
+    );
+
+    $foreignPositionUpdate =
+        $positionManagement->update(
+            950002,
+            [],
+            $tenantAActorId
+        );
+    $check(
+        $foreignPositionUpdate['successful']
+            === false
+        && !empty(
+            $foreignPositionUpdate['notFound']
+        ),
+        'Tenant A cannot update a Tenant B position'
+    );
+
+    $crossTenantPosition =
+        $positionManagement->create(
+            [
+                'code' => 'TA-CROSS-POS',
+                'name' => 'Cross Tenant Position',
+                'branch_id' => 930002,
+                'department_id' => 9201,
+                'job_title_id' => 940001,
+                'approved_headcount' => 1,
+                'status' => 'planned',
+            ],
+            $tenantAActorId
+        );
+    $check(
+        $crossTenantPosition['successful']
+            === false
+        && isset(
+            $crossTenantPosition['errors'][
+                'branch_id'
+            ]
+        ),
+        'Position creation rejects a foreign-company branch'
+    );
+
+    $positionSuffix = strtoupper(
+        bin2hex(random_bytes(4))
+    );
+    $positionInput = [
+        'code' => 'PS-' . $positionSuffix,
+        'name' => 'Integration Position '
+            . $positionSuffix,
+        'branch_id' => 930001,
+        'department_id' => 9201,
+        'job_title_id' => 940001,
+        'approved_headcount' => 2,
+        'status' => 'open',
+        'description' =>
+            'Automated position integration fixture',
+    ];
+    $createdPosition =
+        $positionManagement->create(
+            $positionInput,
+            $tenantAActorId
+        );
+
+    $check(
+        $createdPosition['successful'] === true
+        && (int) (
+            $createdPosition['positionId'] ?? 0
+        ) > 0,
+        'Tenant position creation succeeds with valid organization references'
+    );
+
+    $duplicatePosition =
+        $positionManagement->create(
+            $positionInput,
+            $tenantAActorId
+        );
+    $check(
+        $duplicatePosition['successful'] === false
+        && isset(
+            $duplicatePosition['errors']['code']
+        ),
+        'Tenant position creation rejects duplicate codes'
+    );
+
+    $createdPositionId = (int) (
+        $createdPosition['positionId'] ?? 0
+    );
+    $positionAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND action = :action
+           AND module = :module
+           AND table_name = :table_name
+           AND record_id = :record_id'
+    );
+    $positionAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'action' => 'CREATE',
+        'module' => 'organization',
+        'table_name' =>
+            'organization_positions',
+        'record_id' =>
+            (string) $createdPositionId,
+    ]);
+    $check(
+        (int) $positionAuditStatement
+            ->fetchColumn() === 1,
+        'Position creation records a company-scoped audit event'
     );
 
     $financeDashboard =

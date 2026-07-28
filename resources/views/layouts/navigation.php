@@ -83,6 +83,8 @@ $navigation[] = [
         'organization.job_titles.manage',
         'organization.departments.view',
         'organization.departments.manage',
+        'organization.positions.view',
+        'organization.positions.manage',
     ],
 ];
 

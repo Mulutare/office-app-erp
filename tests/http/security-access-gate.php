@@ -341,6 +341,15 @@ $check(
     $platformDepartments['status'] === 403,
     'Platform administrator is denied tenant department routes'
 );
+$platformPositions = httpRequest(
+    $baseUrl,
+    '/organization/positions',
+    $platformAdminCookies
+);
+$check(
+    $platformPositions['status'] === 403,
+    'Platform administrator is denied tenant position routes'
+);
 
 $companyAdminCookies = [];
 $companyAdminLogin = login(
@@ -580,6 +589,38 @@ $check(
     'Tenant A receives 404 for Tenant B organization department'
 );
 
+$tenantAPositions = httpRequest(
+    $baseUrl,
+    '/organization/positions',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAPositions['status'] === 200
+    && str_contains(
+        $tenantAPositions['body'],
+        'Tenant A Security Analyst Position'
+    )
+    && !str_contains(
+        $tenantAPositions['body'],
+        'Tenant B Confidential Position'
+    ),
+    'Tenant A position catalogue exposes only Tenant A records'
+);
+
+$foreignPosition = httpRequest(
+    $baseUrl,
+    '/organization/positions/edit?id=950002',
+    $tenantAAdminCookies
+);
+$check(
+    $foreignPosition['status'] === 404
+    && !str_contains(
+        $foreignPosition['body'],
+        'Tenant B Confidential Position'
+    ),
+    'Tenant A receives 404 for Tenant B position'
+);
+
 $tenantADashboard = httpRequest(
     $baseUrl,
     '/dashboard',
@@ -726,6 +767,15 @@ $foreignHrMutations = [
             'job_title_id' => '940002',
         ],
         'label' => 'job-title update',
+    ],
+    [
+        'path' =>
+            '/organization/positions/update',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'position_id' => '950002',
+        ],
+        'label' => 'position update',
     ],
     [
         'path' => '/organization/branches/update',
@@ -931,6 +981,34 @@ $tenantBDepartmentCreate = httpRequest(
 $check(
     $tenantBDepartmentCreate['status'] === 403,
     'Tenant department viewer cannot open management forms'
+);
+
+$tenantBPositions = httpRequest(
+    $baseUrl,
+    '/organization/positions',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBPositions['status'] === 200
+    && str_contains(
+        $tenantBPositions['body'],
+        'Tenant B Confidential Position'
+    )
+    && !str_contains(
+        $tenantBPositions['body'],
+        'Tenant A Security Analyst Position'
+    ),
+    'Tenant B viewer sees only its own position catalogue'
+);
+
+$tenantBPositionCreate = httpRequest(
+    $baseUrl,
+    '/organization/positions/create',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBPositionCreate['status'] === 403,
+    'Tenant position viewer cannot open management forms'
 );
 
 $tenantBOwnFinance = httpRequest(

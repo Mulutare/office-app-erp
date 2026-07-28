@@ -16,6 +16,7 @@ use App\Controllers\HomeController;
 use App\Controllers\HrController;
 use App\Controllers\JobTitleController;
 use App\Controllers\ModuleAdministrationController;
+use App\Controllers\PositionController;
 use App\Controllers\RoleAdministrationController;
 use App\Controllers\UserActivityController;
 
@@ -40,6 +41,7 @@ $companyContextController =
 $branchController = new BranchController();
 $jobTitleController = new JobTitleController();
 $departmentController = new DepartmentController();
+$positionController = new PositionController();
 
 $router = new Router();
 
@@ -120,6 +122,26 @@ $router->get(
 $router->post(
     '/organization/departments/update',
     [$departmentController, 'update']
+);
+$router->get(
+    '/organization/positions',
+    [$positionController, 'index']
+);
+$router->get(
+    '/organization/positions/create',
+    [$positionController, 'create']
+);
+$router->post(
+    '/organization/positions',
+    [$positionController, 'store']
+);
+$router->get(
+    '/organization/positions/edit',
+    [$positionController, 'edit']
+);
+$router->post(
+    '/organization/positions/update',
+    [$positionController, 'update']
 );
 $router->get(
     '/hr/employees/view',

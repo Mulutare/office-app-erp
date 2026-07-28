@@ -89,6 +89,7 @@ try {
                  \'FINANCE_EXPENSE_REQUESTS\',
                  \'ORGANIZATION_BRANCHES\',
                  \'ORGANIZATION_JOB_TITLES\',
+                 \'ORGANIZATION_POSITIONS\',
                  \'LOGIN_ATTEMPTS\',
                  \'AUDIT_LOGS\'
              )'
@@ -96,8 +97,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 20,
-        'Oracle schema contains the migration ledger and 19 application tables'
+        $tableCount === 21,
+        'Oracle schema contains the migration ledger and 20 application tables'
     );
 
     $foreignKeyCount = (int) $connection
@@ -109,8 +110,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 50,
-        'Oracle schema contains all 50 foreign keys'
+        $foreignKeyCount === 56,
+        'Oracle schema contains all 56 foreign keys'
     );
 
     $check(
@@ -123,7 +124,7 @@ try {
     $check(
         (int) $connection
             ->query('SELECT COUNT(*) FROM permissions')
-            ->fetchColumn() === 21,
+            ->fetchColumn() === 23,
         'Oracle permission catalog matches MySQL'
     );
 
@@ -338,6 +339,157 @@ try {
     $check(
         (int) $tenantCount->fetchColumn() === 1,
         'Tenant-scoped query isolates identical department codes'
+    );
+
+    $branchInsert = $connection->prepare(
+        'INSERT INTO organization_branches
+            (
+                company_id,
+                code,
+                name
+            )
+         VALUES
+            (
+                :company_id,
+                :code,
+                :name
+            )'
+    );
+    $jobTitleInsert = $connection->prepare(
+        'INSERT INTO organization_job_titles
+            (
+                company_id,
+                code,
+                name
+            )
+         VALUES
+            (
+                :company_id,
+                :code,
+                :name
+            )'
+    );
+
+    foreach ($companyIds as $companyId) {
+        $branchInsert->execute([
+            'company_id' => $companyId,
+            'code' => 'HQ',
+            'name' => 'Head Office',
+        ]);
+        $jobTitleInsert->execute([
+            'company_id' => $companyId,
+            'code' => 'ANL',
+            'name' => 'Analyst',
+        ]);
+    }
+
+    $branchIds = [];
+    $jobTitleIds = [];
+
+    foreach ($companyIds as $companyId) {
+        $branchSelect = $connection->prepare(
+            'SELECT branch_id
+             FROM organization_branches
+             WHERE company_id = :company_id
+               AND code = :code'
+        );
+        $branchSelect->execute([
+            'company_id' => $companyId,
+            'code' => 'HQ',
+        ]);
+        $branchIds[] = (int) (
+            $branchSelect->fetchColumn()
+        );
+        $jobTitleSelect = $connection->prepare(
+            'SELECT job_title_id
+             FROM organization_job_titles
+             WHERE company_id = :company_id
+               AND code = :code'
+        );
+        $jobTitleSelect->execute([
+            'company_id' => $companyId,
+            'code' => 'ANL',
+        ]);
+        $jobTitleIds[] = (int) (
+            $jobTitleSelect->fetchColumn()
+        );
+    }
+
+    $positionInsert = $connection->prepare(
+        'INSERT INTO organization_positions
+            (
+                company_id,
+                code,
+                name,
+                branch_id,
+                department_id,
+                job_title_id,
+                approved_headcount,
+                status
+            )
+         VALUES
+            (
+                :company_id,
+                :code,
+                :name,
+                :branch_id,
+                :department_id,
+                :job_title_id,
+                :approved_headcount,
+                :status
+            )'
+    );
+
+    foreach ($companyIds as $index => $companyId) {
+        $positionInsert->execute([
+            'company_id' => $companyId,
+            'code' => 'OPS-ANL',
+            'name' => 'Operations Analyst',
+            'branch_id' => $branchIds[$index],
+            'department_id' =>
+                $departmentIds[$index],
+            'job_title_id' =>
+                $jobTitleIds[$index],
+            'approved_headcount' => 2,
+            'status' => 'open',
+        ]);
+    }
+
+    $positionCount = $connection->prepare(
+        'SELECT COUNT(*)
+         FROM organization_positions
+         WHERE company_id = :company_id
+           AND code = :code'
+    );
+    $positionCount->execute([
+        'company_id' => $companyIds[0],
+        'code' => 'OPS-ANL',
+    ]);
+    $check(
+        (int) $positionCount->fetchColumn() === 1,
+        'Oracle positions are tenant scoped'
+    );
+
+    $crossTenantPositionRejected = false;
+
+    try {
+        $positionInsert->execute([
+            'company_id' => $companyIds[0],
+            'code' => 'CROSS-POS',
+            'name' => 'Cross Tenant Position',
+            'branch_id' => $branchIds[1],
+            'department_id' => $departmentIds[0],
+            'job_title_id' => $jobTitleIds[0],
+            'approved_headcount' => 1,
+            'status' => 'planned',
+        ]);
+    } catch (\PDOException $exception) {
+        $crossTenantPositionRejected = true;
+    }
+
+    $check(
+        $crossTenantPositionRejected,
+        'Oracle position foreign keys reject cross-tenant organization references'
     );
 
     $longJson = json_encode(

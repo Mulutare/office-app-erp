@@ -72,6 +72,16 @@ $modules = [
         'tenantOnly' => true,
     ],
     [
+        'title' => 'Position catalogue',
+        'description' =>
+            'Plan approved positions across departments, job titles and company locations.',
+        'path' =>
+            '/office_app/public/organization/positions',
+        'permission' =>
+            'organization.positions.view',
+        'tenantOnly' => true,
+    ],
+    [
         'title' => 'Audit logs',
         'description' =>
             'Review security and business activity records.',

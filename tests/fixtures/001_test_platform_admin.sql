@@ -768,6 +768,66 @@ ON DUPLICATE KEY UPDATE
     active = TRUE,
     deleted_at = NULL;
 
+/*
+ * Phase B4 cross-company position records.
+ */
+INSERT INTO organization_positions
+    (
+        position_id,
+        company_id,
+        code,
+        name,
+        branch_id,
+        department_id,
+        job_title_id,
+        approved_headcount,
+        status,
+        description,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        950001,
+        @tenant_a_company_id,
+        'TA-SEC-ANL-NBO',
+        'Tenant A Security Analyst Position',
+        930001,
+        9201,
+        940001,
+        3,
+        'open',
+        'Tenant A position isolation fixture',
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        950002,
+        @tenant_b_company_id,
+        'TB-CONF-MGR-MSA',
+        'Tenant B Confidential Position',
+        930002,
+        9202,
+        940002,
+        1,
+        'planned',
+        'Tenant B position isolation fixture',
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    code = VALUES(code),
+    name = VALUES(name),
+    branch_id = VALUES(branch_id),
+    department_id = VALUES(department_id),
+    job_title_id = VALUES(job_title_id),
+    approved_headcount =
+        VALUES(approved_headcount),
+    status = VALUES(status),
+    description = VALUES(description),
+    deleted_at = NULL;
+
 INSERT INTO hr_employees
     (
         employee_id,
