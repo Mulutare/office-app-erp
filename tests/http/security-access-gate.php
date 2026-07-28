@@ -539,6 +539,170 @@ $check(
     'Tenant B credentials remain valid after rejected attacks'
 );
 
+$delegatedAdminCookies = [];
+$delegatedAdminLogin = login(
+    $baseUrl,
+    'test_tenant_a_delegated_admin',
+    $password,
+    $delegatedAdminCookies
+);
+$check(
+    $delegatedAdminLogin['status'] === 302
+    && str_ends_with(
+        $delegatedAdminLogin['location'],
+        '/dashboard'
+    ),
+    'Delegated Tenant A administrator authenticates'
+);
+
+$delegatedCreateForm = httpRequest(
+    $baseUrl,
+    '/administration/users/create',
+    $delegatedAdminCookies
+);
+$delegatedCsrf = csrfTokenFromBody(
+    $delegatedCreateForm['body']
+);
+$check(
+    $delegatedCreateForm['status'] === 200
+    && $delegatedCsrf !== '',
+    'Delegated administrator obtains a valid CSRF token'
+);
+
+$privilegedCreate = httpRequest(
+    $baseUrl,
+    '/administration/users',
+    $delegatedAdminCookies,
+    'POST',
+    [
+        '_token' => $delegatedCsrf,
+        'username' =>
+            'test_http_illegal_privileged_user',
+        'email' =>
+            'http-illegal-privileged@example.test',
+        'display_name' =>
+            'HTTP Illegal Privileged User',
+        'active' => '1',
+        'role_ids' => ['9101'],
+    ]
+);
+$privilegedCreateError = httpRequest(
+    $baseUrl,
+    '/administration/users/create',
+    $delegatedAdminCookies
+);
+$check(
+    $privilegedCreate['status'] === 302
+    && str_ends_with(
+        $privilegedCreate['location'],
+        '/administration/users/create'
+    )
+    && str_contains(
+        $privilegedCreateError['body'],
+        'cannot assign a role containing permissions'
+    ),
+    'HTTP user creation rejects a role above the actor authority'
+);
+
+$illegalUserSearch = httpRequest(
+    $baseUrl,
+    '/administration/users'
+        . '?search=test_http_illegal_privileged_user',
+    $delegatedAdminCookies
+);
+$check(
+    $illegalUserSearch['status'] === 200
+    && !str_contains(
+        $illegalUserSearch['body'],
+        'http-illegal-privileged@example.test'
+    ),
+    'Rejected HTTP escalation creates no user'
+);
+
+$tenantATargetUserId = 910004;
+$privilegedAssignment = httpRequest(
+    $baseUrl,
+    '/administration/users/update',
+    $delegatedAdminCookies,
+    'POST',
+    [
+        '_token' => $delegatedCsrf,
+        'user_id' => (string) $tenantATargetUserId,
+        'username' => 'test_tenant_a_target',
+        'email' => 'tenant-a-target@example.test',
+        'display_name' => 'Test Tenant A Target',
+        'active' => '1',
+        'role_ids' => ['9101'],
+    ]
+);
+$privilegedAssignmentError = httpRequest(
+    $baseUrl,
+    '/administration/users/edit?id='
+        . $tenantATargetUserId,
+    $delegatedAdminCookies
+);
+$check(
+    $privilegedAssignment['status'] === 302
+    && str_ends_with(
+        $privilegedAssignment['location'],
+        '/administration/users/edit?id='
+            . $tenantATargetUserId
+    )
+    && str_contains(
+        $privilegedAssignmentError['body'],
+        'cannot assign a role containing permissions'
+    ),
+    'HTTP user update rejects a role above the actor authority'
+);
+
+$permissionEscalation = httpRequest(
+    $baseUrl,
+    '/administration/roles/update-permissions',
+    $delegatedAdminCookies,
+    'POST',
+    [
+        '_token' => $delegatedCsrf,
+        'role_id' => '9102',
+        'permission_ids' => ['9101'],
+    ]
+);
+$permissionEscalationError = httpRequest(
+    $baseUrl,
+    '/administration/roles/edit-permissions?id=9102',
+    $delegatedAdminCookies
+);
+$check(
+    $permissionEscalation['status'] === 302
+    && str_ends_with(
+        $permissionEscalation['location'],
+        '/administration/roles/edit-permissions?id=9102'
+    )
+    && str_contains(
+        $permissionEscalationError['body'],
+        'cannot grant or modify permissions'
+    ),
+    'HTTP role update rejects an unowned permission'
+);
+
+$targetAfterEscalation = httpRequest(
+    $baseUrl,
+    '/administration/users/view?id='
+        . $tenantATargetUserId,
+    $delegatedAdminCookies
+);
+$check(
+    $targetAfterEscalation['status'] === 200
+    && str_contains(
+        $targetAfterEscalation['body'],
+        'Executive Viewer'
+    )
+    && !str_contains(
+        $targetAfterEscalation['body'],
+        'Security Test Privileged Role'
+    ),
+    'Rejected HTTP escalation leaves target roles unchanged'
+);
+
 foreach ($results as $result) {
     echo $result['passed'] ? 'PASS ' : 'FAIL ';
     echo $result['description'];

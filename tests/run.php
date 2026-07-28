@@ -20,9 +20,11 @@ use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
 use App\Services\DashboardService;
 use App\Services\PlatformAdministratorProtectionService;
+use App\Services\RolePermissionUpdateService;
 use App\Services\UserAccountStatusService;
 use App\Services\UserAccountUnlockService;
 use App\Services\UserAdministrationService;
+use App\Services\UserCreationService;
 use App\Services\UserDetailsService;
 use App\Services\UserPasswordResetService;
 use App\Services\UserUpdateService;
@@ -879,6 +881,300 @@ try {
         && is_array($tenantBTargetAfter)
         && $tenantBTargetAfter === $tenantBTarget,
         'Rejected cross-tenant mutations leave Tenant B unchanged'
+    );
+
+    $delegatedAuthentication = new AuthService();
+    $delegatedLogin =
+        $delegatedAuthentication->attempt(
+            'test_tenant_a_delegated_admin',
+            is_string($password) ? $password : ''
+        );
+    $delegatedCompany = $_SESSION['auth']['company']
+        ?? null;
+    $delegatedCompanyId = is_array(
+        $delegatedCompany
+    )
+        ? (int) (
+            $delegatedCompany['company_id'] ?? 0
+        )
+        : 0;
+    $delegatedActorId = (int) (
+        $_SESSION['auth']['user_id'] ?? 0
+    );
+
+    $check(
+        $delegatedLogin['successful'] === true
+        && is_array($delegatedCompany)
+        && ($delegatedCompany['code'] ?? null)
+            === 'test_tenant_a',
+        'Delegated administrator authenticates into Tenant A'
+    );
+
+    $check(
+        $delegatedAuthentication->can(
+            'administration.users.manage'
+        )
+        && $delegatedAuthentication->can(
+            'administration.roles.manage'
+        )
+        && !$delegatedAuthentication->can(
+            'security_test.elevated'
+        ),
+        'Delegated administrator has bounded management authority'
+    );
+
+    $privilegeFixtureStatement = db()->query(
+        'SELECT
+            MAX(CASE
+                WHEN users.username =
+                    \'test_tenant_a_target\'
+                THEN users.user_id
+            END) AS target_user_id,
+            MAX(CASE
+                WHEN roles.code =
+                    \'system_administrator\'
+                THEN roles.role_id
+            END) AS system_role_id,
+            MAX(CASE
+                WHEN roles.code =
+                    \'company_owner\'
+                THEN roles.role_id
+            END) AS owner_role_id,
+            MAX(CASE
+                WHEN permissions.code =
+                    \'dashboard.view\'
+                THEN permissions.permission_id
+            END) AS dashboard_permission_id,
+            MAX(CASE
+                WHEN permissions.code =
+                    \'administration.companies.manage\'
+                THEN permissions.permission_id
+            END) AS platform_permission_id
+         FROM users
+         CROSS JOIN roles
+         CROSS JOIN permissions'
+    );
+    $privilegeFixture = $privilegeFixtureStatement
+        ->fetch(\PDO::FETCH_ASSOC);
+    $tenantATargetUserId = is_array(
+        $privilegeFixture
+    )
+        ? (int) (
+            $privilegeFixture['target_user_id']
+            ?? 0
+        )
+        : 0;
+    $systemRoleId = is_array($privilegeFixture)
+        ? (int) (
+            $privilegeFixture['system_role_id']
+            ?? 0
+        )
+        : 0;
+    $ownerRoleId = is_array($privilegeFixture)
+        ? (int) (
+            $privilegeFixture['owner_role_id']
+            ?? 0
+        )
+        : 0;
+    $dashboardPermissionId = is_array(
+        $privilegeFixture
+    )
+        ? (int) (
+            $privilegeFixture[
+                'dashboard_permission_id'
+            ] ?? 0
+        )
+        : 0;
+    $platformPermissionId = is_array(
+        $privilegeFixture
+    )
+        ? (int) (
+            $privilegeFixture[
+                'platform_permission_id'
+            ] ?? 0
+        )
+        : 0;
+
+    $check(
+        $delegatedCompanyId > 0
+        && $delegatedActorId > 0
+        && $tenantATargetUserId === 910004
+        && $systemRoleId > 0
+        && $ownerRoleId > 0
+        && $dashboardPermissionId > 0
+        && $platformPermissionId > 0,
+        'Privilege-escalation fixtures resolve correctly'
+    );
+
+    $targetRoleIdsBefore = $tenantUserModel
+        ->roleIds(
+            $delegatedCompanyId,
+            $tenantATargetUserId
+        );
+    $permissionTargetBefore =
+        (new \App\Models\Role())->permissionIds(
+            $delegatedCompanyId,
+            9102
+        );
+
+    $creationResult =
+        (new UserCreationService())->create(
+            [
+                'username' =>
+                    'test_illegal_privileged_user',
+                'email' =>
+                    'illegal-privileged-user@example.test',
+                'display_name' =>
+                    'Illegal Privileged User',
+                'active' => true,
+                'role_ids' => [9101],
+            ],
+            $delegatedActorId
+        );
+    $check(
+        $creationResult['successful'] === false
+        && isset(
+            $creationResult['errors']['roles']
+        ),
+        'Delegated administrator cannot create a user above their authority'
+    );
+
+    $createdEscalatedUserStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM users
+         WHERE username = :username'
+    );
+    $createdEscalatedUserStatement->execute([
+        'username' =>
+            'test_illegal_privileged_user',
+    ]);
+    $check(
+        (int) $createdEscalatedUserStatement
+            ->fetchColumn() === 0,
+        'Rejected privileged user creation writes no account'
+    );
+
+    $assignmentResult =
+        (new UserUpdateService())->update(
+            $tenantATargetUserId,
+            [
+                'username' =>
+                    'test_tenant_a_target',
+                'email' =>
+                    'tenant-a-target@example.test',
+                'display_name' =>
+                    'Test Tenant A Target',
+                'active' => true,
+                'role_ids' => [9101],
+            ],
+            $delegatedActorId
+        );
+    $check(
+        $assignmentResult['successful'] === false
+        && isset(
+            $assignmentResult['errors']['roles']
+        ),
+        'Delegated administrator cannot assign a role above their authority'
+    );
+
+    $systemRoleResult =
+        (new UserUpdateService())->update(
+            $tenantATargetUserId,
+            [
+                'username' =>
+                    'test_tenant_a_target',
+                'email' =>
+                    'tenant-a-target@example.test',
+                'display_name' =>
+                    'Test Tenant A Target',
+                'active' => true,
+                'role_ids' => [$systemRoleId],
+            ],
+            $delegatedActorId
+        );
+    $check(
+        $systemRoleResult['successful'] === false
+        && isset(
+            $systemRoleResult['errors']['roles']
+        ),
+        'Tenant administrator cannot assign the platform system role'
+    );
+
+    $permissionUpdateService =
+        new RolePermissionUpdateService();
+    $permissionEscalationResult =
+        $permissionUpdateService->update(
+            9102,
+            [
+                $dashboardPermissionId,
+                9101,
+            ],
+            $delegatedActorId
+        );
+    $check(
+        $permissionEscalationResult[
+            'successful'
+        ] === false
+        && isset(
+            $permissionEscalationResult[
+                'errors'
+            ]['permissions']
+        ),
+        'Delegated administrator cannot grant a permission they do not hold'
+    );
+
+    $platformGrantResult =
+        $permissionUpdateService->update(
+            9102,
+            [
+                $dashboardPermissionId,
+                $platformPermissionId,
+            ],
+            $delegatedActorId
+        );
+    $check(
+        $platformGrantResult['successful']
+            === false
+        && isset(
+            $platformGrantResult[
+                'errors'
+            ]['permissions']
+        ),
+        'Tenant administrator cannot grant platform-only permissions'
+    );
+
+    $protectedOwnerResult =
+        $permissionUpdateService->update(
+            $ownerRoleId,
+            [$dashboardPermissionId],
+            $delegatedActorId
+        );
+    $check(
+        $protectedOwnerResult['successful']
+            === false
+        && isset(
+            $protectedOwnerResult[
+                'errors'
+            ]['form']
+        ),
+        'Company-owner permission baseline remains protected'
+    );
+
+    $targetRoleIdsAfter = $tenantUserModel
+        ->roleIds(
+            $delegatedCompanyId,
+            $tenantATargetUserId
+        );
+    $permissionTargetAfter =
+        (new \App\Models\Role())->permissionIds(
+            $delegatedCompanyId,
+            9102
+        );
+    $check(
+        $targetRoleIdsAfter === $targetRoleIdsBefore
+        && $permissionTargetAfter
+            === $permissionTargetBefore,
+        'Rejected privilege escalation leaves roles and grants unchanged'
     );
 } catch (Throwable $exception) {
     $failures++;

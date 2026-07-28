@@ -18,12 +18,16 @@ final class RolePermissionUpdateService
     private Role $roles;
     private TenantContext $tenant;
     private AuditLog $auditLogs;
+    private PrivilegeEscalationProtectionService
+        $privilegeProtection;
 
     public function __construct()
     {
         $this->roles = new Role();
         $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
+        $this->privilegeProtection =
+            new PrivilegeEscalationProtectionService();
     }
 
     /**
@@ -143,6 +147,26 @@ final class RolePermissionUpdateService
             ];
         }
 
+        $companyId = $this->tenant->companyId();
+        $permissionGrantError =
+            $this->privilegeProtection
+                ->permissionGrantError(
+                    $validPermissionIds,
+                    $updatedBy,
+                    $companyId
+                );
+
+        if ($permissionGrantError !== null) {
+            return [
+                'successful' => false,
+                'notFound' => false,
+                'errors' => [
+                    'permissions' =>
+                        $permissionGrantError,
+                ],
+            ];
+        }
+
         $codeMap = [];
 
         foreach (
@@ -159,7 +183,7 @@ final class RolePermissionUpdateService
             \db()->beginTransaction();
 
             if (!$this->roles->lockForPermissionUpdate(
-                $this->tenant->companyId(),
+                $companyId,
                 $roleId
             )) {
                 \db()->rollBack();
@@ -172,7 +196,7 @@ final class RolePermissionUpdateService
             }
 
             if ($this->roles->isAssignedToUser(
-                $this->tenant->companyId(),
+                $companyId,
                 $roleId,
                 $updatedBy
             )) {
@@ -190,10 +214,36 @@ final class RolePermissionUpdateService
 
             $existingIds = $this->roles
                 ->permissionIds(
-                    $this->tenant->companyId(),
+                    $companyId,
                     $roleId
                 );
             sort($existingIds);
+
+            $permissionGrantError =
+                $this->privilegeProtection
+                    ->permissionGrantError(
+                        array_values(array_unique(
+                            array_merge(
+                                $existingIds,
+                                $validPermissionIds
+                            )
+                        )),
+                        $updatedBy,
+                        $companyId
+                    );
+
+            if ($permissionGrantError !== null) {
+                \db()->rollBack();
+
+                return [
+                    'successful' => false,
+                    'notFound' => false,
+                    'errors' => [
+                        'permissions' =>
+                            $permissionGrantError,
+                    ],
+                ];
+            }
 
             if ($existingIds === $validPermissionIds) {
                 \db()->commit();
@@ -207,7 +257,7 @@ final class RolePermissionUpdateService
             }
 
             $this->roles->replacePermissions(
-                $this->tenant->companyId(),
+                $companyId,
                 $roleId,
                 $validPermissionIds,
                 $updatedBy

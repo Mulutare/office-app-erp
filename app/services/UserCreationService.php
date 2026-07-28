@@ -18,6 +18,8 @@ final class UserCreationService
     private TenantContext $tenant;
     private AuditLog $auditLogs;
     private TemporaryPasswordGenerator $passwords;
+    private PrivilegeEscalationProtectionService
+        $privilegeProtection;
 
     public function __construct()
     {
@@ -29,6 +31,8 @@ final class UserCreationService
         $this->auditLogs = new AuditLog();
         $this->passwords =
             new TemporaryPasswordGenerator();
+        $this->privilegeProtection =
+            new PrivilegeEscalationProtectionService();
     }
 
     /**
@@ -104,6 +108,25 @@ final class UserCreationService
             ];
         }
 
+        $companyId = $this->tenant->companyId();
+        $roleAssignmentError =
+            $this->privilegeProtection
+                ->roleAssignmentError(
+                    $validRoleIds,
+                    $createdBy,
+                    $companyId
+                );
+
+        if ($roleAssignmentError !== null) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'roles' =>
+                        $roleAssignmentError,
+                ],
+            ];
+        }
+
         $temporaryPassword =
             $this->passwords->generate();
 
@@ -120,8 +143,26 @@ final class UserCreationService
 
         try {
             \db()->beginTransaction();
-            $companyId =
-                $this->tenant->companyId();
+
+            $roleAssignmentError =
+                $this->privilegeProtection
+                    ->roleAssignmentError(
+                        $validRoleIds,
+                        $createdBy,
+                        $companyId
+                    );
+
+            if ($roleAssignmentError !== null) {
+                \db()->rollBack();
+
+                return [
+                    'successful' => false,
+                    'errors' => [
+                        'roles' =>
+                            $roleAssignmentError,
+                    ],
+                ];
+            }
 
             $userId = $this->users
                 ->createAdministrationUser(

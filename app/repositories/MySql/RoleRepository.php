@@ -349,6 +349,123 @@ class RoleRepository extends MySqlRepository
         );
     }
 
+    /**
+     * @param list<int> $roleIds
+     *
+     * @return list<string>
+     */
+    public function permissionCodesForRoles(
+        int $companyId,
+        array $roleIds
+    ): array {
+        $roleIds = array_values(array_unique(
+            array_filter(
+                $roleIds,
+                static fn (int $roleId): bool =>
+                    $roleId > 0
+            )
+        ));
+
+        if ($roleIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(
+            ', ',
+            array_fill(0, count($roleIds), '?')
+        );
+        $statement = $this->connection()->prepare(
+            'SELECT DISTINCT permissions.code
+             FROM company_role_permissions grants
+             INNER JOIN permissions
+                 ON permissions.permission_id =
+                    grants.permission_id
+             INNER JOIN roles
+                 ON roles.role_id = grants.role_id
+             WHERE grants.company_id = ?
+               AND grants.role_id IN ('
+                . $placeholders . ')
+               AND permissions.active = TRUE
+               AND roles.active = TRUE
+             ORDER BY permissions.code'
+        );
+        $statement->bindValue(
+            1,
+            $companyId,
+            \PDO::PARAM_INT
+        );
+
+        foreach ($roleIds as $index => $roleId) {
+            $statement->bindValue(
+                $index + 2,
+                $roleId,
+                \PDO::PARAM_INT
+            );
+        }
+
+        $statement->execute();
+
+        return array_values(array_map(
+            'strval',
+            $statement->fetchAll(
+                \PDO::FETCH_COLUMN
+            )
+        ));
+    }
+
+    /**
+     * @param list<int> $permissionIds
+     *
+     * @return list<string>
+     */
+    public function permissionCodesForIds(
+        array $permissionIds
+    ): array {
+        $permissionIds = array_values(array_unique(
+            array_filter(
+                $permissionIds,
+                static fn (int $permissionId): bool =>
+                    $permissionId > 0
+            )
+        ));
+
+        if ($permissionIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(
+            ', ',
+            array_fill(0, count($permissionIds), '?')
+        );
+        $statement = $this->connection()->prepare(
+            'SELECT code
+             FROM permissions
+             WHERE permission_id IN ('
+                . $placeholders . ')
+               AND active = TRUE
+             ORDER BY code'
+        );
+
+        foreach (
+            $permissionIds as $index => $permissionId
+        ) {
+            $statement->bindValue(
+                $index + 1,
+                $permissionId,
+                \PDO::PARAM_INT
+            );
+        }
+
+        $statement->execute();
+
+        return array_values(array_map(
+            'strval',
+            $statement->fetchAll(
+                \PDO::FETCH_COLUMN
+            )
+        ));
+    }
+
     public function isAssignedToUser(
         int $companyId,
         int $roleId,

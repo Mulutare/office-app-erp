@@ -18,6 +18,8 @@ final class UserUpdateService
     private AuditLog $auditLogs;
     private PlatformAdministratorProtectionService
         $platformAdministrators;
+    private PrivilegeEscalationProtectionService
+        $privilegeProtection;
 
     public function __construct()
     {
@@ -27,6 +29,8 @@ final class UserUpdateService
         $this->auditLogs = new AuditLog();
         $this->platformAdministrators =
             new PlatformAdministratorProtectionService();
+        $this->privilegeProtection =
+            new PrivilegeEscalationProtectionService();
     }
 
     /**
@@ -177,6 +181,21 @@ final class UserUpdateService
                 'Platform administrator role assignments cannot be changed from company user administration.';
         }
 
+        if ($roleIds !== $existingRoleIds) {
+            $roleAssignmentError =
+                $this->privilegeProtection
+                    ->roleAssignmentError(
+                        $validRoleIds,
+                        $updatedBy,
+                        $companyId
+                    );
+
+            if ($roleAssignmentError !== null) {
+                $errors['roles'] =
+                    $roleAssignmentError;
+            }
+        }
+
         if ($userId === $updatedBy) {
             if (!$active) {
                 $errors['active'] =
@@ -215,6 +234,29 @@ final class UserUpdateService
 
         try {
             \db()->beginTransaction();
+
+            if ($roleIds !== $existingRoleIds) {
+                $roleAssignmentError =
+                    $this->privilegeProtection
+                        ->roleAssignmentError(
+                            $validRoleIds,
+                            $updatedBy,
+                            $companyId
+                        );
+
+                if ($roleAssignmentError !== null) {
+                    \db()->rollBack();
+
+                    return [
+                        'successful' => false,
+                        'notFound' => false,
+                        'errors' => [
+                            'roles' =>
+                                $roleAssignmentError,
+                        ],
+                    ];
+                }
+            }
 
             $platformDeactivationError =
                 $this->platformAdministrators

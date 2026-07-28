@@ -184,6 +184,70 @@ ON DUPLICATE KEY UPDATE
     is_system = FALSE,
     active = TRUE;
 
+INSERT INTO roles
+    (
+        role_id,
+        name,
+        code,
+        description,
+        is_system,
+        active
+    )
+VALUES
+    (
+        9100,
+        'Security Test Delegated Administrator',
+        'security_test_delegated_admin',
+        'Test-only administrator with bounded user and role authority',
+        FALSE,
+        TRUE
+    ),
+    (
+        9101,
+        'Security Test Privileged Role',
+        'security_test_privileged_role',
+        'Test-only role containing authority unavailable to the delegated administrator',
+        FALSE,
+        TRUE
+    ),
+    (
+        9102,
+        'Security Test Permission Target',
+        'security_test_permission_target',
+        'Test-only role used to probe permission escalation',
+        FALSE,
+        TRUE
+    )
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    description = VALUES(description),
+    is_system = FALSE,
+    active = TRUE;
+
+INSERT INTO permissions
+    (
+        permission_id,
+        name,
+        code,
+        module,
+        description,
+        active
+    )
+VALUES
+    (
+        9101,
+        'Security Test Elevated Authority',
+        'security_test.elevated',
+        'security_test',
+        'Test-only permission that delegated administrators must not grant',
+        TRUE
+    )
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    module = VALUES(module),
+    description = VALUES(description),
+    active = TRUE;
+
 SET @restricted_role_id := (
     SELECT role_id
     FROM roles
@@ -327,6 +391,28 @@ VALUES
         TRUE,
         FALSE,
         0
+    ),
+    (
+        910003,
+        'test_tenant_a_delegated_admin',
+        'tenant-a-delegated-admin@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Tenant A Delegated Administrator',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
+    ),
+    (
+        910004,
+        'test_tenant_a_target',
+        'tenant-a-target@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Tenant A Target',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
     )
 ON DUPLICATE KEY UPDATE
     password_hash = VALUES(password_hash),
@@ -349,6 +435,21 @@ SET @tenant_b_user_id := (
     SELECT user_id
     FROM users
     WHERE username = 'test_tenant_b_user'
+    LIMIT 1
+);
+
+SET @tenant_a_delegated_admin_id := (
+    SELECT user_id
+    FROM users
+    WHERE username =
+        'test_tenant_a_delegated_admin'
+    LIMIT 1
+);
+
+SET @tenant_a_target_user_id := (
+    SELECT user_id
+    FROM users
+    WHERE username = 'test_tenant_a_target'
     LIMIT 1
 );
 
@@ -395,6 +496,20 @@ VALUES
         TRUE,
         TRUE,
         @test_user_id
+    ),
+    (
+        @tenant_a_company_id,
+        @tenant_a_delegated_admin_id,
+        TRUE,
+        TRUE,
+        @tenant_a_admin_user_id
+    ),
+    (
+        @tenant_a_company_id,
+        @tenant_a_target_user_id,
+        TRUE,
+        TRUE,
+        @tenant_a_admin_user_id
     )
 ON DUPLICATE KEY UPDATE
     active = TRUE,
@@ -432,6 +547,16 @@ VALUES
         @tenant_b_user_id,
         @executive_viewer_role_id,
         @test_user_id
+    ),
+    (
+        @tenant_a_delegated_admin_id,
+        9100,
+        @tenant_a_admin_user_id
+    ),
+    (
+        @tenant_a_target_user_id,
+        @executive_viewer_role_id,
+        @tenant_a_admin_user_id
     )
 ON DUPLICATE KEY UPDATE
     assigned_by = VALUES(assigned_by);
@@ -473,6 +598,18 @@ VALUES
         @tenant_b_user_id,
         @executive_viewer_role_id,
         @test_user_id
+    ),
+    (
+        @tenant_a_company_id,
+        @tenant_a_delegated_admin_id,
+        9100,
+        @tenant_a_admin_user_id
+    ),
+    (
+        @tenant_a_company_id,
+        @tenant_a_target_user_id,
+        @executive_viewer_role_id,
+        @tenant_a_admin_user_id
     )
 ON DUPLICATE KEY UPDATE
     assigned_by = VALUES(assigned_by);
@@ -503,6 +640,48 @@ CROSS JOIN role_permissions templates
 WHERE tenant.company_id IS NOT NULL
 ON DUPLICATE KEY UPDATE
     granted_by = VALUES(granted_by);
+
+DELETE FROM company_role_permissions
+WHERE company_id = @tenant_a_company_id
+  AND role_id IN (9100, 9101, 9102);
+
+INSERT INTO company_role_permissions
+    (
+        company_id,
+        role_id,
+        permission_id,
+        granted_by
+    )
+SELECT
+    @tenant_a_company_id,
+    9100,
+    permissions.permission_id,
+    @tenant_a_admin_user_id
+FROM permissions
+WHERE permissions.code IN (
+    'dashboard.view',
+    'administration.users.manage',
+    'administration.roles.manage'
+)
+UNION ALL
+SELECT
+    @tenant_a_company_id,
+    9101,
+    permissions.permission_id,
+    @tenant_a_admin_user_id
+FROM permissions
+WHERE permissions.code IN (
+    'dashboard.view',
+    'security_test.elevated'
+)
+UNION ALL
+SELECT
+    @tenant_a_company_id,
+    9102,
+    permissions.permission_id,
+    @tenant_a_admin_user_id
+FROM permissions
+WHERE permissions.code = 'dashboard.view';
 
 DELETE FROM company_role_permissions
 WHERE company_id = @default_company_id
