@@ -359,6 +359,60 @@ $check(
     $platformEmployeePosition['status'] === 403,
     'Platform administrator is denied tenant employee-position routes'
 );
+$companyDirectory = httpRequest(
+    $baseUrl,
+    '/administration/companies?search=Test%20Tenant%20B',
+    $platformAdminCookies
+);
+$vendorCompanyId = 0;
+
+if (preg_match(
+    '/administration\/companies\/view\?id=(\d+)/',
+    $companyDirectory['body'],
+    $matches
+) === 1) {
+    $vendorCompanyId = (int) $matches[1];
+}
+
+$companyEdit = httpRequest(
+    $baseUrl,
+    '/administration/companies/edit?id='
+        . $vendorCompanyId,
+    $platformAdminCookies
+);
+$check(
+    $companyDirectory['status'] === 200
+    && $vendorCompanyId > 0
+    && $companyEdit['status'] === 200
+    && str_contains(
+        $companyEdit['body'],
+        'Save company'
+    ),
+    'Platform administrator can open vendor company editing'
+);
+
+$invalidLifecycle = httpRequest(
+    $baseUrl,
+    '/administration/companies/lifecycle',
+    $platformAdminCookies,
+    'POST',
+    [
+        'company_id' =>
+            (string) $vendorCompanyId,
+        'action' => 'suspend',
+        'reason' =>
+            'HTTP test must not change lifecycle state.',
+        '_token' => str_repeat('0', 64),
+    ]
+);
+$check(
+    $invalidLifecycle['status'] === 302
+    && str_contains(
+        $invalidLifecycle['location'],
+        '/administration/companies/view?id='
+    ),
+    'Company lifecycle mutation rejects an invalid CSRF token'
+);
 
 $companyAdminCookies = [];
 $companyAdminLogin = login(
@@ -374,6 +428,34 @@ $check(
         '/dashboard'
     ),
     'Company-administrator test user authenticates'
+);
+$tenantCompanyEdit = httpRequest(
+    $baseUrl,
+    '/administration/companies/edit?id='
+        . $vendorCompanyId,
+    $companyAdminCookies
+);
+$tenantLifecycleMutation = httpRequest(
+    $baseUrl,
+    '/administration/companies/lifecycle',
+    $companyAdminCookies,
+    'POST',
+    [
+        'company_id' =>
+            (string) $vendorCompanyId,
+        'action' => 'suspend',
+        'reason' =>
+            'Tenant must never control vendor lifecycle.',
+        '_token' => csrfTokenFromBody(
+            $platformAdminLogin['body']
+        ),
+    ]
+);
+$check(
+    $tenantCompanyEdit['status'] === 403
+    && $tenantLifecycleMutation['status']
+        === 403,
+    'Tenant administrators cannot access vendor company lifecycle routes'
 );
 $platformSearch = httpRequest(
     $baseUrl,
@@ -700,6 +782,70 @@ $check(
         'Bob TenantB'
     ),
     'HR leave workspace exposes only Tenant A people and policy types'
+);
+
+$employeeCookies = [];
+$employeeLogin = login(
+    $baseUrl,
+    'test_tenant_a_target',
+    $password,
+    $employeeCookies
+);
+$employeeHr = httpRequest(
+    $baseUrl,
+    '/hr',
+    $employeeCookies
+);
+$employeeLeave = httpRequest(
+    $baseUrl,
+    '/hr/leave',
+    $employeeCookies
+);
+$employeeDirectoryAttempt = httpRequest(
+    $baseUrl,
+    '/hr/employees/view?id=920002',
+    $employeeCookies
+);
+$check(
+    $employeeLogin['status'] === 302
+    && $employeeHr['status'] === 200
+    && str_contains(
+        $employeeHr['body'],
+        'Leave management'
+    )
+    && !str_contains(
+        $employeeHr['body'],
+        'Search employees'
+    ),
+    'Normal employee sees HR self service without the company directory'
+);
+$check(
+    $employeeLeave['status'] === 200
+    && str_contains(
+        $employeeLeave['body'],
+        'Request my leave'
+    )
+    && str_contains(
+        $employeeLeave['body'],
+        'Alice TenantA'
+    )
+    && !str_contains(
+        $employeeLeave['body'],
+        'Bob TenantB'
+    )
+    && !str_contains(
+        $employeeLeave['body'],
+        'Submit employee leave'
+    ),
+    'Normal employee leave page is limited to the linked employee'
+);
+$check(
+    $employeeDirectoryAttempt['status'] === 403
+    && !str_contains(
+        $employeeDirectoryAttempt['body'],
+        'Bob TenantB'
+    ),
+    'Employee self service cannot open the company employee directory'
 );
 
 $tenantAEmployeeProfile = httpRequest(
@@ -1322,7 +1468,7 @@ $check(
     $targetAfterEscalation['status'] === 200
     && str_contains(
         $targetAfterEscalation['body'],
-        'Executive Viewer'
+        'Employee Self Service'
     )
     && !str_contains(
         $targetAfterEscalation['body'],

@@ -247,13 +247,28 @@ $router->get(
     '/administration/companies/view',
     [$companyAdministrationController, 'show']
 );
+$router->get(
+    '/administration/companies/edit',
+    [$companyAdministrationController, 'edit']
+);
 $router->post(
     '/administration/companies',
     [$companyAdministrationController, 'store']
 );
 $router->post(
+    '/administration/companies/update',
+    [$companyAdministrationController, 'update']
+);
+$router->post(
     '/administration/companies/approve',
     [$companyAdministrationController, 'approve']
+);
+$router->post(
+    '/administration/companies/lifecycle',
+    [
+        $companyAdministrationController,
+        'changeLifecycle',
+    ]
 );
 $router->get(
     '/administration/audit-logs/view',

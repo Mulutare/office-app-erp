@@ -23,7 +23,19 @@ $filterStatus = (string) (
     $data['filterStatus'] ?? ''
 );
 $canManage = !empty($data['canManage']);
+$canRequestSelf = !empty(
+    $data['canRequestSelf']
+);
 $canApprove = !empty($data['canApprove']);
+$profileRequired = !empty(
+    $data['profileRequired']
+);
+$employee = is_array($data['employee'] ?? null)
+    ? $data['employee']
+    : null;
+$scopeLabel = (string) (
+    $data['scopeLabel'] ?? 'My leave'
+);
 $notice = is_array($data['notice'] ?? null)
     ? $data['notice']
     : null;
@@ -83,6 +95,16 @@ $formatDate = static function (mixed $value): string {
     </div>
 <?php endif; ?>
 
+<?php if ($profileRequired): ?>
+    <div class="alert alert-warning" role="status">
+        <strong>Employee profile required.</strong>
+        Your account belongs to this company, but it is not
+        linked to an active HR employee record. Ask your HR
+        administrator to link the account before requesting
+        leave.
+    </div>
+<?php endif; ?>
+
 <section class="operations-summary-grid">
     <article class="operations-summary-card is-primary">
         <span>Pending approval</span>
@@ -109,14 +131,18 @@ $formatDate = static function (mixed $value): string {
 </section>
 
 <section class="operations-layout leave-operations-layout">
-    <?php if ($canManage): ?>
+    <?php if ($canManage || $canRequestSelf): ?>
         <aside class="card operations-entry-card">
             <span class="section-kicker">New request</span>
             <h2 class="card-title">
-                Submit employee leave
+                <?= $canManage
+                    ? 'Submit employee leave'
+                    : 'Request my leave' ?>
             </h2>
             <p class="form-help">
-                Record a leave period for an employee.
+                <?= $canManage
+                    ? 'Record a leave period for an employee.'
+                    : 'Send your leave request to your reporting manager.' ?>
                 Overlapping requests are blocked.
             </p>
 
@@ -127,6 +153,7 @@ $formatDate = static function (mixed $value): string {
             >
                 <?= csrfField() ?>
 
+                <?php if ($canManage): ?>
                 <div class="form-field">
                     <label for="leave-employee">
                         Employee
@@ -171,6 +198,28 @@ $formatDate = static function (mixed $value): string {
                         </small>
                     <?php endif; ?>
                 </div>
+                <?php elseif ($employee !== null): ?>
+                    <div class="leave-self-identity">
+                        <span>Requesting for</span>
+                        <strong>
+                            <?= e(
+                                $employee['displayName']
+                                ?? ''
+                            ) ?>
+                        </strong>
+                        <small>
+                            <?= e(
+                                $employee['employee_number']
+                                ?? ''
+                            ) ?>
+                            ·
+                            <?= e(
+                                $employee['job_title']
+                                ?? 'Employee'
+                            ) ?>
+                        </small>
+                    </div>
+                <?php endif; ?>
 
                 <div class="form-field">
                     <label for="leave-type">
@@ -297,9 +346,9 @@ $formatDate = static function (mixed $value): string {
         <section class="card operations-toolbar">
             <div>
                 <span class="section-kicker">
-                    Request register
+                    <?= e($scopeLabel) ?>
                 </span>
-                <h2>Leave decisions and history</h2>
+                <h2>Leave requests and history</h2>
             </div>
             <form
                 method="get"
@@ -357,6 +406,7 @@ $formatDate = static function (mixed $value): string {
                     <thead>
                         <tr>
                             <th>Employee</th>
+                            <th>Scope</th>
                             <th>Leave type</th>
                             <th>Period</th>
                             <th>Days</th>
@@ -372,7 +422,7 @@ $formatDate = static function (mixed $value): string {
                         <tr>
                             <td
                                 colspan="<?= e(
-                                    $canApprove ? 7 : 6
+                                    $canApprove ? 8 : 7
                                 ) ?>"
                                 class="empty-state"
                             >
@@ -404,6 +454,14 @@ $formatDate = static function (mixed $value): string {
                                             ] ?? 'Unassigned'
                                         ) ?>
                                     </small>
+                                </td>
+                                <td>
+                                    <span class="badge badge-muted">
+                                        <?= e(
+                                            $request['scopeLabel']
+                                            ?? 'Company'
+                                        ) ?>
+                                    </span>
                                 </td>
                                 <td>
                                     <?= e(
@@ -470,6 +528,9 @@ $formatDate = static function (mixed $value): string {
                                                     'request_status'
                                                 ] ?? ''
                                             ) === 'pending'
+                                            && !empty(
+                                                $request['canDecide']
+                                            )
                                         ): ?>
                                             <form
                                                 method="post"
@@ -512,13 +573,23 @@ $formatDate = static function (mixed $value): string {
                                                     </button>
                                                 </div>
                                             </form>
-                                        <?php else: ?>
+                                        <?php elseif (
+                                            (
+                                                $request[
+                                                    'request_status'
+                                                ] ?? ''
+                                            ) !== 'pending'
+                                        ): ?>
                                             <span class="text-muted">
                                                 <?= e(
                                                     $request[
                                                         'decided_by_name'
                                                     ] ?? 'Completed'
                                                 ) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted">
+                                                Manager decision
                                             </span>
                                         <?php endif; ?>
                                     </td>

@@ -262,6 +262,13 @@ SET @executive_viewer_role_id := (
     LIMIT 1
 );
 
+SET @employee_self_service_role_id := (
+    SELECT role_id
+    FROM roles
+    WHERE code = 'employee_self_service'
+    LIMIT 1
+);
+
 SET @company_owner_role_id := (
     SELECT role_id
     FROM roles
@@ -555,7 +562,7 @@ VALUES
     ),
     (
         @tenant_a_target_user_id,
-        @executive_viewer_role_id,
+        @employee_self_service_role_id,
         @tenant_a_admin_user_id
     )
 ON DUPLICATE KEY UPDATE
@@ -850,7 +857,7 @@ VALUES
         920001,
         @tenant_a_company_id,
         'TA-EMP-SEC',
-        NULL,
+        @tenant_a_target_user_id,
         'Alice',
         'TenantA',
         'alice-tenant-a@example.test',
@@ -866,7 +873,7 @@ VALUES
         920002,
         @tenant_b_company_id,
         'TB-EMP-CONFIDENTIAL',
-        NULL,
+        @tenant_b_user_id,
         'Bob',
         'TenantB',
         'bob-tenant-b@example.test',
@@ -881,7 +888,7 @@ VALUES
 ON DUPLICATE KEY UPDATE
     company_id = VALUES(company_id),
     employee_number = VALUES(employee_number),
-    user_id = NULL,
+    user_id = VALUES(user_id),
     first_name = VALUES(first_name),
     last_name = VALUES(last_name),
     work_email = VALUES(work_email),
@@ -889,6 +896,11 @@ ON DUPLICATE KEY UPDATE
     job_title = VALUES(job_title),
     employment_status = 'active',
     deleted_at = NULL;
+
+UPDATE company_users
+SET manager_user_id = @tenant_a_admin_user_id
+WHERE company_id = @tenant_a_company_id
+  AND user_id = @tenant_a_target_user_id;
 
 INSERT INTO hr_leave_types
     (
@@ -1140,7 +1152,7 @@ VALUES
     (
         @tenant_a_company_id,
         @tenant_a_target_user_id,
-        @executive_viewer_role_id,
+        @employee_self_service_role_id,
         @tenant_a_admin_user_id
     )
 ON DUPLICATE KEY UPDATE

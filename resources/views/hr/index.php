@@ -31,6 +31,9 @@ $pagination = is_array(
     ? $data['pagination']
     : [];
 $canManage = !empty($data['canManage']);
+$canViewDirectory = !empty(
+    $data['canViewDirectory']
+);
 $canViewLeave = !empty(
     $data['canViewLeave']
 );
@@ -164,6 +167,7 @@ $totalEmployees = array_sum(array_map(
     class="hr-workspace-grid"
     aria-label="Human Resources workspaces"
 >
+    <?php if ($canViewDirectory): ?>
     <article class="card hr-workspace-card">
         <div class="hr-workspace-icon" aria-hidden="true">
             PE
@@ -185,6 +189,7 @@ $totalEmployees = array_sum(array_map(
             Open directory
         </a>
     </article>
+    <?php endif; ?>
 
     <article class="card hr-workspace-card">
         <div class="hr-workspace-icon" aria-hidden="true">
@@ -296,6 +301,7 @@ $totalEmployees = array_sum(array_map(
     </div>
 <?php endif; ?>
 
+<?php if ($canViewDirectory): ?>
 <section class="hr-summary-grid">
     <article class="card hr-summary-card">
         <span>Total employees</span>
@@ -591,3 +597,4 @@ $totalEmployees = array_sum(array_map(
         </nav>
     <?php endif; ?>
 </section>
+<?php endif; ?>

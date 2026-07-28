@@ -11,6 +11,14 @@ $roles = is_array($data['roles'] ?? null)
     ? $data['roles']
     : [];
 
+$managers = is_array($data['managers'] ?? null)
+    ? $data['managers']
+    : [];
+
+$company = is_array($data['company'] ?? null)
+    ? $data['company']
+    : [];
+
 $errors = is_array($data['errors'] ?? null)
     ? $data['errors']
     : [];
@@ -130,6 +138,71 @@ $selectedRoles = is_array(
                 ): ?>
                     <small class="field-error">
                         <?= e($errors['email']) ?>
+                    </small>
+                <?php endif; ?>
+            </div>
+
+            <div class="form-field form-field-wide">
+                <label for="manager_user_id">
+                    Reporting manager
+                </label>
+
+                <select
+                    id="manager_user_id"
+                    name="manager_user_id"
+                    required
+                >
+                    <option value="">
+                        Select the employee's manager
+                    </option>
+                    <?php foreach (
+                        $managers as $manager
+                    ): ?>
+                        <?php
+                        $managerUserId = (int) (
+                            $manager['user_id'] ?? 0
+                        );
+                        ?>
+                        <option
+                            value="<?= e($managerUserId) ?>"
+                            <?= (int) (
+                                $old['manager_user_id']
+                                ?? 0
+                            ) === $managerUserId
+                                ? 'selected'
+                                : '' ?>
+                        >
+                            <?= e(
+                                $manager['display_name']
+                                ?? $manager['username']
+                                ?? ''
+                            ) ?>
+                            ·
+                            <?= e(
+                                $manager['email'] ?? ''
+                            ) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+
+                <small class="form-help">
+                    Required for approvals and reporting
+                    inside
+                    <?= e(
+                        $company['name']
+                        ?? 'this company'
+                    ) ?>.
+                </small>
+
+                <?php if (
+                    !empty(
+                        $errors['manager_user_id']
+                    )
+                ): ?>
+                    <small class="field-error">
+                        <?= e(
+                            $errors['manager_user_id']
+                        ) ?>
                     </small>
                 <?php endif; ?>
             </div>

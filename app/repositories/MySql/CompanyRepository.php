@@ -427,6 +427,217 @@ class CompanyRepository extends MySqlRepository
     }
 
     /**
+     * Lock a company while a vendor operation validates and mutates it.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function lockForAdministration(
+        int $companyId
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                company_id,
+                code,
+                name,
+                legal_name,
+                contact_email,
+                contact_phone,
+                country_code,
+                default_currency,
+                timezone,
+                subscription_status,
+                subscription_expires_at,
+                brand_primary_color,
+                approval_status,
+                approved_at,
+                approved_by,
+                owner_user_id,
+                active,
+                created_at,
+                updated_at
+             FROM companies
+             WHERE company_id = :company_id
+               AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+        $company = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($company)
+            ? $company
+            : null;
+    }
+
+    /**
+     * @param array<string, mixed> $company
+     */
+    public function updateAdministrationProfile(
+        int $companyId,
+        array $company
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE companies
+             SET name = :name,
+                 legal_name = :legal_name,
+                 contact_email = :contact_email,
+                 contact_phone = :contact_phone,
+                 country_code = :country_code,
+                 default_currency =
+                    :default_currency,
+                 timezone = :timezone,
+                 subscription_status =
+                    :subscription_status,
+                 subscription_expires_at =
+                    :subscription_expires_at,
+                 brand_primary_color =
+                    :brand_primary_color
+             WHERE company_id = :company_id
+               AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'name' => $company['name'],
+            'legal_name' => $company['legal_name'],
+            'contact_email' =>
+                $company['contact_email'],
+            'contact_phone' =>
+                $company['contact_phone'],
+            'country_code' =>
+                $company['country_code'],
+            'default_currency' =>
+                $company['default_currency'],
+            'timezone' => $company['timezone'],
+            'subscription_status' =>
+                $company['subscription_status'],
+            'subscription_expires_at' =>
+                $company[
+                    'subscription_expires_at'
+                ],
+            'brand_primary_color' =>
+                $company['brand_primary_color'],
+            'company_id' => $companyId,
+        ]);
+
+        return $statement->rowCount() > 0;
+    }
+
+    public function updateModuleEntitlement(
+        int $companyId,
+        int $moduleId,
+        bool $enabled,
+        string $licenseStatus,
+        ?string $expiresAt,
+        int $updatedBy
+    ): void {
+        $statement = $this->connection()->prepare(
+            'UPDATE company_modules
+             SET enabled = :enabled,
+                 license_status = :license_status,
+                 licensed_at = CASE
+                    WHEN :enabled_for_date = 1
+                     AND licensed_at IS NULL
+                        THEN NOW()
+                    ELSE licensed_at
+                 END,
+                 expires_at = :expires_at,
+                 updated_by = :updated_by
+             WHERE company_id = :company_id
+               AND module_id = :module_id'
+        );
+        $statement->execute([
+            'enabled' => $enabled ? 1 : 0,
+            'license_status' => $enabled
+                ? $licenseStatus
+                : 'not_licensed',
+            'enabled_for_date' => $enabled ? 1 : 0,
+            'expires_at' => $enabled
+                ? $expiresAt
+                : null,
+            'updated_by' => $updatedBy,
+            'company_id' => $companyId,
+            'module_id' => $moduleId,
+        ]);
+    }
+
+    public function suspend(
+        int $companyId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE companies
+             SET subscription_status = \'suspended\'
+             WHERE company_id = :company_id
+               AND approval_status = \'approved\'
+               AND active = TRUE
+               AND subscription_status
+                    IN (\'active\', \'trial\')
+               AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function reactivate(
+        int $companyId,
+        string $subscriptionStatus
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE companies
+             SET subscription_status =
+                    :subscription_status
+             WHERE company_id = :company_id
+               AND approval_status = \'approved\'
+               AND active = TRUE
+               AND subscription_status =
+                    \'suspended\'
+               AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'subscription_status' =>
+                $subscriptionStatus,
+            'company_id' => $companyId,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function preferredResumeStatus(
+        int $companyId
+    ): string {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                CASE
+                    WHEN SUM(
+                        CASE
+                            WHEN enabled = TRUE
+                             AND license_status = \'trial\'
+                                THEN 1
+                            ELSE 0
+                        END
+                    ) > 0
+                        THEN \'trial\'
+                    ELSE \'active\'
+                END
+             FROM company_modules
+             WHERE company_id = :company_id'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+        $status = $statement->fetchColumn();
+
+        return $status === 'trial'
+            ? 'trial'
+            : 'active';
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function modulesForCompany(

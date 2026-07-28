@@ -44,6 +44,16 @@ final class UserCreationService
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public function managers(): array
+    {
+        return $this->memberships->managerOptions(
+            $this->tenant->companyId()
+        );
+    }
+
+    /**
      * @param array<string, mixed> $input
      *
      * @return array{
@@ -71,10 +81,15 @@ final class UserCreationService
 
         $active = !empty($input['active']);
 
+        $managerUserId = $this->integer(
+            $input['manager_user_id'] ?? null
+        );
+
         $roleIds = $this->normalizeRoleIds(
             $input['role_ids'] ?? []
         );
 
+        $companyId = $this->tenant->companyId();
         $errors = $this->validate(
             $username,
             $email,
@@ -108,7 +123,6 @@ final class UserCreationService
             ];
         }
 
-        $companyId = $this->tenant->companyId();
         $roleAssignmentError =
             $this->privilegeProtection
                 ->roleAssignmentError(
@@ -123,6 +137,22 @@ final class UserCreationService
                 'errors' => [
                     'roles' =>
                         $roleAssignmentError,
+                ],
+            ];
+        }
+
+        if (
+            $managerUserId < 1
+            || !$this->memberships->managerExists(
+                $companyId,
+                $managerUserId
+            )
+        ) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'manager_user_id' =>
+                        'Select an active manager from this company.',
                 ],
             ];
         }
@@ -178,7 +208,8 @@ final class UserCreationService
                 $userId,
                 $createdBy,
                 true,
-                $active
+                $active,
+                $managerUserId
             );
 
             $this->users->assignRoles(
@@ -202,6 +233,8 @@ final class UserCreationService
                     'active' => $active,
                     'role_ids' => $validRoleIds,
                     'company_id' => $companyId,
+                    'manager_user_id' =>
+                        $managerUserId,
                     'must_change_password' => true,
                 ]
             );
@@ -319,6 +352,18 @@ final class UserCreationService
         return array_values(
             array_unique($roleIds)
         );
+    }
+
+    private function integer(mixed $value): int
+    {
+        if (is_int($value)) {
+            return max(0, $value);
+        }
+
+        return is_string($value)
+            && ctype_digit($value)
+                ? (int) $value
+                : 0;
     }
 
 }

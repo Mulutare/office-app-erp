@@ -23,8 +23,31 @@ final class LeaveController
     public function index(): void
     {
         $this->requireView();
-        $dashboard = $this->leave->dashboard(
-            $this->queryStatus()
+        $canViewCompany = $this->canAny([
+            'hr.leave.view',
+            'hr.leave.manage',
+            'hr.leave.approve',
+        ]);
+        $canManageCompany = $this->can(
+            'hr.leave.manage'
+        );
+        $canApproveCompany = $this->can(
+            'hr.leave.approve'
+        );
+        $canRequestSelf = $this->can(
+            'hr.leave.self.request'
+        );
+        $canApproveTeam = $this->can(
+            'hr.leave.team.approve'
+        );
+        $dashboard = $this->leave->workspace(
+            (int) $_SESSION['auth']['user_id'],
+            $this->queryStatus(),
+            $canViewCompany,
+            $canManageCompany,
+            $canApproveCompany,
+            $canRequestSelf,
+            $canApproveTeam
         );
 
         \view('layouts.app', [
@@ -36,25 +59,30 @@ final class LeaveController
                 'environment',
                 'unknown'
             ),
-            'pageTitle' => 'Leave Management',
+            'pageTitle' => 'Leave',
             'pageDescription' =>
-                'Leave requests, approval decisions and workforce availability.',
+                'Personal leave requests, manager approvals and workforce availability.',
             'contentView' => 'hr.leave.index',
             'user' => $_SESSION['auth'],
             'requests' => $dashboard['requests'],
             'leaveTypes' =>
                 $dashboard['leaveTypes'],
             'employees' => $dashboard['employees'],
+            'employee' => $dashboard['employee'],
             'summary' => $dashboard['summary'],
             'statuses' => $dashboard['statuses'],
             'filterStatus' =>
                 $dashboard['filterStatus'],
-            'canManage' => $this->can(
-                'hr.leave.manage'
-            ),
-            'canApprove' => $this->can(
-                'hr.leave.approve'
-            ),
+            'scopeLabel' =>
+                $dashboard['scopeLabel'],
+            'canManage' =>
+                $dashboard['canManageCompany'],
+            'canRequestSelf' =>
+                $dashboard['canRequestSelf'],
+            'canApprove' =>
+                $dashboard['canApprove'],
+            'profileRequired' =>
+                $dashboard['profileRequired'],
             'notice' => \getFlash('leave_notice'),
             'errors' => \getFlash(
                 'leave_errors',
@@ -70,7 +98,16 @@ final class LeaveController
 
     public function store(): void
     {
-        $this->requireManage();
+        $canManageCompany = $this->can(
+            'hr.leave.manage'
+        );
+        $canRequestSelf = $this->can(
+            'hr.leave.self.request'
+        );
+        $this->requireRequestPermission(
+            $canManageCompany,
+            $canRequestSelf
+        );
 
         if (
             !\verifyCsrfToken(
@@ -95,9 +132,11 @@ final class LeaveController
                 \postString('end_date'),
             'reason' => \postString('reason'),
         ];
-        $result = $this->leave->create(
+        $result = $this->leave->createForActor(
             $input,
-            (int) $_SESSION['auth']['user_id']
+            (int) $_SESSION['auth']['user_id'],
+            $canManageCompany,
+            $canRequestSelf
         );
 
         if (!$result['successful']) {
@@ -116,7 +155,16 @@ final class LeaveController
 
     public function decide(): void
     {
-        $this->requireApprove();
+        $canApproveCompany = $this->can(
+            'hr.leave.approve'
+        );
+        $canApproveTeam = $this->can(
+            'hr.leave.team.approve'
+        );
+        $this->requireDecisionPermission(
+            $canApproveCompany,
+            $canApproveTeam
+        );
 
         if (
             !\verifyCsrfToken(
@@ -138,11 +186,13 @@ final class LeaveController
             $this->notFound();
         }
 
-        $result = $this->leave->decide(
+        $result = $this->leave->decideForActor(
             $requestId,
             \postString('decision'),
             \postString('decision_note'),
-            (int) $_SESSION['auth']['user_id']
+            (int) $_SESSION['auth']['user_id'],
+            $canApproveCompany,
+            $canApproveTeam
         );
 
         if (!empty($result['notFound'])) {
@@ -176,21 +226,46 @@ final class LeaveController
                 'hr.leave.view',
                 'hr.leave.manage',
                 'hr.leave.approve',
+                'hr.leave.self.view',
+                'hr.leave.self.request',
+                'hr.leave.team.approve',
             ]);
     }
 
-    private function requireManage(): void
+    private function requireRequestPermission(
+        bool $canManageCompany,
+        bool $canRequestSelf
+    ): void
     {
         $this->authorization->requireModule('hr');
-        $this->authorization
-            ->requirePermission('hr.leave.manage');
+
+        if (
+            !$canManageCompany
+            && !$canRequestSelf
+        ) {
+            $this->authorization
+                ->requirePermission(
+                    'hr.leave.manage'
+                );
+        }
     }
 
-    private function requireApprove(): void
+    private function requireDecisionPermission(
+        bool $canApproveCompany,
+        bool $canApproveTeam
+    ): void
     {
         $this->authorization->requireModule('hr');
-        $this->authorization
-            ->requirePermission('hr.leave.approve');
+
+        if (
+            !$canApproveCompany
+            && !$canApproveTeam
+        ) {
+            $this->authorization
+                ->requirePermission(
+                    'hr.leave.approve'
+                );
+        }
     }
 
     private function can(string $permission): bool
@@ -200,6 +275,20 @@ final class LeaveController
             $_SESSION['auth']['permissions'] ?? [],
             true
         );
+    }
+
+    /**
+     * @param list<string> $permissions
+     */
+    private function canAny(array $permissions): bool
+    {
+        foreach ($permissions as $permission) {
+            if ($this->can($permission)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function queryStatus(): string

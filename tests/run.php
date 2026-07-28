@@ -21,6 +21,9 @@ use App\Services\AuthService;
 use App\Services\AttendanceManagementService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
+use App\Services\CompanyLifecycleService;
+use App\Services\CompanyProvisioningService;
+use App\Services\CompanyUpdateService;
 use App\Services\DashboardService;
 use App\Services\DepartmentCatalogueService;
 use App\Services\EmployeeActivityService;
@@ -264,8 +267,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 12,
-        'Oracle migration catalog contains twelve valid definitions'
+        && count($oracleMigrationFiles) === 13,
+        'Oracle migration catalog contains thirteen valid definitions'
     );
 
     $check(
@@ -289,6 +292,7 @@ try {
                 '100',
                 '110',
                 '120',
+                '130',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -397,8 +401,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 74,
-        'All 74 foreign-key relationships were created'
+        $foreignKeyCount === 75,
+        'All 75 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -1871,6 +1875,146 @@ try {
         'Leave workflow records company-scoped audit events'
     );
 
+    $selfWorkspace = $leaveManagement->workspace(
+        910004,
+        '',
+        false,
+        false,
+        false,
+        true,
+        true
+    );
+    $selfLeave = $leaveManagement->createForActor(
+        [
+            'employee_id' => '920002',
+            'leave_type_id' => '970001',
+            'start_date' => '2026-09-07',
+            'end_date' => '2026-09-08',
+            'reason' => 'Employee self-service request',
+        ],
+        910004,
+        false,
+        true
+    );
+    $selfLeaveRequestId = (int) (
+        $selfLeave['leaveRequestId'] ?? 0
+    );
+    $managerWorkspace =
+        $leaveManagement->workspace(
+            $tenantAActorId,
+            'pending',
+            false,
+            false,
+            false,
+            false,
+            true
+        );
+    $managerRequestIds = array_map(
+        static fn (array $request): int =>
+            (int) (
+                $request['leave_request_id'] ?? 0
+            ),
+        $managerWorkspace['requests'] ?? []
+    );
+    $managerDecision =
+        $leaveManagement->decideForActor(
+            $selfLeaveRequestId,
+            'approved',
+            'Approved by direct manager',
+            $tenantAActorId,
+            false,
+            true
+        );
+    $foreignManagerDecision =
+        $leaveManagement->decideForActor(
+            999999,
+            'approved',
+            '',
+            $tenantAActorId,
+            false,
+            true
+        );
+
+    $check(
+        ($selfWorkspace['employee']['employee_id']
+            ?? null) === 920001
+        && !empty(
+            $selfWorkspace['canRequestSelf']
+        )
+        && $selfLeave['successful'] === true
+        && $selfLeaveRequestId > 0,
+        'Linked employee can view and submit personal leave'
+    );
+    $check(
+        in_array(
+            $selfLeaveRequestId,
+            $managerRequestIds,
+            true
+        )
+        && $managerDecision['successful'] === true,
+        'Reporting manager can review and decide direct-report leave'
+    );
+    $check(
+        $foreignManagerDecision['successful']
+            === false
+        && !empty(
+            $foreignManagerDecision['notFound']
+        ),
+        'Manager decision scope fails closed for unassigned requests'
+    );
+
+    $employeeRoleStatement = db()->prepare(
+        'SELECT role_id
+         FROM roles
+         WHERE code = :code
+         LIMIT 1'
+    );
+    $employeeRoleStatement->execute([
+        'code' => 'employee_self_service',
+    ]);
+    $employeeRoleId = (int) (
+        $employeeRoleStatement->fetchColumn()
+        ?: 0
+    );
+    $createdEmployeeUser =
+        (new UserCreationService())->create(
+            [
+                'username' =>
+                    'test_managed_employee_user',
+                'email' =>
+                    'managed-employee@example.test',
+                'display_name' =>
+                    'Managed Employee User',
+                'manager_user_id' =>
+                    (string) $tenantAActorId,
+                'active' => true,
+                'role_ids' => [$employeeRoleId],
+            ],
+            $tenantAActorId
+        );
+    $createdEmployeeUserId = (int) (
+        $createdEmployeeUser['userId'] ?? 0
+    );
+    $createdManagerStatement = db()->prepare(
+        'SELECT manager_user_id
+         FROM company_users
+         WHERE company_id = :company_id
+           AND user_id = :user_id'
+    );
+    $createdManagerStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'user_id' => $createdEmployeeUserId,
+    ]);
+
+    $check(
+        $employeeRoleId > 0
+        && $createdEmployeeUser['successful']
+            === true
+        && (int) $createdManagerStatement
+            ->fetchColumn() === $tenantAActorId,
+        'Tenant user creation persists company and reporting manager'
+    );
+
     $financeDashboard =
         new FinanceDashboardService();
     $ownFinanceSearch =
@@ -2050,6 +2194,236 @@ try {
         && is_array($tenantBTargetAfter)
         && $tenantBTargetAfter === $tenantBTarget,
         'Rejected cross-tenant mutations leave Tenant B unchanged'
+    );
+
+    $companyDetailsService =
+        new CompanyProvisioningService();
+    $tenantBCompanyDetails =
+        $companyDetailsService->details($tenantId);
+    $tenantBCompany = is_array(
+        $tenantBCompanyDetails
+    )
+        ? $tenantBCompanyDetails['company']
+            ?? []
+        : [];
+    $tenantBModules = is_array(
+        $tenantBCompanyDetails
+    )
+        ? $tenantBCompanyDetails['modules']
+            ?? []
+        : [];
+    $tenantBModuleCodes = array_values(
+        array_map(
+            static fn (array $module): string =>
+                (string) $module['code'],
+            array_filter(
+                is_array($tenantBModules)
+                    ? $tenantBModules
+                    : [],
+                static fn (array $module): bool =>
+                    !empty($module['enabled'])
+                    && in_array(
+                        (string) (
+                            $module['license_status']
+                            ?? ''
+                        ),
+                        ['active', 'trial'],
+                        true
+                    )
+            )
+        )
+    );
+    $companyUpdateInput = [
+        'name' => (string) (
+            $tenantBCompany['name']
+            ?? 'Test Tenant B'
+        ),
+        'legal_name' =>
+            $tenantBCompany['legal_name'] ?? null,
+        'contact_email' =>
+            $tenantBCompany['contact_email']
+            ?? 'tenant-b@example.test',
+        'contact_phone' => '+254700000222',
+        'country_code' => (string) (
+            $tenantBCompany['country_code']
+            ?? 'KE'
+        ),
+        'default_currency' => (string) (
+            $tenantBCompany['default_currency']
+            ?? 'KES'
+        ),
+        'timezone' => (string) (
+            $tenantBCompany['timezone']
+            ?? 'Africa/Nairobi'
+        ),
+        'subscription_status' => 'active',
+        'subscription_expires_at' => '',
+        'brand_primary_color' => (string) (
+            $tenantBCompany['brand_primary_color']
+            ?? '#2563EB'
+        ),
+        'module_codes' => $tenantBModuleCodes,
+    ];
+    $unauthorizedCompanyUpdate =
+        (new CompanyUpdateService())->update(
+            $tenantId,
+            $companyUpdateInput,
+            $tenantAActorId
+        );
+    $unauthorizedLifecycle =
+        (new CompanyLifecycleService())->change(
+            $tenantId,
+            'suspend',
+            'Unauthorized tenant administrator request.',
+            $tenantAActorId
+        );
+
+    $check(
+        $unauthorizedCompanyUpdate[
+            'successful'
+        ] === false
+        && isset(
+            $unauthorizedCompanyUpdate[
+                'errors'
+            ]['form']
+        )
+        && $unauthorizedLifecycle[
+            'successful'
+        ] === false
+        && isset(
+            $unauthorizedLifecycle[
+                'errors'
+            ]['form']
+        ),
+        'Tenant administrators cannot edit or suspend customer companies'
+    );
+
+    $vendorUpdate =
+        (new CompanyUpdateService())->update(
+            $tenantId,
+            $companyUpdateInput,
+            is_int($userId) ? $userId : 0
+        );
+    $updatedCompany = $companyDetailsService
+        ->details($tenantId);
+
+    $check(
+        $vendorUpdate['successful'] === true
+        && !empty($vendorUpdate['changed'])
+        && (
+            $updatedCompany['company'][
+                'contact_phone'
+            ] ?? null
+        ) === '+254700000222',
+        'Platform administrator can update company profile and commercial settings'
+    );
+
+    $shortReasonResult =
+        (new CompanyLifecycleService())->change(
+            $tenantId,
+            'suspend',
+            'Too short',
+            is_int($userId) ? $userId : 0
+        );
+    $check(
+        $shortReasonResult['successful']
+            === false
+        && isset(
+            $shortReasonResult[
+                'errors'
+            ]['reason']
+        ),
+        'Company suspension requires an auditable reason'
+    );
+
+    $suspensionResult =
+        (new CompanyLifecycleService())->change(
+            $tenantId,
+            'suspend',
+            'Integration test verifies vendor suspension controls.',
+            is_int($userId) ? $userId : 0
+        );
+    $suspendedStatus = db()->prepare(
+        'SELECT subscription_status
+         FROM companies
+         WHERE company_id = :company_id'
+    );
+    $suspendedStatus->execute([
+        'company_id' => $tenantId,
+    ]);
+
+    $check(
+        $suspensionResult['successful'] === true
+        && $suspendedStatus->fetchColumn()
+            === 'suspended',
+        'Vendor suspension transitions the company to suspended'
+    );
+
+    unset($_SESSION['auth']);
+    $suspendedLogin =
+        (new AuthService())->attempt(
+            'test_tenant_b_user',
+            is_string($password) ? $password : ''
+        );
+    $check(
+        $suspendedLogin['successful'] === false
+        && !isset($_SESSION['auth']),
+        'Suspended company users are blocked from authentication'
+    );
+
+    $reactivationResult =
+        (new CompanyLifecycleService())->change(
+            $tenantId,
+            'reactivate',
+            '',
+            is_int($userId) ? $userId : 0
+        );
+    $reactivatedStatus = db()->prepare(
+        'SELECT subscription_status
+         FROM companies
+         WHERE company_id = :company_id'
+    );
+    $reactivatedStatus->execute([
+        'company_id' => $tenantId,
+    ]);
+    $check(
+        $reactivationResult['successful'] === true
+        && $reactivatedStatus->fetchColumn()
+            === 'active',
+        'Vendor reactivation restores the prior commercial state'
+    );
+
+    $reactivatedLogin =
+        (new AuthService())->attempt(
+            'test_tenant_b_user',
+            is_string($password) ? $password : ''
+        );
+    $check(
+        $reactivatedLogin['successful'] === true
+        && (
+            $_SESSION['auth']['company']['code']
+            ?? null
+        ) === 'test_tenant_b',
+        'Reactivated company users can authenticate again'
+    );
+
+    $companyAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND action IN (
+                \'UPDATE_COMPANY\',
+                \'SUSPEND_COMPANY\',
+                \'REACTIVATE_COMPANY\'
+           )'
+    );
+    $companyAuditStatement->execute([
+        'company_id' => $tenantId,
+    ]);
+    $check(
+        (int) $companyAuditStatement
+            ->fetchColumn() >= 3,
+        'Company edits and lifecycle transitions are audited'
     );
 
     $delegatedAuthentication = new AuthService();

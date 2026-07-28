@@ -221,13 +221,15 @@ class CompanyMembershipRepository extends MySqlRepository
         int $userId,
         int $assignedBy,
         bool $isDefault,
-        bool $active = true
+        bool $active = true,
+        ?int $managerUserId = null
     ): void {
         $statement = $this->connection()->prepare(
             'INSERT INTO company_users
                 (
                     company_id,
                     user_id,
+                    manager_user_id,
                     active,
                     is_default,
                     assigned_by
@@ -236,11 +238,14 @@ class CompanyMembershipRepository extends MySqlRepository
                 (
                     :company_id,
                     :user_id,
+                    :manager_user_id,
                     :active,
                     :is_default,
                     :assigned_by
                 )
              ON DUPLICATE KEY UPDATE
+                manager_user_id =
+                    VALUES(manager_user_id),
                 active = VALUES(active),
                 is_default = VALUES(is_default),
                 assigned_by = VALUES(assigned_by)'
@@ -248,10 +253,90 @@ class CompanyMembershipRepository extends MySqlRepository
         $statement->execute([
             'company_id' => $companyId,
             'user_id' => $userId,
+            'manager_user_id' => $managerUserId,
             'active' => $active ? 1 : 0,
             'is_default' => $isDefault ? 1 : 0,
             'assigned_by' => $assignedBy,
         ]);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function managerOptions(
+        int $companyId,
+        ?int $excludeUserId = null
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                users.user_id,
+                users.username,
+                users.display_name,
+                users.email
+             FROM company_users memberships
+             INNER JOIN users
+               ON users.user_id = memberships.user_id
+             WHERE memberships.company_id =
+                    :company_id
+               AND memberships.active = TRUE
+               AND users.active = TRUE
+               AND users.deleted_at IS NULL
+               AND (
+                    :exclude_user_null IS NULL
+                    OR users.user_id
+                        <> :exclude_user_value
+               )
+             ORDER BY
+                users.display_name,
+                users.username
+             LIMIT 250'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'exclude_user_null' => $excludeUserId,
+            'exclude_user_value' => $excludeUserId,
+        ]);
+        $managers = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($managers)
+            ? $managers
+            : [];
+    }
+
+    public function managerExists(
+        int $companyId,
+        int $managerUserId,
+        ?int $excludeUserId = null
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'SELECT 1
+             FROM company_users memberships
+             INNER JOIN users
+               ON users.user_id = memberships.user_id
+             WHERE memberships.company_id =
+                    :company_id
+               AND memberships.user_id =
+                    :manager_user_id
+               AND memberships.active = TRUE
+               AND users.active = TRUE
+               AND users.deleted_at IS NULL
+               AND (
+                    :exclude_user_null IS NULL
+                    OR users.user_id
+                        <> :exclude_user_value
+               )
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'manager_user_id' => $managerUserId,
+            'exclude_user_null' => $excludeUserId,
+            'exclude_user_value' => $excludeUserId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
     }
 
     /**

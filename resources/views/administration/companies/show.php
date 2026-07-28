@@ -31,6 +31,11 @@ $approvalErrors = is_array(
 )
     ? $data['approvalErrors']
     : [];
+$lifecycleErrors = is_array(
+    $data['lifecycleErrors'] ?? null
+)
+    ? $data['lifecycleErrors']
+    : [];
 $enabledModuleCount = (int) (
     $data['enabledModuleCount'] ?? 0
 );
@@ -93,12 +98,31 @@ $companyInitials = strtoupper(substr(
     </div>
 <?php endif; ?>
 
+<?php if ($lifecycleErrors !== []): ?>
+    <div class="alert alert-danger" role="alert">
+        <?= e(
+            $lifecycleErrors['form']
+            ?? $lifecycleErrors['reason']
+            ?? 'The lifecycle action could not be completed.'
+        ) ?>
+    </div>
+<?php endif; ?>
+
 <div class="company-profile-actions">
     <a
         href="/office_app/public/administration/companies"
         class="btn btn-secondary"
     >
         Back to companies
+    </a>
+
+    <a
+        href="/office_app/public/administration/companies/edit?id=<?= e(
+            $company['company_id'] ?? 0
+        ) ?>"
+        class="btn btn-secondary"
+    >
+        Edit company
     </a>
 
     <?php if (
@@ -177,6 +201,120 @@ $companyInitials = strtoupper(substr(
         </strong>
     </div>
 </section>
+
+<?php if (
+    ($company['code'] ?? '') !== 'default'
+    && ($company['approval_status'] ?? '')
+        === 'approved'
+): ?>
+    <section class="card company-lifecycle-card">
+        <div class="company-lifecycle-copy">
+            <span class="module-eyebrow">
+                Vendor control
+            </span>
+            <?php if (
+                ($company['subscription_status'] ?? '')
+                === 'suspended'
+            ): ?>
+                <h2>Reactivate company access</h2>
+                <p>
+                    Reopening the workspace allows active
+                    company members to sign in again. The
+                    subscription resumes as
+                    <strong><?= e(
+                        ucfirst((string) (
+                            $company[
+                                'commercialStatus'
+                            ] ?? 'active'
+                        ))
+                    ) ?></strong>.
+                </p>
+            <?php else: ?>
+                <h2>Suspend company access</h2>
+                <p>
+                    Suspension blocks new sign-ins and invalidates
+                    existing customer sessions on their next
+                    protected request. Data and configuration are
+                    preserved.
+                </p>
+            <?php endif; ?>
+        </div>
+
+        <?php if (
+            ($company['subscription_status'] ?? '')
+            === 'suspended'
+        ): ?>
+            <form
+                method="post"
+                action="/office_app/public/administration/companies/lifecycle"
+                class="company-lifecycle-form"
+            >
+                <?= csrfField() ?>
+                <input
+                    type="hidden"
+                    name="company_id"
+                    value="<?= e(
+                        $company['company_id'] ?? 0
+                    ) ?>"
+                >
+                <input
+                    type="hidden"
+                    name="action"
+                    value="reactivate"
+                >
+                <button
+                    type="submit"
+                    class="btn btn-primary"
+                >
+                    Reactivate access
+                </button>
+            </form>
+        <?php else: ?>
+            <form
+                method="post"
+                action="/office_app/public/administration/companies/lifecycle"
+                class="company-lifecycle-form"
+            >
+                <?= csrfField() ?>
+                <input
+                    type="hidden"
+                    name="company_id"
+                    value="<?= e(
+                        $company['company_id'] ?? 0
+                    ) ?>"
+                >
+                <input
+                    type="hidden"
+                    name="action"
+                    value="suspend"
+                >
+                <div class="form-field">
+                    <label for="suspension_reason">
+                        Suspension reason
+                    </label>
+                    <textarea
+                        id="suspension_reason"
+                        name="reason"
+                        rows="3"
+                        maxlength="500"
+                        placeholder="Record the commercial, compliance or support reason."
+                        required
+                    ></textarea>
+                    <small class="field-help">
+                        Required, 10-500 characters. Recorded
+                        in the audit log.
+                    </small>
+                </div>
+                <button
+                    type="submit"
+                    class="btn btn-danger"
+                >
+                    Suspend company
+                </button>
+            </form>
+        <?php endif; ?>
+    </section>
+<?php endif; ?>
 
 <section class="company-profile-grid">
     <article class="card company-profile-panel">

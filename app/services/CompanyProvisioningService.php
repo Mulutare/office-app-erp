@@ -500,6 +500,18 @@ final class CompanyProvisioningService
         $company += $this->statusPresentation(
             $company
         );
+        $company['commercialStatus'] = (
+            (string) (
+                $company['subscription_status']
+                ?? ''
+            ) === 'suspended'
+        )
+            ? $this->companies
+                ->preferredResumeStatus($companyId)
+            : (string) (
+                $company['subscription_status']
+                ?? 'active'
+            );
         $modules = $this->companies
             ->modulesForCompany($companyId);
         $enabledCount = 0;

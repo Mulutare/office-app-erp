@@ -33,6 +33,14 @@ interface LeaveRepository
         int $employeeId
     ): bool;
 
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function employeeForUser(
+        int $companyId,
+        int $userId
+    ): ?array;
+
     public function overlaps(
         int $companyId,
         int $employeeId,
@@ -47,6 +55,30 @@ interface LeaveRepository
         int $companyId,
         string $status = ''
     ): array;
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function requestsForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $status = ''
+    ): array;
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function requestsForManager(
+        int $companyId,
+        int $managerUserId,
+        string $status = ''
+    ): array;
+
+    public function managerCanDecide(
+        int $companyId,
+        int $managerUserId,
+        int $leaveRequestId
+    ): bool;
 
     /**
      * @return array<string, mixed>|null

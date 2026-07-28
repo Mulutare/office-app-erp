@@ -116,6 +116,65 @@ final class LeaveRepository extends MySqlRepository
         return $statement->fetchColumn() !== false;
     }
 
+    public function employeeForUser(
+        int $companyId,
+        int $userId
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                employees.employee_id,
+                employees.employee_number,
+                employees.first_name,
+                employees.last_name,
+                employees.preferred_name,
+                employees.job_title,
+                employees.employment_status,
+                employees.manager_employee_id,
+                memberships.manager_user_id,
+                (
+                    SELECT COUNT(*)
+                    FROM company_users reports
+                    INNER JOIN hr_employees report_employee
+                      ON report_employee.company_id =
+                            reports.company_id
+                     AND report_employee.user_id =
+                            reports.user_id
+                     AND report_employee.deleted_at
+                            IS NULL
+                    WHERE reports.company_id =
+                            memberships.company_id
+                      AND reports.manager_user_id =
+                            memberships.user_id
+                      AND reports.active = TRUE
+                ) AS direct_report_count
+             FROM company_users memberships
+             INNER JOIN hr_employees employees
+               ON employees.company_id =
+                    memberships.company_id
+              AND employees.user_id =
+                    memberships.user_id
+             WHERE memberships.company_id =
+                    :company_id
+               AND memberships.user_id = :user_id
+               AND memberships.active = TRUE
+               AND employees.employment_status
+                    IN (\'active\', \'on_leave\')
+               AND employees.deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'user_id' => $userId,
+        ]);
+        $employee = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($employee)
+            ? $employee
+            : null;
+    }
+
     public function overlaps(
         int $companyId,
         int $employeeId,
@@ -146,6 +205,86 @@ final class LeaveRepository extends MySqlRepository
     public function requests(
         int $companyId,
         string $status = ''
+    ): array {
+        return $this->scopedRequests(
+            $companyId,
+            $status,
+            null,
+            null
+        );
+    }
+
+    public function requestsForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $status = ''
+    ): array {
+        return $this->scopedRequests(
+            $companyId,
+            $status,
+            $employeeId,
+            null
+        );
+    }
+
+    public function requestsForManager(
+        int $companyId,
+        int $managerUserId,
+        string $status = ''
+    ): array {
+        return $this->scopedRequests(
+            $companyId,
+            $status,
+            null,
+            $managerUserId
+        );
+    }
+
+    public function managerCanDecide(
+        int $companyId,
+        int $managerUserId,
+        int $leaveRequestId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'SELECT 1
+             FROM hr_leave_requests requests
+             INNER JOIN hr_employees employees
+               ON employees.company_id =
+                    requests.company_id
+              AND employees.employee_id =
+                    requests.employee_id
+             INNER JOIN company_users memberships
+               ON memberships.company_id =
+                    employees.company_id
+              AND memberships.user_id =
+                    employees.user_id
+             WHERE requests.company_id =
+                    :company_id
+               AND requests.leave_request_id =
+                    :leave_request_id
+               AND memberships.manager_user_id =
+                    :manager_user_id
+               AND memberships.active = TRUE
+               AND employees.deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'leave_request_id' => $leaveRequestId,
+            'manager_user_id' => $managerUserId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function scopedRequests(
+        int $companyId,
+        string $status,
+        ?int $employeeId,
+        ?int $managerUserId
     ): array {
         $sql = 'SELECT
                     requests.leave_request_id,
@@ -189,6 +328,11 @@ final class LeaveRepository extends MySqlRepository
                 LEFT JOIN users decider
                   ON decider.user_id =
                         requests.decided_by
+                LEFT JOIN company_users memberships
+                  ON memberships.company_id =
+                        employees.company_id
+                 AND memberships.user_id =
+                        employees.user_id
                 WHERE requests.company_id =
                         :company_id';
         $parameters = [
@@ -200,6 +344,22 @@ final class LeaveRepository extends MySqlRepository
                   AND requests.request_status =
                         :request_status';
             $parameters['request_status'] = $status;
+        }
+
+        if ($employeeId !== null) {
+            $sql .= '
+                  AND requests.employee_id =
+                        :employee_id';
+            $parameters['employee_id'] = $employeeId;
+        }
+
+        if ($managerUserId !== null) {
+            $sql .= '
+                  AND memberships.manager_user_id =
+                        :manager_user_id
+                  AND memberships.active = TRUE';
+            $parameters['manager_user_id'] =
+                $managerUserId;
         }
 
         $sql .= '

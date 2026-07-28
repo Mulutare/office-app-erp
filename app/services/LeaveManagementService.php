@@ -105,6 +105,270 @@ final class LeaveManagementService
     }
 
     /**
+     * Build the leave workspace for one signed-in company user.
+     *
+     * @return array<string, mixed>
+     */
+    public function workspace(
+        int $actorUserId,
+        string $status,
+        bool $canViewCompany,
+        bool $canManageCompany,
+        bool $canApproveCompany,
+        bool $canRequestSelf,
+        bool $canApproveTeam
+    ): array {
+        if (
+            $status !== ''
+            && !isset(self::STATUSES[$status])
+        ) {
+            $status = '';
+        }
+
+        $companyId = $this->tenant->companyId();
+        $employee = $this->leave->employeeForUser(
+            $companyId,
+            $actorUserId
+        );
+        $selfRequests = [];
+        $teamRequests = [];
+
+        if ($employee !== null) {
+            $selfRequests =
+                $this->leave->requestsForEmployee(
+                    $companyId,
+                    (int) $employee['employee_id'],
+                    $status
+                );
+        }
+
+        if ($canApproveTeam) {
+            $teamRequests =
+                $this->leave->requestsForManager(
+                    $companyId,
+                    $actorUserId,
+                    $status
+                );
+        }
+
+        $teamRequestIds = [];
+
+        foreach ($teamRequests as $teamRequest) {
+            $teamRequestIds[
+                (int) (
+                    $teamRequest['leave_request_id']
+                    ?? 0
+                )
+            ] = true;
+        }
+
+        $requests = $canViewCompany
+            ? $this->leave->requests(
+                $companyId,
+                $status
+            )
+            : $this->mergeRequests(
+                $selfRequests,
+                $teamRequests
+            );
+        $selfEmployeeId = (int) (
+            $employee['employee_id'] ?? 0
+        );
+
+        foreach ($requests as &$request) {
+            $requestId = (int) (
+                $request['leave_request_id'] ?? 0
+            );
+            $requestEmployeeId = (int) (
+                $request['employee_id'] ?? 0
+            );
+            $isSelf = $selfEmployeeId > 0
+                && $requestEmployeeId
+                    === $selfEmployeeId;
+            $isTeam = isset(
+                $teamRequestIds[$requestId]
+            );
+
+            $request['scopeLabel'] = $isSelf
+                ? 'My request'
+                : ($isTeam
+                    ? 'Direct report'
+                    : 'Company');
+            $request['canDecide'] =
+                $canApproveCompany
+                || ($canApproveTeam && $isTeam);
+            $this->present($request);
+        }
+
+        unset($request);
+
+        if ($employee !== null) {
+            $employee['displayName'] =
+                $this->employeeName($employee);
+        }
+
+        return [
+            'requests' => $requests,
+            'leaveTypes' =>
+                $this->leave->leaveTypes(
+                    $companyId
+                ),
+            'employees' => $canManageCompany
+                ? $this->presentEmployees(
+                    $this->leave->employeeOptions(
+                        $companyId
+                    )
+                )
+                : [],
+            'employee' => $employee,
+            'summary' => $this->summaryFrom(
+                $requests
+            ),
+            'statuses' => array_map(
+                static fn (array $item): string =>
+                    $item['label'],
+                self::STATUSES
+            ),
+            'filterStatus' => $status,
+            'scopeLabel' => $canViewCompany
+                ? 'Company leave'
+                : ($teamRequests !== []
+                    ? 'My leave and direct reports'
+                    : 'My leave'),
+            'canManageCompany' =>
+                $canManageCompany,
+            'canRequestSelf' =>
+                $canRequestSelf
+                && $employee !== null,
+            'canApprove' =>
+                $canApproveCompany
+                || (
+                    $canApproveTeam
+                    && $teamRequests !== []
+                ),
+            'profileRequired' =>
+                !$canViewCompany
+                && $employee === null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    public function createForActor(
+        array $input,
+        int $actorUserId,
+        bool $canManageCompany,
+        bool $canRequestSelf
+    ): array {
+        if (!$canManageCompany) {
+            if (!$canRequestSelf) {
+                return [
+                    'successful' => false,
+                    'errors' => [
+                        'form' =>
+                            'You are not permitted to submit leave requests.',
+                    ],
+                ];
+            }
+
+            $employee = $this->leave
+                ->employeeForUser(
+                    $this->tenant->companyId(),
+                    $actorUserId
+                );
+
+            if ($employee === null) {
+                return [
+                    'successful' => false,
+                    'errors' => [
+                        'form' =>
+                            'Your ERP account must be linked to an active employee profile before requesting leave.',
+                    ],
+                ];
+            }
+
+            $input['employee_id'] = (string) (
+                $employee['employee_id'] ?? 0
+            );
+        }
+
+        return $this->create(
+            $input,
+            $actorUserId
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function decideForActor(
+        int $leaveRequestId,
+        string $status,
+        string $decisionNote,
+        int $actorUserId,
+        bool $canApproveCompany,
+        bool $canApproveTeam
+    ): array {
+        if (
+            !$canApproveCompany
+            && (
+                !$canApproveTeam
+                || !$this->leave->managerCanDecide(
+                    $this->tenant->companyId(),
+                    $actorUserId,
+                    $leaveRequestId
+                )
+            )
+        ) {
+            return [
+                'successful' => false,
+                'notFound' => true,
+                'errors' => [],
+            ];
+        }
+
+        return $this->decide(
+            $leaveRequestId,
+            $status,
+            $decisionNote,
+            $actorUserId
+        );
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    public function summaryForActor(
+        int $actorUserId,
+        bool $canViewCompany
+    ): array {
+        $companyId = $this->tenant->companyId();
+
+        if ($canViewCompany) {
+            return $this->summaryFrom(
+                $this->leave->requests($companyId)
+            );
+        }
+
+        $employee = $this->leave->employeeForUser(
+            $companyId,
+            $actorUserId
+        );
+
+        return $employee === null
+            ? $this->summaryFrom([])
+            : $this->summaryFrom(
+                $this->leave->requestsForEmployee(
+                    $companyId,
+                    (int) $employee['employee_id']
+                )
+            );
+    }
+
+    /**
      * @return array<string, int>
      */
     public function summary(): array
@@ -521,6 +785,34 @@ final class LeaveManagementService
         }
 
         return $summary;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $first
+     * @param list<array<string, mixed>> $second
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function mergeRequests(
+        array $first,
+        array $second
+    ): array {
+        $merged = [];
+
+        foreach (
+            array_merge($first, $second)
+            as $request
+        ) {
+            $requestId = (int) (
+                $request['leave_request_id'] ?? 0
+            );
+
+            if ($requestId > 0) {
+                $merged[$requestId] = $request;
+            }
+        }
+
+        return array_values($merged);
     }
 
     /**

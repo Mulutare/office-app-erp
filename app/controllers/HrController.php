@@ -58,17 +58,49 @@ final class HrController
     public function index(): void
     {
         $this->requireHrAccess();
-        $directory = $this->employees->directory(
-            $this->queryString('search'),
-            $this->queryString('status'),
-            $this->queryInteger('department', 0),
-            $this->queryInteger('page', 1)
-        );
+        $canViewDirectory =
+            $this->hasAnyPermission([
+                'hr.records.view',
+                'hr.records.manage',
+            ]);
+        $directory = $canViewDirectory
+            ? $this->employees->directory(
+                $this->queryString('search'),
+                $this->queryString('status'),
+                $this->queryInteger(
+                    'department',
+                    0
+                ),
+                $this->queryInteger('page', 1)
+            )
+            : [
+                'employees' => [],
+                'departments' => [],
+                'statusOptions' => [],
+                'summary' => [],
+                'filters' => [],
+                'pagination' => [
+                    'total' => 0,
+                    'from' => 0,
+                    'to' => 0,
+                    'page' => 1,
+                    'lastPage' => 1,
+                ],
+            ];
         $canViewLeave = $this->hasAnyPermission([
             'hr.leave.view',
             'hr.leave.manage',
             'hr.leave.approve',
+            'hr.leave.self.view',
+            'hr.leave.self.request',
+            'hr.leave.team.approve',
         ]);
+        $canViewCompanyLeave =
+            $this->hasAnyPermission([
+                'hr.leave.view',
+                'hr.leave.manage',
+                'hr.leave.approve',
+            ]);
         $attendanceEnabled =
             $this->modules->isEnabled(
                 'attendance'
@@ -80,7 +112,13 @@ final class HrController
                 'attendance.records.manage',
             ]);
         $leaveSummary = $canViewLeave
-            ? $this->leave->summary()
+            ? $this->leave->summaryForActor(
+                (int) (
+                    $_SESSION['auth']['user_id']
+                    ?? 0
+                ),
+                $canViewCompanyLeave
+            )
             : [
                 'pending' => 0,
                 'approved' => 0,
@@ -126,6 +164,8 @@ final class HrController
             'pagination' =>
                 $directory['pagination'],
             'canManage' => $this->canManage(),
+            'canViewDirectory' =>
+                $canViewDirectory,
             'canViewLeave' => $canViewLeave,
             'attendanceEnabled' =>
                 $attendanceEnabled,
@@ -151,7 +191,7 @@ final class HrController
 
     public function show(): void
     {
-        $this->requireHrAccess();
+        $this->requireHrRecordAccess();
         $profile = $this->employees->profile(
             $this->queryInteger('id', 0)
         );
@@ -665,6 +705,23 @@ final class HrController
     }
 
     private function requireHrAccess(): void
+    {
+        $this->authorization
+            ->requireModule('hr');
+        $this->authorization
+            ->requireAnyPermission([
+                'hr.records.view',
+                'hr.records.manage',
+                'hr.leave.view',
+                'hr.leave.manage',
+                'hr.leave.approve',
+                'hr.leave.self.view',
+                'hr.leave.self.request',
+                'hr.leave.team.approve',
+            ]);
+    }
+
+    private function requireHrRecordAccess(): void
     {
         $this->authorization
             ->requireModule('hr');

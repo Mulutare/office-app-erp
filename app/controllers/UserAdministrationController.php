@@ -835,6 +835,10 @@ final class UserAdministrationController
             'administration.users.create',
         'user' => $_SESSION['auth'],
         'roles' => $this->creation->roles(),
+        'managers' =>
+            $this->creation->managers(),
+        'company' =>
+            $_SESSION['auth']['company'] ?? [],
         'errors' => \getFlash(
             'user_create_errors',
             []
@@ -883,6 +887,8 @@ public function store(): void
             \postString('email'),
         'display_name' =>
             \postString('display_name'),
+        'manager_user_id' =>
+            \postString('manager_user_id'),
         'active' =>
             isset($_POST['active']),
         'role_ids' =>

@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Services\AuthorizationService;
+use App\Services\CompanyLifecycleService;
 use App\Services\CompanyProvisioningService;
+use App\Services\CompanyUpdateService;
 
 final class CompanyAdministrationController
 {
     private AuthorizationService $authorization;
     private CompanyProvisioningService $companies;
+    private CompanyUpdateService $updates;
+    private CompanyLifecycleService $lifecycle;
 
     public function __construct()
     {
@@ -18,6 +22,10 @@ final class CompanyAdministrationController
             new AuthorizationService();
         $this->companies =
             new CompanyProvisioningService();
+        $this->updates =
+            new CompanyUpdateService();
+        $this->lifecycle =
+            new CompanyLifecycleService();
     }
 
     public function index(): void
@@ -236,7 +244,237 @@ final class CompanyAdministrationController
                 'company_approval_errors',
                 []
             ),
+            'lifecycleErrors' => \getFlash(
+                'company_lifecycle_errors',
+                []
+            ),
         ]);
+    }
+
+    public function edit(): void
+    {
+        $this->authorization
+            ->requirePlatformAdministrator();
+        $details = $this->companies->details(
+            $this->queryInteger('id')
+        );
+
+        if ($details === null) {
+            $this->notFound();
+        }
+
+        $options = $this->companies
+            ->formOptions();
+        $old = \getFlash(
+            'company_update_old',
+            []
+        );
+
+        if (!is_array($old) || $old === []) {
+            $old = $details['company'];
+            $old['subscription_status'] =
+                $details['company'][
+                    'commercialStatus'
+                ] ?? 'active';
+            $old['subscription_expires_at'] =
+                $this->dateInputValue(
+                    $details['company'][
+                        'subscription_expires_at'
+                    ] ?? null
+                );
+            $old['module_codes'] = array_values(
+                array_map(
+                    static fn (array $module): string =>
+                        (string) $module['code'],
+                    array_filter(
+                        $details['modules'],
+                        static fn (array $module): bool =>
+                            !empty($module['enabled'])
+                            && in_array(
+                                (string) (
+                                    $module[
+                                        'license_status'
+                                    ] ?? ''
+                                ),
+                                ['active', 'trial'],
+                                true
+                            )
+                    )
+                )
+            );
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' => 'Edit Company',
+            'pageDescription' =>
+                'Maintain customer workspace, commercial terms and licensed ERP modules.',
+            'contentView' =>
+                'administration.companies.edit',
+            'user' => $_SESSION['auth'],
+            'company' => $details['company'],
+            'modules' => $options['modules'],
+            'timezones' => $options['timezones'],
+            'currencies' => $options['currencies'],
+            'errors' => \getFlash(
+                'company_update_errors',
+                []
+            ),
+            'old' => $old,
+        ]);
+    }
+
+    public function update(): void
+    {
+        $this->authorization
+            ->requirePlatformAdministrator();
+        $companyId = $this->postInteger(
+            'company_id'
+        );
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('company_update_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+            \redirect(
+                '/administration/companies/edit?id='
+                . $companyId
+            );
+        }
+
+        $input = [
+            'name' => \postString('name'),
+            'legal_name' =>
+                \postString('legal_name'),
+            'contact_email' =>
+                \postString('contact_email'),
+            'contact_phone' =>
+                \postString('contact_phone'),
+            'country_code' =>
+                \postString('country_code'),
+            'default_currency' =>
+                \postString('default_currency'),
+            'timezone' => \postString('timezone'),
+            'subscription_status' =>
+                \postString(
+                    'subscription_status'
+                ),
+            'subscription_expires_at' =>
+                \postString(
+                    'subscription_expires_at'
+                ),
+            'brand_primary_color' =>
+                \postString(
+                    'brand_primary_color'
+                ),
+            'module_codes' =>
+                $_POST['module_codes'] ?? [],
+        ];
+        $result = $this->updates->update(
+            $companyId,
+            $input,
+            (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            )
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'company_update_errors',
+                $result['errors']
+            );
+            \flash(
+                'company_update_old',
+                $input
+            );
+            \redirect(
+                '/administration/companies/edit?id='
+                . $companyId
+            );
+        }
+
+        \flash(
+            'company_notice',
+            !empty($result['changed'])
+                ? 'Company settings and module licenses were updated.'
+                : 'No company changes were required.'
+        );
+        \redirect(
+            '/administration/companies/view?id='
+            . $companyId
+        );
+    }
+
+    public function changeLifecycle(): void
+    {
+        $this->authorization
+            ->requirePlatformAdministrator();
+        $companyId = $this->postInteger(
+            'company_id'
+        );
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash('company_lifecycle_errors', [
+                'form' =>
+                    'The form session expired. Please try again.',
+            ]);
+            \redirect(
+                '/administration/companies/view?id='
+                . $companyId
+            );
+        }
+
+        $action = \postString('action');
+        $result = $this->lifecycle->change(
+            $companyId,
+            $action,
+            \postString('reason'),
+            (int) (
+                $_SESSION['auth']['user_id'] ?? 0
+            )
+        );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'company_lifecycle_errors',
+                $result['errors']
+            );
+            \redirect(
+                '/administration/companies/view?id='
+                . $companyId
+            );
+        }
+
+        \flash(
+            'company_notice',
+            $action === 'suspend'
+                ? 'Company access was suspended. Customer sessions are now blocked.'
+                : 'Company access was reactivated.'
+        );
+        \redirect(
+            '/administration/companies/view?id='
+            . $companyId
+        );
     }
 
     public function approve(): void
@@ -334,6 +572,20 @@ final class CompanyAdministrationController
             && ctype_digit($value)
                 ? (int) $value
                 : 0;
+    }
+
+    private function dateInputValue(
+        mixed $value
+    ): string {
+        if (!is_string($value)) {
+            return '';
+        }
+
+        $timestamp = strtotime($value);
+
+        return $timestamp === false
+            ? ''
+            : date('Y-m-d', $timestamp);
     }
 
     private function notFound(): void
