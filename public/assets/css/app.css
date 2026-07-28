@@ -3902,6 +3902,209 @@ a {
     }
 }
 
+/* HR: effective-dated employee position assignments */
+.assignment-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    max-width: 980px;
+    margin-bottom: 20px;
+}
+
+.assignment-context h2 {
+    margin: 5px 0 7px;
+}
+
+.assignment-context p {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.assignment-current {
+    display: grid;
+    min-width: 240px;
+    gap: 5px;
+    padding: 14px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.assignment-current span,
+.assignment-current small {
+    color: var(--color-muted);
+}
+
+.assignment-form {
+    max-width: 980px;
+}
+
+.assignment-form select,
+.assignment-form textarea {
+    width: 100%;
+}
+
+.assignment-history {
+    margin-top: 20px;
+}
+
+.assignment-empty {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 18px;
+    border: 1px dashed var(--color-border);
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.assignment-empty p {
+    margin: 5px 0 0;
+    color: var(--color-muted);
+}
+
+.current-assignment-card {
+    display: grid;
+    grid-template-columns:
+        minmax(0, 1.2fr) minmax(360px, 1fr);
+    gap: 24px;
+    padding: 20px;
+    border: 1px solid #abefc6;
+    border-radius: 12px;
+    background:
+        linear-gradient(135deg, #f6fef9, #ffffff);
+}
+
+.current-assignment-card h3 {
+    margin: 10px 0 5px;
+    color: var(--color-primary-dark);
+}
+
+.current-assignment-card p {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.current-assignment-card dl {
+    display: grid;
+    grid-template-columns:
+        repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0;
+}
+
+.current-assignment-card dl div {
+    min-width: 0;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.78);
+}
+
+.current-assignment-card dt {
+    color: var(--color-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.current-assignment-card dd {
+    margin: 5px 0 0;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.assignment-history-list {
+    position: relative;
+    display: grid;
+    gap: 0;
+    margin-top: 20px;
+    padding-left: 28px;
+}
+
+.assignment-history-list::before {
+    position: absolute;
+    top: 11px;
+    bottom: 11px;
+    left: 7px;
+    width: 2px;
+    background: var(--color-border);
+    content: "";
+}
+
+.assignment-history-item {
+    position: relative;
+    padding: 0 0 20px;
+}
+
+.assignment-history-item:last-child {
+    padding-bottom: 0;
+}
+
+.assignment-history-marker {
+    position: absolute;
+    top: 8px;
+    left: -27px;
+    z-index: 1;
+    width: 14px;
+    height: 14px;
+    border: 3px solid var(--color-surface);
+    border-radius: 50%;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 2px #b2ddff;
+}
+
+.assignment-history-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.assignment-history-heading > div {
+    display: grid;
+    gap: 3px;
+}
+
+.assignment-history-heading > div span,
+.assignment-history-item small {
+    color: var(--color-muted);
+}
+
+.assignment-history-item p {
+    margin: 7px 0 4px;
+    color: var(--color-muted);
+}
+
+.assignment-history-item .assignment-note {
+    max-width: 720px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--color-accent);
+    background: #f6f9ff;
+    color: var(--color-primary-dark);
+}
+
+@media (max-width: 820px) {
+    .assignment-context,
+    .assignment-empty {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .assignment-current {
+        min-width: 0;
+    }
+
+    .current-assignment-card {
+        grid-template-columns: 1fr;
+    }
+
+    .current-assignment-card dl {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Tenant organization: job-title catalogue */
 .job-title-overview {
     display: grid;

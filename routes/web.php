@@ -11,6 +11,7 @@ use App\Controllers\CompanyContextController;
 use App\Controllers\DashboardController;
 use App\Controllers\DepartmentController;
 use App\Controllers\EmployeeActivityController;
+use App\Controllers\EmployeePositionController;
 use App\Controllers\FinanceController;
 use App\Controllers\HomeController;
 use App\Controllers\HrController;
@@ -31,6 +32,8 @@ $auditLogController =
 $hrController = new HrController();
 $employeeActivityController =
     new EmployeeActivityController();
+$employeePositionController =
+    new EmployeePositionController();
 $financeController = new FinanceController();
 $moduleAdministrationController =
     new ModuleAdministrationController();
@@ -150,6 +153,14 @@ $router->get(
 $router->get(
     '/hr/employees/activity',
     [$employeeActivityController, 'index']
+);
+$router->get(
+    '/hr/employees/position',
+    [$employeePositionController, 'edit']
+);
+$router->post(
+    '/hr/employees/position',
+    [$employeePositionController, 'update']
 );
 $router->get(
     '/hr/employees/create',

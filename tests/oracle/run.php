@@ -90,6 +90,7 @@ try {
                  \'ORGANIZATION_BRANCHES\',
                  \'ORGANIZATION_JOB_TITLES\',
                  \'ORGANIZATION_POSITIONS\',
+                 \'HR_EMPLOYEE_POSITION_ASSIGNMENTS\',
                  \'LOGIN_ATTEMPTS\',
                  \'AUDIT_LOGS\'
              )'
@@ -97,8 +98,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 21,
-        'Oracle schema contains the migration ledger and 20 application tables'
+        $tableCount === 22,
+        'Oracle schema contains the migration ledger and 21 application tables'
     );
 
     $foreignKeyCount = (int) $connection
@@ -110,8 +111,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 56,
-        'Oracle schema contains all 56 foreign keys'
+        $foreignKeyCount === 61,
+        'Oracle schema contains all 61 foreign keys'
     );
 
     $check(

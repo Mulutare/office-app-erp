@@ -890,6 +890,60 @@ ON DUPLICATE KEY UPDATE
     employment_status = 'active',
     deleted_at = NULL;
 
+INSERT INTO hr_employee_position_assignments
+    (
+        assignment_id,
+        company_id,
+        employee_id,
+        position_id,
+        effective_from,
+        assignment_status,
+        current_marker,
+        position_code_snapshot,
+        position_name_snapshot,
+        department_name_snapshot,
+        job_title_name_snapshot,
+        branch_name_snapshot,
+        notes,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        960001,
+        @tenant_a_company_id,
+        920001,
+        950001,
+        '2026-01-01',
+        'current',
+        1,
+        'TA-SEC-ANL-NBO',
+        'Tenant A Security Analyst Position',
+        'Tenant A Operations',
+        'Tenant A Security Analyst',
+        'Tenant A Nairobi Headquarters',
+        'Initial assignment fixture',
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    position_id = VALUES(position_id),
+    effective_from = VALUES(effective_from),
+    effective_to = NULL,
+    assignment_status = 'current',
+    current_marker = 1,
+    position_code_snapshot =
+        VALUES(position_code_snapshot),
+    position_name_snapshot =
+        VALUES(position_name_snapshot),
+    department_name_snapshot =
+        VALUES(department_name_snapshot),
+    job_title_name_snapshot =
+        VALUES(job_title_name_snapshot),
+    branch_name_snapshot =
+        VALUES(branch_name_snapshot),
+    notes = VALUES(notes);
+
 INSERT INTO finance_expense_categories
     (
         category_id,

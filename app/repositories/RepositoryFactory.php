@@ -28,6 +28,10 @@ use App\Repositories\MySql\PositionRepository
     as MySqlPositionRepository;
 use App\Repositories\Oracle\PositionRepository
     as OraclePositionRepository;
+use App\Repositories\MySql\EmployeePositionAssignmentRepository
+    as MySqlEmployeePositionAssignmentRepository;
+use App\Repositories\Oracle\EmployeePositionAssignmentRepository
+    as OracleEmployeePositionAssignmentRepository;
 use RuntimeException;
 
 /**
@@ -35,6 +39,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function employeePositionAssignments():
+        EmployeePositionAssignmentRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlEmployeePositionAssignmentRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleEmployeePositionAssignmentRepository();
+        }
+
+        throw new RuntimeException(
+            'No employee-position assignment repository is available for the configured database driver.'
+        );
+    }
+
     public static function positions():
         PositionRepository
     {

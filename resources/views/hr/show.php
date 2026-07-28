@@ -14,6 +14,16 @@ $directReports = is_array(
 )
     ? $data['directReports']
     : [];
+$currentPosition = is_array(
+    $data['currentPosition'] ?? null
+)
+    ? $data['currentPosition']
+    : null;
+$positionHistory = is_array(
+    $data['positionHistory'] ?? null
+)
+    ? $data['positionHistory']
+    : [];
 $canManage = !empty($data['canManage']);
 $canManageUsers = !empty(
     $data['canManageUsers']
@@ -68,6 +78,16 @@ $initial = strtoupper(substr(
         </a>
 
         <?php if ($canManage): ?>
+            <a
+                href="/office_app/public/hr/employees/position?id=<?= e(
+                    $employee['employee_id'] ?? 0
+                ) ?>"
+                class="btn btn-secondary"
+            >
+                <?= $currentPosition === null
+                    ? 'Assign position'
+                    : 'Change position' ?>
+            </a>
             <a
                 href="/office_app/public/hr/employees/edit?id=<?= e(
                     $employee['employee_id'] ?? 0
@@ -293,6 +313,207 @@ $initial = strtoupper(substr(
         <?php endif; ?>
     </section>
 </div>
+
+<section class="card details-section assignment-history">
+    <div class="section-heading">
+        <div>
+            <span class="eyebrow">
+                Workforce placement
+            </span>
+            <h2 class="card-title">
+                Position assignment history
+            </h2>
+            <p>
+                Effective-dated placement against approved
+                company headcount.
+            </p>
+        </div>
+        <span class="count-pill">
+            <?= e(count($positionHistory)) ?>
+        </span>
+    </div>
+
+    <?php if ($currentPosition === null): ?>
+        <div class="assignment-empty">
+            <div>
+                <strong>No approved position assigned</strong>
+                <p>
+                    The employee record still retains its
+                    legacy department and job-title fields.
+                </p>
+            </div>
+            <?php if ($canManage): ?>
+                <a
+                    href="/office_app/public/hr/employees/position?id=<?= e(
+                        $employee['employee_id'] ?? 0
+                    ) ?>"
+                    class="btn btn-primary"
+                >
+                    Assign position
+                </a>
+            <?php endif; ?>
+        </div>
+    <?php else: ?>
+        <article class="current-assignment-card">
+            <div>
+                <span class="badge badge-success">
+                    Current
+                </span>
+                <h3>
+                    <?= e(
+                        $currentPosition[
+                            'position_name_snapshot'
+                        ] ?? ''
+                    ) ?>
+                </h3>
+                <p>
+                    <?= e(
+                        $currentPosition[
+                            'job_title_name_snapshot'
+                        ] ?? ''
+                    ) ?>
+                    &middot;
+                    <?= e(
+                        $currentPosition[
+                            'department_name_snapshot'
+                        ] ?? ''
+                    ) ?>
+                </p>
+            </div>
+            <dl>
+                <div>
+                    <dt>Position code</dt>
+                    <dd>
+                        <?= e(
+                            $currentPosition[
+                                'position_code_snapshot'
+                            ] ?? ''
+                        ) ?>
+                    </dd>
+                </div>
+                <div>
+                    <dt>Effective from</dt>
+                    <dd>
+                        <?= e($formatDate(
+                            $currentPosition[
+                                'effective_from'
+                            ] ?? null
+                        )) ?>
+                    </dd>
+                </div>
+                <div>
+                    <dt>Location</dt>
+                    <dd>
+                        <?= e(
+                            $currentPosition[
+                                'branch_name_snapshot'
+                            ] ?? 'Company-wide'
+                        ) ?>
+                    </dd>
+                </div>
+            </dl>
+        </article>
+    <?php endif; ?>
+
+    <?php if ($positionHistory !== []): ?>
+        <div class="assignment-history-list">
+            <?php foreach (
+                $positionHistory as $assignment
+            ): ?>
+                <article class="assignment-history-item">
+                    <span class="assignment-history-marker">
+                    </span>
+                    <div>
+                        <div class="assignment-history-heading">
+                            <div>
+                                <strong>
+                                    <?= e(
+                                        $assignment[
+                                            'position_name_snapshot'
+                                        ] ?? ''
+                                    ) ?>
+                                </strong>
+                                <span>
+                                    <?= e(
+                                        $assignment[
+                                            'position_code_snapshot'
+                                        ] ?? ''
+                                    ) ?>
+                                </span>
+                            </div>
+                            <span class="badge badge-<?= (
+                                $assignment[
+                                    'assignment_status'
+                                ] ?? ''
+                            ) === 'current'
+                                ? 'success'
+                                : 'muted' ?>">
+                                <?= (
+                                    $assignment[
+                                        'assignment_status'
+                                    ] ?? ''
+                                ) === 'current'
+                                    ? 'Current'
+                                    : 'Ended' ?>
+                            </span>
+                        </div>
+                        <p>
+                            <?= e(
+                                $assignment[
+                                    'job_title_name_snapshot'
+                                ] ?? ''
+                            ) ?>
+                            &middot;
+                            <?= e(
+                                $assignment[
+                                    'department_name_snapshot'
+                                ] ?? ''
+                            ) ?>
+                        </p>
+                        <small>
+                            <?= e($formatDate(
+                                $assignment[
+                                    'effective_from'
+                                ] ?? null
+                            )) ?>
+                            —
+                            <?= empty(
+                                $assignment['effective_to']
+                            )
+                                ? 'Present'
+                                : e($formatDate(
+                                    $assignment[
+                                        'effective_to'
+                                    ]
+                                )) ?>
+                            <?php if (!empty(
+                                $assignment[
+                                    'assigned_by_name'
+                                ]
+                            )): ?>
+                                &middot; Assigned by
+                                <?= e(
+                                    $assignment[
+                                        'assigned_by_name'
+                                    ]
+                                ) ?>
+                            <?php endif; ?>
+                        </small>
+                        <?php if (!empty(
+                            $assignment['notes']
+                        )): ?>
+                            <p class="assignment-note">
+                                <?= e(
+                                    $assignment['notes']
+                                ) ?>
+                            </p>
+                        <?php endif; ?>
+                    </div>
+                </article>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</section>
 
 <section class="card details-section">
     <div class="section-heading">

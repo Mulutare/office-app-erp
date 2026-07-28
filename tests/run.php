@@ -24,6 +24,7 @@ use App\Services\DashboardService;
 use App\Services\DepartmentCatalogueService;
 use App\Services\EmployeeActivityService;
 use App\Services\EmployeeDirectoryService;
+use App\Services\EmployeePositionAssignmentService;
 use App\Services\EmployeeUpdateService;
 use App\Services\FinanceDashboardService;
 use App\Services\JobTitleManagementService;
@@ -261,8 +262,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 10,
-        'Oracle migration catalog contains ten valid definitions'
+        && count($oracleMigrationFiles) === 11,
+        'Oracle migration catalog contains eleven valid definitions'
     );
 
     $check(
@@ -284,6 +285,7 @@ try {
                 '080',
                 '090',
                 '100',
+                '110',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -302,8 +304,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 20
-        && $oracleIdentityCount === 14,
+        $oracleTableCount === 21
+        && $oracleIdentityCount === 15,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -379,8 +381,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 20,
-        'All 20 application tables were created'
+        $tableCount === 21,
+        'All 21 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -392,8 +394,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 56,
-        'All 56 foreign-key relationships were created'
+        $foreignKeyCount === 61,
+        'All 61 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -1485,6 +1487,162 @@ try {
         (int) $positionAuditStatement
             ->fetchColumn() === 1,
         'Position creation records a company-scoped audit event'
+    );
+
+    $positionAssignments =
+        new EmployeePositionAssignmentService();
+    $assignmentOverview =
+        $positionAssignments->overview(920001);
+    $foreignAssignmentForm =
+        $positionAssignments->form(920002);
+
+    $check(
+        is_array($assignmentOverview['current'])
+        && (int) (
+            $assignmentOverview['current'][
+                'position_id'
+            ] ?? 0
+        ) === 950001
+        && count(
+            $assignmentOverview['history']
+        ) === 1,
+        'Employee profile resolves the tenant-scoped current position and history'
+    );
+
+    $check(
+        $foreignAssignmentForm === null,
+        'Tenant A cannot open a Tenant B employee position assignment'
+    );
+
+    $assignmentForm =
+        $positionAssignments->form(920001);
+    $assignmentPositionIds = array_map(
+        static fn (array $position): int =>
+            (int) ($position['position_id'] ?? 0),
+        is_array($assignmentForm)
+            ? $assignmentForm['positions']
+            : []
+    );
+    $check(
+        in_array(
+            $createdPositionId,
+            $assignmentPositionIds,
+            true
+        )
+        && !in_array(
+            950002,
+            $assignmentPositionIds,
+            true
+        ),
+        'Position assignment options exclude foreign-company positions'
+    );
+
+    $crossTenantAssignment =
+        $positionAssignments->assign(
+            920001,
+            [
+                'position_id' => '950002',
+                'effective_from' => '2026-07-28',
+                'notes' => '',
+            ],
+            $tenantAActorId
+        );
+    $check(
+        $crossTenantAssignment['successful']
+            === false
+        && isset(
+            $crossTenantAssignment['errors'][
+                'position_id'
+            ]
+        ),
+        'Position assignment rejects a foreign-company position'
+    );
+
+    $transferResult = $positionAssignments->assign(
+        920001,
+        [
+            'position_id' =>
+                (string) $createdPositionId,
+            'effective_from' => '2026-07-28',
+            'notes' =>
+                'Approved integration transfer',
+        ],
+        $tenantAActorId
+    );
+    $check(
+        $transferResult['successful'] === true,
+        'Employee transfer to available approved headcount succeeds'
+    );
+
+    $transferredOverview =
+        $positionAssignments->overview(920001);
+    $check(
+        (int) (
+            $transferredOverview['current'][
+                'position_id'
+            ] ?? 0
+        ) === $createdPositionId
+        && count(
+            $transferredOverview['history']
+        ) === 2
+        && (
+            $transferredOverview['history'][1][
+                'assignment_status'
+            ] ?? null
+        ) === 'ended'
+        && substr(
+            (string) (
+                $transferredOverview['history'][1][
+                    'effective_to'
+                ] ?? ''
+            ),
+            0,
+            10
+        ) === '2026-07-28',
+        'Transfer closes the former assignment and preserves effective-dated history'
+    );
+
+    $samePositionTransfer =
+        $positionAssignments->assign(
+            920001,
+            [
+                'position_id' =>
+                    (string) $createdPositionId,
+                'effective_from' => '2026-07-28',
+                'notes' => '',
+            ],
+            $tenantAActorId
+        );
+    $check(
+        $samePositionTransfer['successful']
+            === false
+        && isset(
+            $samePositionTransfer['errors'][
+                'position_id'
+            ]
+        ),
+        'Assignment workflow rejects a duplicate current position'
+    );
+
+    $assignmentAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND action = :action
+           AND module = :module
+           AND table_name = :table_name'
+    );
+    $assignmentAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'action' => 'TRANSFER_POSITION',
+        'module' => 'hr',
+        'table_name' =>
+            'hr_employee_position_assignments',
+    ]);
+    $check(
+        (int) $assignmentAuditStatement
+            ->fetchColumn() === 1,
+        'Employee transfer records a company-scoped audit event'
     );
 
     $financeDashboard =

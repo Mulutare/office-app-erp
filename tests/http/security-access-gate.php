@@ -350,6 +350,15 @@ $check(
     $platformPositions['status'] === 403,
     'Platform administrator is denied tenant position routes'
 );
+$platformEmployeePosition = httpRequest(
+    $baseUrl,
+    '/hr/employees/position?id=920001',
+    $platformAdminCookies
+);
+$check(
+    $platformEmployeePosition['status'] === 403,
+    'Platform administrator is denied tenant employee-position routes'
+);
 
 $companyAdminCookies = [];
 $companyAdminLogin = login(
@@ -649,10 +658,51 @@ $check(
     'Licensed HR direct route is accessible'
 );
 
+$tenantAEmployeeProfile = httpRequest(
+    $baseUrl,
+    '/hr/employees/view?id=920001',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAEmployeeProfile['status'] === 200
+    && str_contains(
+        $tenantAEmployeeProfile['body'],
+        'Tenant A Security Analyst Position'
+    )
+    && str_contains(
+        $tenantAEmployeeProfile['body'],
+        'Position assignment history'
+    )
+    && !str_contains(
+        $tenantAEmployeeProfile['body'],
+        'Tenant B Confidential Position'
+    ),
+    'Tenant A employee profile shows only its position assignment history'
+);
+
+$tenantAAssignmentForm = httpRequest(
+    $baseUrl,
+    '/hr/employees/position?id=920001',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAAssignmentForm['status'] === 200
+    && str_contains(
+        $tenantAAssignmentForm['body'],
+        'Tenant A Security Analyst Position'
+    )
+    && !str_contains(
+        $tenantAAssignmentForm['body'],
+        'Tenant B Confidential Position'
+    ),
+    'Tenant A position assignment form exposes only Tenant A headcount'
+);
+
 $foreignHrPaths = [
     '/hr/employees/view?id=920002',
     '/hr/employees/activity?id=920002',
     '/hr/employees/edit?id=920002',
+    '/hr/employees/position?id=920002',
     '/hr/departments/edit?id=9202',
 ];
 
@@ -792,6 +842,16 @@ $foreignHrMutations = [
             'employee_id' => '920002',
         ],
         'label' => 'employee update',
+    ],
+    [
+        'path' => '/hr/employees/position',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'employee_id' => '920002',
+            'position_id' => '950001',
+            'effective_from' => '2026-07-28',
+        ],
+        'label' => 'employee position assignment',
     ],
     [
         'path' => '/hr/departments/update',
@@ -1009,6 +1069,16 @@ $tenantBPositionCreate = httpRequest(
 $check(
     $tenantBPositionCreate['status'] === 403,
     'Tenant position viewer cannot open management forms'
+);
+
+$tenantBEmployeePosition = httpRequest(
+    $baseUrl,
+    '/hr/employees/position?id=920002',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBEmployeePosition['status'] === 404,
+    'Tenant HR viewer cannot open employee-position management'
 );
 
 $tenantBOwnFinance = httpRequest(

@@ -9,6 +9,7 @@ use App\Services\DepartmentCreationService;
 use App\Services\DepartmentManagementService;
 use App\Services\EmployeeDirectoryService;
 use App\Services\EmployeeCreationService;
+use App\Services\EmployeePositionAssignmentService;
 use App\Services\EmployeeUpdateService;
 
 final class HrController
@@ -17,6 +18,8 @@ final class HrController
     private EmployeeDirectoryService $employees;
     private EmployeeCreationService $employeeCreation;
     private EmployeeUpdateService $employeeUpdates;
+    private EmployeePositionAssignmentService
+        $positionAssignments;
     private DepartmentCreationService
         $departmentCreation;
     private DepartmentManagementService
@@ -32,6 +35,8 @@ final class HrController
             new EmployeeCreationService();
         $this->employeeUpdates =
             new EmployeeUpdateService();
+        $this->positionAssignments =
+            new EmployeePositionAssignmentService();
         $this->departmentCreation =
             new DepartmentCreationService();
         $this->departmentManagement =
@@ -88,6 +93,10 @@ final class HrController
         }
 
         $employee = $profile['employee'];
+        $positionOverview =
+            $this->positionAssignments->overview(
+                (int) $employee['employee_id']
+            );
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -109,6 +118,10 @@ final class HrController
             'employee' => $employee,
             'directReports' =>
                 $profile['directReports'],
+            'currentPosition' =>
+                $positionOverview['current'],
+            'positionHistory' =>
+                $positionOverview['history'],
             'canManage' => $this->canManage(),
             'canManageUsers' => in_array(
                 'administration.users.manage',
