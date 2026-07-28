@@ -6,6 +6,8 @@ migration:
 1. `001_seed_roles_and_permissions.sql`
 2. `002_assign_system_administrator_permissions.sql`
 3. `003_assign_standard_role_permissions.sql`
+4. Continue through the remaining numbered, additive module seeds,
+   including `011_assign_attendance_leave_permissions.sql`.
 
 The standard-role seed is additive and safe to rerun. It establishes the
 least-privilege baseline while preserving any additional grants configured

@@ -31,6 +31,28 @@ $pagination = is_array(
     ? $data['pagination']
     : [];
 $canManage = !empty($data['canManage']);
+$canViewLeave = !empty(
+    $data['canViewLeave']
+);
+$attendanceEnabled = !empty(
+    $data['attendanceEnabled']
+);
+$canViewAttendance = !empty(
+    $data['canViewAttendance']
+);
+$canViewOrganization = !empty(
+    $data['canViewOrganization']
+);
+$leaveSummary = is_array(
+    $data['leaveSummary'] ?? null
+)
+    ? $data['leaveSummary']
+    : [];
+$attendanceSummary = is_array(
+    $data['attendanceSummary'] ?? null
+)
+    ? $data['attendanceSummary']
+    : [];
 $notice = is_array($data['notice'] ?? null)
     ? $data['notice']
     : null;
@@ -84,6 +106,179 @@ $totalEmployees = array_sum(array_map(
     </div>
 <?php endif; ?>
 
+<section class="hr-command-center">
+    <div class="hr-command-copy">
+        <span class="section-kicker">
+            HR control center
+        </span>
+        <h2>
+            Run the employee lifecycle from one workspace.
+        </h2>
+        <p>
+            Keep workforce records, organization structure,
+            leave decisions and daily attendance connected
+            to the active company.
+        </p>
+    </div>
+
+    <div class="hr-command-pulse">
+        <article>
+            <span>Leave approvals waiting</span>
+            <strong>
+                <?= e(
+                    $leaveSummary['pending'] ?? 0
+                ) ?>
+            </strong>
+        </article>
+        <article>
+            <span>On leave today</span>
+            <strong>
+                <?= e(
+                    $leaveSummary[
+                        'onLeaveToday'
+                    ] ?? 0
+                ) ?>
+            </strong>
+        </article>
+        <article>
+            <span>Attendance recorded today</span>
+            <strong>
+                <?= e(
+                    $attendanceSummary[
+                        'recorded'
+                    ] ?? 0
+                ) ?>
+                <small>
+                    / <?= e(
+                        $attendanceSummary[
+                            'total'
+                        ] ?? 0
+                    ) ?>
+                </small>
+            </strong>
+        </article>
+    </div>
+</section>
+
+<section
+    class="hr-workspace-grid"
+    aria-label="Human Resources workspaces"
+>
+    <article class="card hr-workspace-card">
+        <div class="hr-workspace-icon" aria-hidden="true">
+            PE
+        </div>
+        <div>
+            <span class="workspace-status is-live">
+                Core HR
+            </span>
+            <h3>People directory</h3>
+            <p>
+                Employee records, reporting lines,
+                employment details and account links.
+            </p>
+        </div>
+        <a
+            href="#employee-directory"
+            class="workspace-link"
+        >
+            Open directory
+        </a>
+    </article>
+
+    <article class="card hr-workspace-card">
+        <div class="hr-workspace-icon" aria-hidden="true">
+            LV
+        </div>
+        <div>
+            <span class="workspace-status is-live">
+                HR operations
+            </span>
+            <h3>Leave management</h3>
+            <p>
+                Submit leave, review working-day totals
+                and control approval decisions.
+            </p>
+        </div>
+        <?php if ($canViewLeave): ?>
+            <a
+                href="/office_app/public/hr/leave"
+                class="workspace-link"
+            >
+                Manage leave
+            </a>
+        <?php else: ?>
+            <span class="workspace-link is-disabled">
+                Permission required
+            </span>
+        <?php endif; ?>
+    </article>
+
+    <article class="card hr-workspace-card">
+        <div class="hr-workspace-icon" aria-hidden="true">
+            AT
+        </div>
+        <div>
+            <span class="workspace-status <?= $attendanceEnabled
+                ? 'is-live'
+                : 'is-optional' ?>">
+                <?= $attendanceEnabled
+                    ? 'Licensed module'
+                    : 'Optional module' ?>
+            </span>
+            <h3>Attendance control</h3>
+            <p>
+                Daily presence, late arrivals, remote
+                work and working-time exceptions.
+            </p>
+        </div>
+        <?php if ($canViewAttendance): ?>
+            <a
+                href="/office_app/public/attendance"
+                class="workspace-link"
+            >
+                Open attendance
+            </a>
+        <?php elseif (!$attendanceEnabled): ?>
+            <span class="workspace-link is-disabled">
+                License not enabled
+            </span>
+        <?php else: ?>
+            <span class="workspace-link is-disabled">
+                Permission required
+            </span>
+        <?php endif; ?>
+    </article>
+
+    <article class="card hr-workspace-card">
+        <div class="hr-workspace-icon" aria-hidden="true">
+            OR
+        </div>
+        <div>
+            <span class="workspace-status is-live">
+                Organization
+            </span>
+            <h3>Workforce structure</h3>
+            <p>
+                Departments, branches, job titles,
+                approved positions and assignments.
+            </p>
+        </div>
+        <?php if ($canViewOrganization): ?>
+            <a
+                href="/office_app/public/organization/departments"
+                class="workspace-link"
+            >
+                Open organization
+            </a>
+        <?php else: ?>
+            <span class="workspace-link is-disabled">
+                Permission required
+            </span>
+        <?php endif; ?>
+    </article>
+</section>
+
 <?php if ($canManage): ?>
     <div class="hr-action-bar">
         <a
@@ -126,7 +321,10 @@ $totalEmployees = array_sum(array_map(
     </article>
 </section>
 
-<section class="card hr-filter-panel">
+<section
+    class="card hr-filter-panel"
+    id="employee-directory"
+>
     <form
         method="get"
         action="/office_app/public/hr"

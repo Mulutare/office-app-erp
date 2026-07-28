@@ -4276,3 +4276,413 @@ a {
         grid-template-columns: 1fr;
     }
 }
+
+/* HR operations control center */
+.hr-command-center {
+    display: grid;
+    grid-template-columns:
+        minmax(0, 1.7fr) minmax(260px, 0.7fr);
+    gap: 22px;
+    margin-bottom: 20px;
+    padding: 28px;
+    overflow: hidden;
+    background:
+        radial-gradient(
+            circle at top right,
+            rgba(37, 99, 235, 0.16),
+            transparent 48%
+        ),
+        linear-gradient(135deg, #ffffff, #f4f8ff);
+}
+
+.hr-command-copy h2 {
+    max-width: 720px;
+    margin: 7px 0 10px;
+    color: var(--color-primary-dark);
+    font-size: clamp(1.4rem, 2vw, 2rem);
+    line-height: 1.2;
+}
+
+.hr-command-copy p {
+    max-width: 720px;
+    margin: 0;
+    color: var(--color-muted);
+    line-height: 1.65;
+}
+
+.section-kicker {
+    color: var(--color-accent);
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.hr-command-pulse {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-content: center;
+}
+
+.hr-command-pulse div {
+    display: grid;
+    gap: 4px;
+    padding: 14px;
+    border: 1px solid rgba(37, 99, 235, 0.13);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.84);
+}
+
+.hr-command-pulse span,
+.operations-summary-card span {
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.hr-command-pulse strong {
+    color: var(--color-primary-dark);
+    font-size: 1.2rem;
+}
+
+.hr-workspace-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.hr-workspace-card {
+    display: flex;
+    min-height: 250px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.hr-workspace-card h3 {
+    margin: 7px 0;
+    color: var(--color-primary-dark);
+}
+
+.hr-workspace-card p {
+    margin: 0;
+    color: var(--color-muted);
+    line-height: 1.55;
+}
+
+.hr-workspace-icon {
+    display: inline-grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border-radius: 12px;
+    background: #eaf2ff;
+    color: #1849a9;
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.workspace-status {
+    display: inline-flex;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.workspace-status.is-live {
+    background: #d1fadf;
+    color: #027a48;
+}
+
+.workspace-status.is-optional {
+    background: #fef0c7;
+    color: #93370d;
+}
+
+.workspace-link {
+    margin-top: auto;
+    color: var(--color-accent);
+    font-weight: 800;
+}
+
+.workspace-link.is-disabled {
+    color: var(--color-muted);
+    cursor: not-allowed;
+}
+
+.workspace-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: -7px 0 18px;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+}
+
+.workspace-breadcrumb a {
+    color: var(--color-accent);
+    font-weight: 700;
+}
+
+.operations-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.operations-summary-card {
+    display: grid;
+    gap: 6px;
+    padding: 18px 20px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: var(--shadow);
+}
+
+.operations-summary-card.is-primary {
+    border-color: #b9d1ff;
+    background: linear-gradient(145deg, #17365d, #2563eb);
+}
+
+.operations-summary-card.is-primary span,
+.operations-summary-card.is-primary small {
+    color: #dce8ff;
+}
+
+.operations-summary-card.is-primary strong {
+    color: #ffffff;
+}
+
+.operations-summary-card strong {
+    color: var(--color-primary-dark);
+    font-size: 1.7rem;
+}
+
+.operations-summary-card small {
+    color: var(--color-muted);
+    line-height: 1.35;
+}
+
+.operations-layout {
+    display: grid;
+    grid-template-columns:
+        minmax(300px, 350px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.operations-entry-card {
+    position: sticky;
+    top: calc(var(--header-height) + 18px);
+}
+
+.operations-entry-card .card-title {
+    margin: 7px 0 8px;
+    color: var(--color-primary-dark);
+    font-size: 1.25rem;
+}
+
+.operations-form {
+    display: grid;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.operations-form .form-field input,
+.operations-form .form-field select,
+.operations-form .form-field textarea {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+
+.operations-form .btn {
+    justify-self: start;
+}
+
+.operations-time-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.operations-main {
+    display: grid;
+    min-width: 0;
+    gap: 16px;
+}
+
+.operations-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.operations-toolbar h2 {
+    margin: 5px 0 0;
+    color: var(--color-primary-dark);
+    font-size: 1.2rem;
+}
+
+.date-control-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 9px;
+}
+
+.date-control-form label {
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.date-control {
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.operations-table td {
+    white-space: normal;
+}
+
+.table-note-cell {
+    min-width: 190px;
+    max-width: 300px;
+    white-space: normal !important;
+    line-height: 1.45;
+}
+
+.table-note-cell small {
+    white-space: normal;
+}
+
+.leave-decision-cell {
+    min-width: 260px;
+}
+
+.leave-decision-form {
+    display: grid;
+    gap: 7px;
+}
+
+.leave-decision-form input {
+    width: 100%;
+    min-height: 36px;
+    padding: 7px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 7px;
+}
+
+.leave-decision-form div {
+    display: flex;
+    gap: 6px;
+}
+
+.btn-success {
+    background: var(--color-success);
+    color: #ffffff;
+}
+
+.btn-small {
+    padding: 7px 10px;
+    font-size: 0.76rem;
+}
+
+.badge-info {
+    background: #eaf2ff;
+    color: #1849a9;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (max-width: 1180px) {
+    .hr-workspace-grid {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+
+    .operations-summary-grid {
+        grid-template-columns:
+            repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 961px) and (max-width: 1450px) {
+    .operations-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .operations-entry-card {
+        position: static;
+    }
+
+    .operations-entry-card .operations-form {
+        grid-template-columns:
+            repeat(3, minmax(0, 1fr));
+        align-items: start;
+    }
+
+    .operations-entry-card .operations-time-grid {
+        grid-column: span 2;
+    }
+
+    .operations-entry-card .operations-form > .btn {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 960px) {
+    .hr-command-center,
+    .operations-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .operations-entry-card {
+        position: static;
+    }
+}
+
+@media (max-width: 680px) {
+    .hr-command-center {
+        padding: 20px;
+    }
+
+    .hr-workspace-grid,
+    .operations-summary-grid,
+    .hr-command-pulse,
+    .operations-time-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .hr-workspace-card {
+        min-height: 0;
+    }
+
+    .operations-toolbar,
+    .date-control-form {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}

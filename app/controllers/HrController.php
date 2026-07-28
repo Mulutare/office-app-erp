@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Services\AuthorizationService;
+use App\Services\AttendanceManagementService;
+use App\Services\CompanyModuleService;
 use App\Services\DepartmentCreationService;
 use App\Services\DepartmentManagementService;
 use App\Services\EmployeeDirectoryService;
 use App\Services\EmployeeCreationService;
 use App\Services\EmployeePositionAssignmentService;
 use App\Services\EmployeeUpdateService;
+use App\Services\LeaveManagementService;
 
 final class HrController
 {
@@ -24,6 +27,9 @@ final class HrController
         $departmentCreation;
     private DepartmentManagementService
         $departmentManagement;
+    private AttendanceManagementService $attendance;
+    private LeaveManagementService $leave;
+    private CompanyModuleService $modules;
 
     public function __construct()
     {
@@ -41,6 +47,12 @@ final class HrController
             new DepartmentCreationService();
         $this->departmentManagement =
             new DepartmentManagementService();
+        $this->attendance =
+            new AttendanceManagementService();
+        $this->leave =
+            new LeaveManagementService();
+        $this->modules =
+            new CompanyModuleService();
     }
 
     public function index(): void
@@ -52,6 +64,43 @@ final class HrController
             $this->queryInteger('department', 0),
             $this->queryInteger('page', 1)
         );
+        $canViewLeave = $this->hasAnyPermission([
+            'hr.leave.view',
+            'hr.leave.manage',
+            'hr.leave.approve',
+        ]);
+        $attendanceEnabled =
+            $this->modules->isEnabled(
+                'attendance'
+            );
+        $canViewAttendance =
+            $attendanceEnabled
+            && $this->hasAnyPermission([
+                'attendance.records.view',
+                'attendance.records.manage',
+            ]);
+        $leaveSummary = $canViewLeave
+            ? $this->leave->summary()
+            : [
+                'pending' => 0,
+                'approved' => 0,
+                'onLeaveToday' => 0,
+                'upcoming' => 0,
+            ];
+        $attendanceSummary = $canViewAttendance
+            ? $this->attendance->summary(
+                date('Y-m-d')
+            )
+            : [
+                'total' => 0,
+                'recorded' => 0,
+                'present' => 0,
+                'late' => 0,
+                'absent' => 0,
+                'remote' => 0,
+                'on_leave' => 0,
+                'not_recorded' => 0,
+            ];
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -64,7 +113,7 @@ final class HrController
             ),
             'pageTitle' => 'Human Resources',
             'pageDescription' =>
-                'Employee directory, reporting lines and employment status.',
+                'Workforce records, leave operations, attendance and organization controls.',
             'contentView' => 'hr.index',
             'user' => $_SESSION['auth'],
             'employees' => $directory['employees'],
@@ -77,6 +126,25 @@ final class HrController
             'pagination' =>
                 $directory['pagination'],
             'canManage' => $this->canManage(),
+            'canViewLeave' => $canViewLeave,
+            'attendanceEnabled' =>
+                $attendanceEnabled,
+            'canViewAttendance' =>
+                $canViewAttendance,
+            'canViewOrganization' =>
+                $this->hasAnyPermission([
+                    'organization.branches.view',
+                    'organization.branches.manage',
+                    'organization.job_titles.view',
+                    'organization.job_titles.manage',
+                    'organization.departments.view',
+                    'organization.departments.manage',
+                    'organization.positions.view',
+                    'organization.positions.manage',
+                ]),
+            'leaveSummary' => $leaveSummary,
+            'attendanceSummary' =>
+                $attendanceSummary,
             'notice' => \getFlash('hr_notice'),
         ]);
     }
@@ -622,6 +690,28 @@ final class HrController
             $_SESSION['auth']['permissions'] ?? [],
             true
         );
+    }
+
+    /**
+     * @param list<string> $permissions
+     */
+    private function hasAnyPermission(
+        array $permissions
+    ): bool {
+        $granted = $_SESSION['auth']['permissions']
+            ?? [];
+
+        foreach ($permissions as $permission) {
+            if (in_array(
+                $permission,
+                $granted,
+                true
+            )) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function queryString(

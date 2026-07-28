@@ -32,6 +32,14 @@ use App\Repositories\MySql\EmployeePositionAssignmentRepository
     as MySqlEmployeePositionAssignmentRepository;
 use App\Repositories\Oracle\EmployeePositionAssignmentRepository
     as OracleEmployeePositionAssignmentRepository;
+use App\Repositories\MySql\AttendanceRepository
+    as MySqlAttendanceRepository;
+use App\Repositories\Oracle\AttendanceRepository
+    as OracleAttendanceRepository;
+use App\Repositories\MySql\LeaveRepository
+    as MySqlLeaveRepository;
+use App\Repositories\Oracle\LeaveRepository
+    as OracleLeaveRepository;
 use RuntimeException;
 
 /**
@@ -39,6 +47,37 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function attendance():
+        AttendanceRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlAttendanceRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleAttendanceRepository();
+        }
+
+        throw new RuntimeException(
+            'No attendance repository is available for the configured database driver.'
+        );
+    }
+
+    public static function leave(): LeaveRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlLeaveRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleLeaveRepository();
+        }
+
+        throw new RuntimeException(
+            'No leave repository is available for the configured database driver.'
+        );
+    }
+
     public static function employeePositionAssignments():
         EmployeePositionAssignmentRepository
     {

@@ -18,6 +18,7 @@ use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
+use App\Services\AttendanceManagementService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
 use App\Services\DashboardService;
@@ -28,6 +29,7 @@ use App\Services\EmployeePositionAssignmentService;
 use App\Services\EmployeeUpdateService;
 use App\Services\FinanceDashboardService;
 use App\Services\JobTitleManagementService;
+use App\Services\LeaveManagementService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\PositionManagementService;
 use App\Services\RolePermissionUpdateService;
@@ -262,8 +264,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 11,
-        'Oracle migration catalog contains eleven valid definitions'
+        && count($oracleMigrationFiles) === 12,
+        'Oracle migration catalog contains twelve valid definitions'
     );
 
     $check(
@@ -286,6 +288,7 @@ try {
                 '090',
                 '100',
                 '110',
+                '120',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -304,8 +307,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 21
-        && $oracleIdentityCount === 15,
+        $oracleTableCount === 24
+        && $oracleIdentityCount === 18,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -381,8 +384,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 21,
-        'All 21 application tables were created'
+        $tableCount === 24,
+        'All 24 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -394,8 +397,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 61,
-        'All 61 foreign-key relationships were created'
+        $foreignKeyCount === 74,
+        'All 74 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -840,13 +843,21 @@ try {
     $companyModules = new CompanyModuleService();
 
     $check(
-        $tenantAModuleCodes === ['hr'],
+        $tenantAModuleCodes === [
+            'hr',
+            'attendance',
+        ],
         'Tenant navigation exposes only licensed and enabled modules'
     );
 
     $check(
         $companyModules->isEnabled('hr'),
         'Licensed HR module passes the central entitlement check'
+    );
+
+    $check(
+        $companyModules->isEnabled('attendance'),
+        'Licensed Attendance module passes the central entitlement check'
     );
 
     $check(
@@ -1643,6 +1654,221 @@ try {
         (int) $assignmentAuditStatement
             ->fetchColumn() === 1,
         'Employee transfer records a company-scoped audit event'
+    );
+
+    $attendanceManagement =
+        new AttendanceManagementService();
+    $attendanceDashboard =
+        $attendanceManagement->dashboard(
+            '2026-07-28'
+        );
+    $attendanceEmployeeIds = array_map(
+        static fn (array $record): int =>
+            (int) ($record['employee_id'] ?? 0),
+        $attendanceDashboard['records'] ?? []
+    );
+
+    $check(
+        in_array(920001, $attendanceEmployeeIds, true)
+        && !in_array(
+            920002,
+            $attendanceEmployeeIds,
+            true
+        ),
+        'Attendance roster contains only active-company employees'
+    );
+
+    $invalidAttendance =
+        $attendanceManagement->record(
+            [
+                'employee_id' => '920001',
+                'attendance_date' => '2026-07-28',
+                'attendance_status' => 'present',
+                'check_in' => '25:90',
+                'check_out' => '',
+                'notes' => '',
+            ],
+            $tenantAActorId
+        );
+    $check(
+        $invalidAttendance['successful'] === false
+        && isset(
+            $invalidAttendance['errors']['check_in']
+        ),
+        'Attendance entry rejects invalid time values'
+    );
+
+    $foreignAttendance =
+        $attendanceManagement->record(
+            [
+                'employee_id' => '920002',
+                'attendance_date' => '2026-07-28',
+                'attendance_status' => 'present',
+                'check_in' => '08:00',
+                'check_out' => '17:00',
+                'notes' => '',
+            ],
+            $tenantAActorId
+        );
+    $check(
+        $foreignAttendance['successful'] === false
+        && isset(
+            $foreignAttendance['errors'][
+                'employee_id'
+            ]
+        ),
+        'Attendance entry rejects a foreign-company employee'
+    );
+
+    $attendanceResult =
+        $attendanceManagement->record(
+            [
+                'employee_id' => '920001',
+                'attendance_date' => '2026-07-28',
+                'attendance_status' => 'present',
+                'check_in' => '08:10',
+                'check_out' => '17:00',
+                'notes' =>
+                    'Integration attendance record',
+            ],
+            $tenantAActorId
+        );
+    $recordedAttendance =
+        $attendanceManagement->dashboard(
+            '2026-07-28'
+        );
+    $check(
+        $attendanceResult['successful'] === true
+        && (
+            $recordedAttendance['summary'][
+                'present'
+            ] ?? 0
+        ) === 1
+        && (
+            $recordedAttendance['summary'][
+                'recorded'
+            ] ?? 0
+        ) === 1,
+        'Tenant attendance entry is saved and summarized'
+    );
+
+    $attendanceAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND action = :action
+           AND module = :module
+           AND table_name = :table_name'
+    );
+    $attendanceAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'action' => 'RECORD_ATTENDANCE',
+        'module' => 'attendance',
+        'table_name' => 'attendance_records',
+    ]);
+    $check(
+        (int) $attendanceAuditStatement
+            ->fetchColumn() === 1,
+        'Attendance entry records a company-scoped audit event'
+    );
+
+    $leaveManagement = new LeaveManagementService();
+    $leaveDashboard = $leaveManagement->dashboard();
+    $leaveEmployeeIds = array_map(
+        static fn (array $employee): int =>
+            (int) ($employee['employee_id'] ?? 0),
+        $leaveDashboard['employees'] ?? []
+    );
+    $leaveTypeIds = array_map(
+        static fn (array $type): int =>
+            (int) ($type['leave_type_id'] ?? 0),
+        $leaveDashboard['leaveTypes'] ?? []
+    );
+
+    $check(
+        in_array(920001, $leaveEmployeeIds, true)
+        && !in_array(920002, $leaveEmployeeIds, true)
+        && in_array(970001, $leaveTypeIds, true)
+        && !in_array(970002, $leaveTypeIds, true),
+        'Leave form options are isolated to the active company'
+    );
+
+    $foreignLeave = $leaveManagement->create(
+        [
+            'employee_id' => '920002',
+            'leave_type_id' => '970001',
+            'start_date' => '2026-08-10',
+            'end_date' => '2026-08-12',
+            'reason' => '',
+        ],
+        $tenantAActorId
+    );
+    $check(
+        $foreignLeave['successful'] === false
+        && isset(
+            $foreignLeave['errors']['employee_id']
+        ),
+        'Leave request rejects a foreign-company employee'
+    );
+
+    $leaveResult = $leaveManagement->create(
+        [
+            'employee_id' => '920001',
+            'leave_type_id' => '970001',
+            'start_date' => '2026-08-10',
+            'end_date' => '2026-08-12',
+            'reason' =>
+                'Integration annual leave request',
+        ],
+        $tenantAActorId
+    );
+    $leaveRequestId = (int) (
+        $leaveResult['leaveRequestId'] ?? 0
+    );
+    $leaveDecision = $leaveManagement->decide(
+        $leaveRequestId,
+        'approved',
+        'Approved by integration workflow',
+        $tenantAActorId
+    );
+    $approvedLeaveDashboard =
+        $leaveManagement->dashboard('approved');
+    $check(
+        $leaveResult['successful'] === true
+        && $leaveRequestId > 0
+        && $leaveDecision['successful'] === true
+        && count(
+            $approvedLeaveDashboard['requests']
+            ?? []
+        ) === 1
+        && (
+            $approvedLeaveDashboard['summary'][
+                'approved'
+            ] ?? 0
+        ) === 1,
+        'Leave request and approval workflow completes successfully'
+    );
+
+    $leaveAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND module = :module
+           AND table_name = :table_name
+           AND action IN (
+               \'REQUEST_LEAVE\',
+               \'APPROVED_LEAVE\'
+           )'
+    );
+    $leaveAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'module' => 'hr',
+        'table_name' => 'hr_leave_requests',
+    ]);
+    $check(
+        (int) $leaveAuditStatement
+            ->fetchColumn() === 2,
+        'Leave workflow records company-scoped audit events'
     );
 
     $financeDashboard =

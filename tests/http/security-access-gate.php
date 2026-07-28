@@ -641,11 +641,15 @@ $check(
         $tenantADashboard['body'],
         'href="/office_app/public/hr"'
     )
+    && str_contains(
+        $tenantADashboard['body'],
+        'href="/office_app/public/attendance"'
+    )
     && !str_contains(
         $tenantADashboard['body'],
         'href="/office_app/public/finance"'
     ),
-    'Tenant navigation shows HR but hides unlicensed Finance'
+    'Tenant navigation shows licensed HR and Attendance but hides unlicensed Finance'
 );
 
 $licensedHr = httpRequest(
@@ -656,6 +660,46 @@ $licensedHr = httpRequest(
 $check(
     $licensedHr['status'] === 200,
     'Licensed HR direct route is accessible'
+);
+
+$licensedAttendance = httpRequest(
+    $baseUrl,
+    '/attendance?date=2026-07-28',
+    $tenantAAdminCookies
+);
+$check(
+    $licensedAttendance['status'] === 200
+    && str_contains(
+        $licensedAttendance['body'],
+        'Alice TenantA'
+    )
+    && !str_contains(
+        $licensedAttendance['body'],
+        'Bob TenantB'
+    ),
+    'Licensed Attendance register exposes only Tenant A employees'
+);
+
+$tenantALeave = httpRequest(
+    $baseUrl,
+    '/hr/leave',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantALeave['status'] === 200
+    && str_contains(
+        $tenantALeave['body'],
+        'Annual Leave'
+    )
+    && str_contains(
+        $tenantALeave['body'],
+        'Alice TenantA'
+    )
+    && !str_contains(
+        $tenantALeave['body'],
+        'Bob TenantB'
+    ),
+    'HR leave workspace exposes only Tenant A people and policy types'
 );
 
 $tenantAEmployeeProfile = httpRequest(
@@ -957,6 +1001,20 @@ $check(
         '/dashboard'
     ),
     'Tenant B credentials remain valid after rejected attacks'
+);
+
+$tenantBUnlicensedAttendance = httpRequest(
+    $baseUrl,
+    '/attendance',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBUnlicensedAttendance['status'] === 404
+    && str_contains(
+        $tenantBUnlicensedAttendance['body'],
+        'Module unavailable'
+    ),
+    'Tenant B cannot open unlicensed Attendance directly'
 );
 
 $tenantBBranches = httpRequest(

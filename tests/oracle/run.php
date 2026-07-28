@@ -91,6 +91,9 @@ try {
                  \'ORGANIZATION_JOB_TITLES\',
                  \'ORGANIZATION_POSITIONS\',
                  \'HR_EMPLOYEE_POSITION_ASSIGNMENTS\',
+                 \'ATTENDANCE_RECORDS\',
+                 \'HR_LEAVE_TYPES\',
+                 \'HR_LEAVE_REQUESTS\',
                  \'LOGIN_ATTEMPTS\',
                  \'AUDIT_LOGS\'
              )'
@@ -98,8 +101,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 22,
-        'Oracle schema contains the migration ledger and 21 application tables'
+        $tableCount === 25,
+        'Oracle schema contains the migration ledger and 24 application tables'
     );
 
     $foreignKeyCount = (int) $connection
@@ -111,8 +114,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 61,
-        'Oracle schema contains all 61 foreign keys'
+        $foreignKeyCount === 74,
+        'Oracle schema contains all 74 foreign keys'
     );
 
     $check(
@@ -125,7 +128,7 @@ try {
     $check(
         (int) $connection
             ->query('SELECT COUNT(*) FROM permissions')
-            ->fetchColumn() === 23,
+            ->fetchColumn() === 28,
         'Oracle permission catalog matches MySQL'
     );
 

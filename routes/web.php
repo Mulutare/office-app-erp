@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 use App\Controllers\AuditLogController;
+use App\Controllers\AttendanceController;
 use App\Controllers\UserAdministrationController;
 use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
@@ -16,6 +17,7 @@ use App\Controllers\FinanceController;
 use App\Controllers\HomeController;
 use App\Controllers\HrController;
 use App\Controllers\JobTitleController;
+use App\Controllers\LeaveController;
 use App\Controllers\ModuleAdministrationController;
 use App\Controllers\PositionController;
 use App\Controllers\RoleAdministrationController;
@@ -29,6 +31,9 @@ $userActivityController =
     new UserActivityController();
 $auditLogController =
     new AuditLogController();
+$attendanceController =
+    new AttendanceController();
+$leaveController = new LeaveController();
 $hrController = new HrController();
 $employeeActivityController =
     new EmployeeActivityController();
@@ -61,6 +66,26 @@ $router->get(
 $router->get(
     '/hr',
     [$hrController, 'index']
+);
+$router->get(
+    '/hr/leave',
+    [$leaveController, 'index']
+);
+$router->post(
+    '/hr/leave',
+    [$leaveController, 'store']
+);
+$router->post(
+    '/hr/leave/decision',
+    [$leaveController, 'decide']
+);
+$router->get(
+    '/attendance',
+    [$attendanceController, 'index']
+);
+$router->post(
+    '/attendance/records',
+    [$attendanceController, 'store']
 );
 $router->get(
     '/finance',

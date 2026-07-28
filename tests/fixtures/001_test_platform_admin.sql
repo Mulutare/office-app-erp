@@ -890,6 +890,51 @@ ON DUPLICATE KEY UPDATE
     employment_status = 'active',
     deleted_at = NULL;
 
+INSERT INTO hr_leave_types
+    (
+        leave_type_id,
+        company_id,
+        code,
+        name,
+        annual_entitlement,
+        requires_approval,
+        active,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        970001,
+        @tenant_a_company_id,
+        'ANNUAL',
+        'Annual Leave',
+        21.00,
+        TRUE,
+        TRUE,
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        970002,
+        @tenant_b_company_id,
+        'ANNUAL',
+        'Annual Leave',
+        21.00,
+        TRUE,
+        TRUE,
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    code = VALUES(code),
+    name = VALUES(name),
+    annual_entitlement =
+        VALUES(annual_entitlement),
+    requires_approval = TRUE,
+    active = TRUE,
+    deleted_at = NULL;
+
 INSERT INTO hr_employee_position_assignments
     (
         assignment_id,
@@ -1178,8 +1223,9 @@ WHERE company_id = @default_company_id
 /*
  * Phase A5 lifecycle and module-entitlement fixtures.
  *
- * Tenant A deliberately has HR licensed and enabled. Finance is marked
- * enabled but not licensed so direct-route checks must fail closed.
+ * Tenant A deliberately has HR and Attendance licensed and enabled.
+ * Finance is marked enabled but not licensed so direct-route checks
+ * must fail closed.
  */
 INSERT INTO company_modules
     (
@@ -1196,19 +1242,23 @@ SELECT
     modules.module_id,
     TRUE,
     CASE
-        WHEN modules.code = 'hr'
+        WHEN modules.code IN ('hr', 'attendance')
             THEN 'active'
         ELSE 'not_licensed'
     END,
     CASE
-        WHEN modules.code = 'hr'
+        WHEN modules.code IN ('hr', 'attendance')
             THEN NOW()
         ELSE NULL
     END,
     NULL,
     @test_user_id
 FROM erp_modules modules
-WHERE modules.code IN ('hr', 'finance')
+WHERE modules.code IN (
+    'hr',
+    'attendance',
+    'finance'
+)
 ON DUPLICATE KEY UPDATE
     enabled = VALUES(enabled),
     license_status = VALUES(license_status),

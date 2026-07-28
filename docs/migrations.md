@@ -48,6 +48,12 @@ The current Oracle versions are:
 040  tenant-scoped finance
 050  login and audit history
 060  stable roles, permissions and module reference data
+070  modular-company commercial controls
+080  company ownership and account provisioning
+090  tenant-scoped organization branches
+100  tenant-scoped job titles and positions
+110  effective-dated employee position assignments
+120  attendance records and HR leave operations
 ```
 
 ## Running the optional Oracle lab

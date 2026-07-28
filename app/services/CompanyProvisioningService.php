@@ -9,6 +9,8 @@ use App\Models\Company;
 use App\Models\CompanyMembership;
 use App\Models\Role;
 use App\Models\User;
+use App\Repositories\LeaveRepository;
+use App\Repositories\RepositoryFactory;
 use DateTimeImmutable;
 use DateTimeZone;
 use PDOException;
@@ -24,6 +26,7 @@ final class CompanyProvisioningService
     private User $users;
     private AuditLog $auditLogs;
     private TemporaryPasswordGenerator $passwords;
+    private LeaveRepository $leave;
 
     public function __construct()
     {
@@ -35,6 +38,7 @@ final class CompanyProvisioningService
         $this->auditLogs = new AuditLog();
         $this->passwords =
             new TemporaryPasswordGenerator();
+        $this->leave = RepositoryFactory::leave();
     }
 
     /**
@@ -248,6 +252,10 @@ final class CompanyProvisioningService
                 $company[
                     'subscription_expires_at'
                 ],
+                $provisionedBy
+            );
+            $this->leave->provisionDefaultTypes(
+                $companyId,
                 $provisionedBy
             );
             $this->roles
