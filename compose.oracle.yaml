@@ -1,33 +1,36 @@
 name: officeapp-oracle
 
+x-oracle-app-base: &oracle-app-base
+  build:
+    context: .
+    target: oracle-development
+  environment:
+    APP_NAME: ${APP_NAME:-OfficeApp ERP Oracle Lab}
+    APP_ENV: testing
+    APP_DEBUG: "false"
+    APP_TIMEZONE: ${APP_TIMEZONE:-Africa/Nairobi}
+    APP_COMPANY_CODE: default
+    SESSION_NAME: office_app_oracle_session
+    SESSION_COOKIE_SECURE: "false"
+    SESSION_COOKIE_SAMESITE: Strict
+    DB_DRIVER: oracle
+    DB_HOST: oracle
+    DB_PORT: "1521"
+    DB_SERVICE_NAME: ${ORACLE_SERVICE_NAME:-FREEPDB1}
+    DB_USERNAME: ${ORACLE_APP_USER:?ORACLE_APP_USER is required}
+    DB_PASSWORD: ${ORACLE_APP_PASSWORD:?ORACLE_APP_PASSWORD is required}
+    DB_CHARSET: AL32UTF8
+  depends_on:
+    oracle:
+      condition: service_healthy
+
 services:
   app:
+    <<: *oracle-app-base
     profiles:
       - oracle
-    build:
-      context: .
-      target: oracle-development
-    environment:
-      APP_NAME: ${APP_NAME:-OfficeApp ERP Oracle Lab}
-      APP_ENV: testing
-      APP_DEBUG: "false"
-      APP_TIMEZONE: ${APP_TIMEZONE:-Africa/Nairobi}
-      APP_COMPANY_CODE: default
-      SESSION_NAME: office_app_oracle_session
-      SESSION_COOKIE_SECURE: "false"
-      SESSION_COOKIE_SAMESITE: Strict
-      DB_DRIVER: oracle
-      DB_HOST: oracle
-      DB_PORT: "1521"
-      DB_SERVICE_NAME: ${ORACLE_SERVICE_NAME:-FREEPDB1}
-      DB_USERNAME: ${ORACLE_APP_USER:?ORACLE_APP_USER is required}
-      DB_PASSWORD: ${ORACLE_APP_PASSWORD:?ORACLE_APP_PASSWORD is required}
-      DB_CHARSET: AL32UTF8
     ports:
       - "${ORACLE_APP_PORT:-8081}:8080"
-    depends_on:
-      oracle:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -41,6 +44,22 @@ services:
       timeout: 5s
       retries: 12
       start_period: 120s
+
+  oracle-migrate:
+    <<: *oracle-app-base
+    profiles:
+      - oracle
+    command:
+      - php
+      - bin/migrate.php
+
+  oracle-test:
+    <<: *oracle-app-base
+    profiles:
+      - oracle
+    command:
+      - php
+      - tests/oracle/run.php
 
   oracle:
     profiles:

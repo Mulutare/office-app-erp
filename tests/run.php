@@ -6,6 +6,7 @@ require_once __DIR__
     . '/../app/helpers/bootstrap.php';
 
 use App\Database\ConnectionManager;
+use App\Database\MigrationRunner;
 use App\Database\MySqlDialect;
 use App\Database\OracleDialect;
 use App\Database\OracleDriver;
@@ -183,6 +184,141 @@ try {
     $check(
         $oracleRepositoryFailsClosed,
         'Unverified Oracle repository skeleton fails closed'
+    );
+
+    $oracleMigrationFiles = glob(
+        __DIR__
+        . '/../database/migrations/oracle/*.php'
+    );
+    $oracleMigrationFiles = is_array(
+        $oracleMigrationFiles
+    )
+        ? $oracleMigrationFiles
+        : [];
+    sort($oracleMigrationFiles, SORT_STRING);
+
+    $oracleMigrationVersions = [];
+    $oracleMigrationSql = [];
+    $oracleMigrationDefinitionsValid = true;
+
+    foreach ($oracleMigrationFiles as $migrationFile) {
+        $definition = require $migrationFile;
+
+        if (
+            !is_array($definition)
+            || !is_string(
+                $definition['version'] ?? null
+            )
+            || !is_string(
+                $definition['description'] ?? null
+            )
+            || !is_array(
+                $definition['statements'] ?? null
+            )
+        ) {
+            $oracleMigrationDefinitionsValid = false;
+
+            continue;
+        }
+
+        $oracleMigrationVersions[] =
+            $definition['version'];
+
+        foreach (
+            $definition['statements']
+            as $migrationStatement
+        ) {
+            if (!is_string($migrationStatement)) {
+                $oracleMigrationDefinitionsValid = false;
+
+                continue;
+            }
+
+            $oracleMigrationSql[] =
+                $migrationStatement;
+        }
+    }
+
+    $check(
+        class_exists(MigrationRunner::class)
+        && $oracleMigrationDefinitionsValid
+        && count($oracleMigrationFiles) === 6,
+        'Oracle migration catalog contains six valid definitions'
+    );
+
+    $check(
+        $oracleMigrationVersions
+            === array_values(
+                array_unique(
+                    $oracleMigrationVersions
+                )
+            )
+        && $oracleMigrationVersions
+            === [
+                '010',
+                '020',
+                '030',
+                '040',
+                '050',
+                '060',
+            ],
+        'Oracle migration versions are unique and ordered'
+    );
+
+    $oracleCombinedSql = implode(
+        PHP_EOL,
+        $oracleMigrationSql
+    );
+    $oracleTableCount = preg_match_all(
+        '/\bCREATE\s+TABLE\s+[A-Za-z_][A-Za-z0-9_]*/i',
+        $oracleCombinedSql
+    );
+    $oracleIdentityCount = preg_match_all(
+        '/GENERATED\s+BY\s+DEFAULT\s+ON\s+NULL\s+AS\s+IDENTITY/i',
+        $oracleCombinedSql
+    );
+
+    $check(
+        $oracleTableCount === 17
+        && $oracleIdentityCount === 11,
+        'Oracle migrations define all tables and generated identifiers'
+    );
+
+    $check(
+        preg_match(
+            '/AUTO_INCREMENT|TINYINT|ENGINE\s*=|'
+            . 'ON\s+UPDATE\s+CURRENT_TIMESTAMP|'
+            . '\bLIMIT\b|`/i',
+            $oracleCombinedSql
+        ) !== 1,
+        'Oracle migrations exclude MySQL-only SQL constructs'
+    );
+
+    $check(
+        str_contains(
+            $oracleCombinedSql,
+            'NUMBER(1)'
+        )
+        && str_contains(
+            $oracleCombinedSql,
+            'VARCHAR2('
+        )
+        && str_contains(
+            $oracleCombinedSql,
+            ' CLOB'
+        )
+        && str_contains(
+            $oracleCombinedSql,
+            'SYSTIMESTAMP'
+        ),
+        'Oracle migrations use Oracle-native flags, text and timestamps'
+    );
+
+    $check(
+        is_file(
+            __DIR__ . '/oracle/run.php'
+        ),
+        'Optional Oracle integration test entry point exists'
     );
 
     $check(

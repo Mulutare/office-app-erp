@@ -100,9 +100,23 @@ and pagination expressions.
 Oracle repositories remain fail-closed placeholders. MySQL remains the default
 and only tested business-data implementation.
 
+## Checkpoint 6 migration and test boundary
+
+Oracle now has a separate six-version migration catalog for the same logical
+17-table application schema. `MigrationRunner` records applied versions and
+checksums in `schema_migrations`; it never runs automatically during
+production application startup.
+
+The optional Oracle integration entry point covers schema creation, migration
+replay prevention, identity generation, transaction rollback, Unicode, CLOB
+audit data, unique constraints, pagination and tenant-scoped queries.
+
+These assets are executable but have not run against Oracle because licensed
+Instant Client inputs and an approved database image are not present.
+
 ## Next boundary
 
-Checkpoint 6 must add separate Oracle migrations and executable integration
-tests. Generated IDs, CLOB binding, Oracle empty-string behavior, transaction
-semantics, tenant isolation and full repository implementations remain
-unavailable until those tests are built and run.
+Checkpoint 7 must run the Oracle migration and integration suite against an
+actual Oracle environment, then implement and validate Oracle business
+repositories for authentication, RBAC, tenant administration, audit, HR and
+finance. MySQL remains fully operational and is not replaced.

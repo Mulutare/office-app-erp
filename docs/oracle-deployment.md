@@ -4,14 +4,17 @@
 
 Oracle is not supported or certified in this release.
 
-Checkpoint 5 provides only:
+Checkpoint 6 provides unverified test assets for:
 
 - an allowlisted Oracle `DatabaseDriver` skeleton;
 - a PDO_OCI connection configuration boundary;
 - `OracleDialect` SQL fragments;
 - fail-closed Oracle repository placeholders;
 - an isolated Oracle Compose profile;
-- an Oracle migration directory reserved for Checkpoint 6.
+- a versioned Oracle clean-schema migration catalog;
+- a checksum-protected migration runner;
+- generated-ID, rollback, Unicode, CLOB, uniqueness, pagination and
+  tenant-isolation integration checks.
 
 Do not use this profile for production or customer data.
 
@@ -68,15 +71,41 @@ docker compose `
   config
 ```
 
-Build and start only after Instant Client inputs and an approved database image
-are available:
+Build only after Instant Client inputs and an approved database image are
+available. Apply migrations as a separate operator action:
 
 ```powershell
 docker compose `
   --env-file docker/oracle/oracle.env `
   -f compose.oracle.yaml `
   --profile oracle `
-  up --build
+  build
+
+docker compose `
+  --env-file docker/oracle/oracle.env `
+  -f compose.oracle.yaml `
+  --profile oracle `
+  run --rm oracle-migrate
+```
+
+Then run the Oracle integration checks:
+
+```powershell
+docker compose `
+  --env-file docker/oracle/oracle.env `
+  -f compose.oracle.yaml `
+  --profile oracle `
+  run --rm oracle-test
+```
+
+Start the web application only after migration and integration checks pass:
+
+```powershell
+docker compose `
+  --env-file docker/oracle/oracle.env `
+  -f compose.oracle.yaml `
+  --profile oracle `
+  up -d app
 ```
 
 ## Required support gates
@@ -98,5 +127,7 @@ actual Oracle environment:
 - concurrent membership and permission updates;
 - browser and health-check smoke tests.
 
-Checkpoint 6 owns migrations and executable Oracle integration tests.
-Checkpoint 7 owns actual compatibility validation.
+Checkpoint 6 owns the migration definitions and executable Oracle integration
+tests. They have not been executed because no licensed Instant Client inputs
+or approved Oracle database image were supplied. Checkpoint 7 owns actual
+compatibility validation.
