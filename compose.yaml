@@ -1,0 +1,80 @@
+name: officeapp
+
+services:
+  app:
+    build:
+      context: .
+      target: development
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        php bin/bootstrap-development-admin.php
+        && exec apache2-foreground
+    environment:
+      APP_NAME: ${APP_NAME:-OfficeApp ERP}
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_TIMEZONE: ${APP_TIMEZONE:-Africa/Nairobi}
+      APP_COMPANY_CODE: ${APP_COMPANY_CODE:-default}
+      SESSION_NAME: ${SESSION_NAME:-office_app_session}
+      SESSION_COOKIE_SECURE: "false"
+      SESSION_COOKIE_SAMESITE: ${SESSION_COOKIE_SAMESITE:-Lax}
+      DB_DRIVER: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: ${DB_DATABASE:-office_app_dev}
+      DB_USERNAME: ${DB_USERNAME:-officeapp}
+      DB_PASSWORD: ${DB_PASSWORD:-change-this-development-password}
+      DEV_ADMIN_USERNAME: ${DEV_ADMIN_USERNAME:-admin}
+      DEV_ADMIN_EMAIL: ${DEV_ADMIN_EMAIL:-admin@example.test}
+      DEV_ADMIN_DISPLAY_NAME: ${DEV_ADMIN_DISPLAY_NAME:-Platform Administrator}
+      DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-Change-This-Development-Admin-2026!}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - .:/var/www/html/office_app
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - >-
+          exit(@file_get_contents(
+          'http://127.0.0.1:8080/office_app/public/health'
+          ) === false ? 1 : 0);
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  db:
+    image: mariadb:10.11.18
+    environment:
+      MARIADB_DATABASE: ${DB_DATABASE:-office_app_dev}
+      MARIADB_USER: ${DB_USERNAME:-officeapp}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-change-this-development-password}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-change-this-development-root-password}
+    volumes:
+      - officeapp_db_data:/var/lib/mysql
+      - ./database/migrations:/opt/officeapp/database/migrations:ro
+      - ./database/seeds:/opt/officeapp/database/seeds:ro
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD
+        - healthcheck.sh
+        - --connect
+        - --innodb_initialized
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  officeapp_db_data:

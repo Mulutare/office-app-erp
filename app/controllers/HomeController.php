@@ -30,6 +30,10 @@ final class HomeController
 
     public function health(): void
     {
+        \db()
+            ->query('SELECT 1')
+            ->fetchColumn();
+
         header(
             'Content-Type: application/json; charset=UTF-8'
         );
@@ -37,12 +41,8 @@ final class HomeController
         echo json_encode(
             [
                 'application' => \config('name'),
-                'environment' => \config('environment'),
                 'status' => 'healthy',
-                'database' => \db()
-                    ->query('SELECT DATABASE()')
-                    ->fetchColumn(),
-                'server_time' => date('Y-m-d H:i:s'),
+                'database' => 'connected',
             ],
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
         );

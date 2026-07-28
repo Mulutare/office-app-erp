@@ -1,0 +1,11 @@
+Options -Indexes
+
+RewriteEngine On
+
+# Native Apache deployments expose only the front controller and public assets.
+# Docker applies the equivalent restriction in docker/apache/officeapp.conf.
+RewriteRule !^(?:$|index\.php$|public(?:/|$)) - [F,L,NC]
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

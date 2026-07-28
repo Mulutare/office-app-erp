@@ -1,0 +1,56 @@
+name: officeapp-test
+
+services:
+  app:
+    build:
+      context: .
+      target: test
+    command:
+      - php
+      - tests/run.php
+    environment:
+      APP_NAME: OfficeApp ERP Test
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      APP_TIMEZONE: Africa/Nairobi
+      APP_COMPANY_CODE: default
+      SESSION_NAME: office_app_test_session
+      SESSION_COOKIE_SECURE: "false"
+      SESSION_COOKIE_SAMESITE: Strict
+      DB_DRIVER: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: office_app_test
+      DB_USERNAME: officeapp_test
+      DB_PASSWORD: officeapp-test-password
+      TEST_ADMIN_USERNAME: test_platform_admin
+      TEST_ADMIN_PASSWORD: OfficeApp-Test!2026
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:10.11.18
+    environment:
+      MARIADB_DATABASE: office_app_test
+      MARIADB_USER: officeapp_test
+      MARIADB_PASSWORD: officeapp-test-password
+      MARIADB_ROOT_PASSWORD: officeapp-test-root-password
+      OFFICEAPP_LOAD_TEST_FIXTURES: "1"
+    tmpfs:
+      - /var/lib/mysql
+    volumes:
+      - ./database/migrations:/opt/officeapp/database/migrations:ro
+      - ./database/seeds:/opt/officeapp/database/seeds:ro
+      - ./tests/fixtures:/opt/officeapp/tests/fixtures:ro
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD
+        - healthcheck.sh
+        - --connect
+        - --innodb_initialized
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 15s

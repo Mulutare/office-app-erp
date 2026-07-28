@@ -38,10 +38,11 @@ final class Router
         }
 
         /*
-         * Remove the local XAMPP base path.
+         * Remove the shared subdirectory deployment base path.
          *
-         * Production will normally point the domain directly
-         * to the public directory, so this base path will later change.
+         * Both container and native web-server deployments may use it.
+         * A domain rooted directly at public/ already supplies paths
+         * without this prefix and therefore needs no removal.
          */
         $basePath = '/office_app/public';
 
