@@ -18,6 +18,29 @@ $requiredExtensions = is_array(
 )
     ? $runtimeRequirements['required_extensions']
     : [];
+$driverExtensions = is_array(
+    $runtimeRequirements[
+        'database_driver_extensions'
+    ] ?? null
+)
+    ? $runtimeRequirements[
+        'database_driver_extensions'
+    ]
+    : [];
+$configuredDriver = getenv('DB_DRIVER');
+$runtimeDriver = is_string($configuredDriver)
+    && trim($configuredDriver) !== ''
+        ? strtolower(trim($configuredDriver))
+        : 'mysql';
+$requiredExtensions = array_merge(
+    $requiredExtensions,
+    is_array($driverExtensions[$runtimeDriver] ?? null)
+        ? $driverExtensions[$runtimeDriver]
+        : []
+);
+$requiredExtensions = array_values(
+    array_unique($requiredExtensions)
+);
 $runtimeFailure = null;
 
 if (PHP_VERSION_ID < $minimumPhpVersionId) {
@@ -75,6 +98,9 @@ unset(
     $minimumPhpVersion,
     $minimumPhpVersionId,
     $requiredExtensions,
+    $driverExtensions,
+    $configuredDriver,
+    $runtimeDriver,
     $runtimeFailure,
     $missingExtensions
 );

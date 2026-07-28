@@ -18,6 +18,30 @@ $requiredExtensions = is_array(
 )
     ? $requirements['required_extensions']
     : [];
+$driverExtensions = is_array(
+    $requirements[
+        'database_driver_extensions'
+    ] ?? null
+)
+    ? $requirements[
+        'database_driver_extensions'
+    ]
+    : [];
+$configuredDriver = getenv('DB_DRIVER');
+$driver = is_string($configuredDriver)
+    && trim($configuredDriver) !== ''
+        ? strtolower(trim($configuredDriver))
+        : 'mysql';
+$requiredExtensions = array_values(
+    array_unique(
+        array_merge(
+            $requiredExtensions,
+            is_array($driverExtensions[$driver] ?? null)
+                ? $driverExtensions[$driver]
+                : []
+        )
+    )
+);
 $failures = [];
 
 if (PHP_VERSION_ID < $minimumVersionId) {
@@ -42,6 +66,7 @@ foreach ($requiredExtensions as $extension) {
 
 echo 'OfficeApp ERP runtime check' . PHP_EOL;
 echo 'PHP: ' . PHP_VERSION . PHP_EOL;
+echo 'Database driver: ' . $driver . PHP_EOL;
 
 if ($failures !== []) {
     foreach ($failures as $failure) {

@@ -68,6 +68,7 @@ the server.
 
 ## Oracle status
 
-Oracle is not supported or certified. The driver, repository, migration and
-test skeletons belong to later checkpoints. Product documentation must not
-claim Oracle compatibility until actual Oracle integration tests pass.
+Oracle is not supported or certified. An experimental PDO_OCI driver, Oracle
+dialect and fail-closed repository skeleton exist only for compatibility
+development. Product documentation must not claim Oracle compatibility until
+actual Oracle migrations and integration tests pass.

@@ -7,10 +7,17 @@ return [
     'minimum_php_version_id' => 80400,
     'required_extensions' => [
         'PDO',
-        'pdo_mysql',
         'mbstring',
         'openssl',
         'session',
         'Zend OPcache',
+    ],
+    'database_driver_extensions' => [
+        'mysql' => [
+            'pdo_mysql',
+        ],
+        'oracle' => [
+            'pdo_oci',
+        ],
     ],
 ];

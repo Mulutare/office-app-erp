@@ -77,3 +77,69 @@ RUN set -eux; \
         "${APP_HOME}/storage"
 
 USER www-data
+
+# Optional Oracle targets. These stages are not built by the standard
+# development, test or production workflows.
+FROM runtime-base AS oracle-extension
+
+USER root
+
+COPY docker/oracle/instantclient/basiclite.zip \
+    /tmp/oracle-basiclite.zip
+COPY docker/oracle/instantclient/sdk.zip \
+    /tmp/oracle-sdk.zip
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        libaio1 \
+        unzip; \
+    mkdir -p /opt/oracle; \
+    unzip -q /tmp/oracle-basiclite.zip \
+        -d /opt/oracle; \
+    unzip -q /tmp/oracle-sdk.zip \
+        -d /opt/oracle; \
+    instant_dir="$(find /opt/oracle \
+        -maxdepth 1 -type d -name 'instantclient_*' \
+        | head -n 1)"; \
+    test -n "${instant_dir}"; \
+    ln -s "${instant_dir}" \
+        /opt/oracle/instantclient; \
+    echo /opt/oracle/instantclient \
+        > /etc/ld.so.conf.d/oracle-instantclient.conf; \
+    ldconfig; \
+    docker-php-ext-configure pdo_oci \
+        --with-pdo-oci=instantclient,/opt/oracle/instantclient; \
+    docker-php-ext-install -j"$(nproc)" pdo_oci; \
+    rm -rf \
+        /var/lib/apt/lists/* \
+        /tmp/oracle-basiclite.zip \
+        /tmp/oracle-sdk.zip
+
+FROM oracle-extension AS oracle-development
+
+COPY docker/php/development.ini \
+    /usr/local/etc/php/conf.d/officeapp.ini
+
+COPY --chown=www-data:www-data . ${APP_HOME}
+
+USER www-data
+
+FROM oracle-extension AS oracle-production
+
+COPY docker/php/production.ini \
+    /usr/local/etc/php/conf.d/officeapp.ini
+
+COPY --chown=root:www-data . ${APP_HOME}
+
+RUN set -eux; \
+    rm -rf "${APP_HOME}/tests"; \
+    rm -f \
+        "${APP_HOME}/bin/bootstrap-development-admin.php"; \
+    chmod -R u=rwX,g=rX,o= "${APP_HOME}"; \
+    chown -R www-data:www-data \
+        "${APP_HOME}/storage"; \
+    chmod -R u=rwX,g=,o= \
+        "${APP_HOME}/storage"
+
+USER www-data

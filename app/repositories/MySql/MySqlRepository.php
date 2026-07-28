@@ -15,6 +15,12 @@ abstract class MySqlRepository
 {
     protected function connection(): PDO
     {
+        if (\databaseDriver()->name() !== 'mysql') {
+            throw new RuntimeException(
+                'A MySQL repository requires the MySQL database driver.'
+            );
+        }
+
         return \db();
     }
 

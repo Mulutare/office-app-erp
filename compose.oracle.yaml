@@ -1,0 +1,65 @@
+name: officeapp-oracle
+
+services:
+  app:
+    profiles:
+      - oracle
+    build:
+      context: .
+      target: oracle-development
+    environment:
+      APP_NAME: ${APP_NAME:-OfficeApp ERP Oracle Lab}
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      APP_TIMEZONE: ${APP_TIMEZONE:-Africa/Nairobi}
+      APP_COMPANY_CODE: default
+      SESSION_NAME: office_app_oracle_session
+      SESSION_COOKIE_SECURE: "false"
+      SESSION_COOKIE_SAMESITE: Strict
+      DB_DRIVER: oracle
+      DB_HOST: oracle
+      DB_PORT: "1521"
+      DB_SERVICE_NAME: ${ORACLE_SERVICE_NAME:-FREEPDB1}
+      DB_USERNAME: ${ORACLE_APP_USER:?ORACLE_APP_USER is required}
+      DB_PASSWORD: ${ORACLE_APP_PASSWORD:?ORACLE_APP_PASSWORD is required}
+      DB_CHARSET: AL32UTF8
+    ports:
+      - "${ORACLE_APP_PORT:-8081}:8080"
+    depends_on:
+      oracle:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - >-
+          exit(@file_get_contents(
+          'http://127.0.0.1:8080/office_app/public/health'
+          ) === false ? 1 : 0);
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  oracle:
+    profiles:
+      - oracle
+    image: ${ORACLE_DATABASE_IMAGE:?ORACLE_DATABASE_IMAGE is required}
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_SYS_PASSWORD:?ORACLE_SYS_PASSWORD is required}
+      APP_USER: ${ORACLE_APP_USER:?ORACLE_APP_USER is required}
+      APP_USER_PASSWORD: ${ORACLE_APP_PASSWORD:?ORACLE_APP_PASSWORD is required}
+    volumes:
+      - officeapp_oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - ${ORACLE_HEALTHCHECK_COMMAND:-healthcheck.sh}
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 120s
+
+volumes:
+  officeapp_oracle_data:

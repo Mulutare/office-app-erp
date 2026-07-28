@@ -7,9 +7,13 @@ require_once __DIR__
 
 use App\Database\ConnectionManager;
 use App\Database\MySqlDialect;
+use App\Database\OracleDialect;
+use App\Database\OracleDriver;
 use App\Models\CompanyMembership;
 use App\Repositories\MySql\CompanyMembershipRepository;
 use App\Repositories\MySql\DashboardStatisticsRepository;
+use App\Repositories\Oracle\DashboardStatisticsRepository
+    as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
 use App\Services\DashboardService;
@@ -64,6 +68,28 @@ try {
             'required_extensions'
         ]
         : [];
+    $driverExtensions = is_array(
+        $runtimeRequirements[
+            'database_driver_extensions'
+        ] ?? null
+    )
+        ? $runtimeRequirements[
+            'database_driver_extensions'
+        ]
+        : [];
+    $requiredExtensions = array_values(
+        array_unique(
+            array_merge(
+                $requiredExtensions,
+                is_array(
+                    $driverExtensions['mysql']
+                    ?? null
+                )
+                    ? $driverExtensions['mysql']
+                    : []
+            )
+        )
+    );
 
     foreach ($requiredExtensions as $extension) {
         if (!is_string($extension)) {
@@ -117,6 +143,46 @@ try {
         RepositoryFactory::dashboardStatistics()
             instanceof DashboardStatisticsRepository,
         'Repository factory selects the MySQL dashboard repository'
+    );
+
+    $oracleManager = ConnectionManager::fromConfig([
+        'driver' => 'oracle',
+    ]);
+    $oracleDriver = $oracleManager->driver();
+    $oracleDialect = $oracleDriver->dialect();
+
+    $check(
+        $oracleDriver instanceof OracleDriver,
+        'Connection manager allowlists the Oracle adapter skeleton'
+    );
+
+    $check(
+        $oracleDialect instanceof OracleDialect
+        && $oracleDialect->paginationClause()
+            === 'OFFSET :offset ROWS'
+                . ' FETCH NEXT :limit ROWS ONLY',
+        'Oracle dialect exposes Oracle pagination syntax'
+    );
+
+    $check(
+        !extension_loaded('pdo_oci'),
+        'Standard MySQL image excludes optional Oracle libraries'
+    );
+
+    $oracleRepositoryFailsClosed = false;
+
+    try {
+        (new OracleDashboardStatisticsRepository())
+            ->statistics(1);
+    } catch (LogicException $exception) {
+        $oracleRepositoryFailsClosed =
+            $exception->getMessage()
+            === 'The Oracle dashboard repository is not implemented.';
+    }
+
+    $check(
+        $oracleRepositoryFailsClosed,
+        'Unverified Oracle repository skeleton fails closed'
     );
 
     $check(

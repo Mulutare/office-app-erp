@@ -90,9 +90,19 @@ New business services should depend on repository interfaces. Existing
 services can be migrated incrementally without changing controllers, routes or
 views.
 
+## Checkpoint 5 Oracle skeleton
+
+The allowlisted connection manager recognizes `oracle` and selects
+`OracleDriver`. The skeleton deliberately uses PDO_OCI to preserve the current
+PDO connection contract. `OracleDialect` defines Oracle timestamp, daily range
+and pagination expressions.
+
+Oracle repositories remain fail-closed placeholders. MySQL remains the default
+and only tested business-data implementation.
+
 ## Next boundary
 
-Checkpoint 5 can add an Oracle driver and repository skeleton behind the same
-selection points. Oracle configuration, migrations, pagination, generated
-IDs, date handling and LOB behavior remain intentionally unavailable until
-their dedicated checkpoints and real integration tests pass.
+Checkpoint 6 must add separate Oracle migrations and executable integration
+tests. Generated IDs, CLOB binding, Oracle empty-string behavior, transaction
+semantics, tenant isolation and full repository implementations remain
+unavailable until those tests are built and run.

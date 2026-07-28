@@ -6,6 +6,8 @@ namespace App\Repositories;
 
 use App\Repositories\MySql\DashboardStatisticsRepository
     as MySqlDashboardStatisticsRepository;
+use App\Repositories\Oracle\DashboardStatisticsRepository
+    as OracleDashboardStatisticsRepository;
 use RuntimeException;
 
 /**
@@ -18,6 +20,10 @@ final class RepositoryFactory
     {
         if (\databaseDriver()->name() === 'mysql') {
             return new MySqlDashboardStatisticsRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleDashboardStatisticsRepository();
         }
 
         throw new RuntimeException(

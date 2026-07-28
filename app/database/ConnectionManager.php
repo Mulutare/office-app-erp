@@ -52,6 +52,13 @@ final class ConnectionManager
             );
         }
 
+        if ($driverName === 'oracle') {
+            return new self(
+                $config,
+                new OracleDriver()
+            );
+        }
+
         throw new RuntimeException(
             'The configured database driver is not available.'
         );

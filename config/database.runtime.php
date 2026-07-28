@@ -17,13 +17,23 @@ $driver = strtolower(
     $environmentValue('DB_DRIVER', 'mysql')
 );
 
-if ($driver !== 'mysql') {
+if (!in_array(
+    $driver,
+    ['mysql', 'oracle'],
+    true
+)) {
     throw new RuntimeException(
         'The configured database driver is not available.'
     );
 }
 
-$portValue = $environmentValue('DB_PORT', '3306');
+$defaultPort = $driver === 'oracle'
+    ? '1521'
+    : '3306';
+$portValue = $environmentValue(
+    'DB_PORT',
+    $defaultPort
+);
 $port = filter_var(
     $portValue,
     FILTER_VALIDATE_INT,
@@ -41,21 +51,34 @@ if (!is_int($port)) {
     );
 }
 
+$defaultDatabase = $driver === 'oracle'
+    ? ''
+    : 'office_app_dev';
+$defaultUsername = $driver === 'oracle'
+    ? ''
+    : 'root';
+$defaultCharset = $driver === 'oracle'
+    ? 'AL32UTF8'
+    : 'utf8mb4';
+
 return [
     'driver' => $driver,
     'host' => $environmentValue('DB_HOST', '127.0.0.1'),
     'port' => $port,
+    'service_name' => $environmentValue(
+        'DB_SERVICE_NAME'
+    ),
     'database' => $environmentValue(
         'DB_DATABASE',
-        'office_app_dev'
+        $defaultDatabase
     ),
     'username' => $environmentValue(
         'DB_USERNAME',
-        'root'
+        $defaultUsername
     ),
     'password' => $environmentValue('DB_PASSWORD'),
     'charset' => $environmentValue(
         'DB_CHARSET',
-        'utf8mb4'
+        $defaultCharset
     ),
 ];

@@ -62,6 +62,15 @@ docker compose -f compose.test.yaml down --volumes
 
 The test database is separate from development and every native installation.
 
+## Optional Oracle compatibility lab
+
+The standard application image does not contain Oracle libraries. The optional
+Oracle profile requires operator-supplied Instant Client archives and an
+explicitly approved Oracle Free-compatible database image.
+
+See `docs/oracle-deployment.md`. Oracle remains unverified and must not be used
+for production or customer data.
+
 ## Production preparation
 
 Production uses a separate Compose definition and requires explicit secrets:
