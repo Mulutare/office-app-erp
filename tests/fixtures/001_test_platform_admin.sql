@@ -122,6 +122,19 @@ INSERT INTO companies
     )
 VALUES
     (
+        'test_tenant_a',
+        'Test Tenant A',
+        'Test Tenant A Limited',
+        'tenant-a@example.test',
+        'KE',
+        'KES',
+        'Africa/Nairobi',
+        'active',
+        'approved',
+        NOW(),
+        TRUE
+    ),
+    (
         'test_tenant_b',
         'Test Tenant B',
         'Test Tenant B Limited',
@@ -266,6 +279,79 @@ SET @company_admin_user_id := (
     LIMIT 1
 );
 
+SET @tenant_a_company_id := (
+    SELECT company_id
+    FROM companies
+    WHERE code = 'test_tenant_a'
+    LIMIT 1
+);
+
+SET @tenant_b_company_id := (
+    SELECT company_id
+    FROM companies
+    WHERE code = 'test_tenant_b'
+    LIMIT 1
+);
+
+INSERT INTO users
+    (
+        user_id,
+        username,
+        email,
+        password_hash,
+        display_name,
+        is_platform_admin,
+        active,
+        must_change_password,
+        failed_login_count
+    )
+VALUES
+    (
+        910001,
+        'test_tenant_a_admin',
+        'tenant-a-admin@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Tenant A Administrator',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
+    ),
+    (
+        910002,
+        'test_tenant_b_user',
+        'tenant-b-user@example.test',
+        '$2y$10$llAbMeWCFDcP2O5LoAxzlePCs.zee4oKKxGuezj7oKAqUq0CEvO96',
+        'Test Tenant B User',
+        FALSE,
+        TRUE,
+        FALSE,
+        0
+    )
+ON DUPLICATE KEY UPDATE
+    password_hash = VALUES(password_hash),
+    display_name = VALUES(display_name),
+    is_platform_admin = FALSE,
+    active = TRUE,
+    must_change_password = FALSE,
+    failed_login_count = 0,
+    locked_until = NULL,
+    deleted_at = NULL;
+
+SET @tenant_a_admin_user_id := (
+    SELECT user_id
+    FROM users
+    WHERE username = 'test_tenant_a_admin'
+    LIMIT 1
+);
+
+SET @tenant_b_user_id := (
+    SELECT user_id
+    FROM users
+    WHERE username = 'test_tenant_b_user'
+    LIMIT 1
+);
+
 INSERT INTO company_users
     (
         company_id,
@@ -292,6 +378,20 @@ VALUES
     (
         @default_company_id,
         @company_admin_user_id,
+        TRUE,
+        TRUE,
+        @test_user_id
+    ),
+    (
+        @tenant_a_company_id,
+        @tenant_a_admin_user_id,
+        TRUE,
+        TRUE,
+        @test_user_id
+    ),
+    (
+        @tenant_b_company_id,
+        @tenant_b_user_id,
         TRUE,
         TRUE,
         @test_user_id
@@ -322,6 +422,16 @@ VALUES
         @company_admin_user_id,
         @company_owner_role_id,
         @test_user_id
+    ),
+    (
+        @tenant_a_admin_user_id,
+        @company_owner_role_id,
+        @test_user_id
+    ),
+    (
+        @tenant_b_user_id,
+        @executive_viewer_role_id,
+        @test_user_id
     )
 ON DUPLICATE KEY UPDATE
     assigned_by = VALUES(assigned_by);
@@ -351,9 +461,48 @@ VALUES
         @company_admin_user_id,
         @company_owner_role_id,
         @test_user_id
+    ),
+    (
+        @tenant_a_company_id,
+        @tenant_a_admin_user_id,
+        @company_owner_role_id,
+        @test_user_id
+    ),
+    (
+        @tenant_b_company_id,
+        @tenant_b_user_id,
+        @executive_viewer_role_id,
+        @test_user_id
     )
 ON DUPLICATE KEY UPDATE
     assigned_by = VALUES(assigned_by);
+
+UPDATE companies
+SET owner_user_id = @tenant_a_admin_user_id,
+    approved_by = @test_user_id
+WHERE company_id = @tenant_a_company_id;
+
+INSERT INTO company_role_permissions
+    (
+        company_id,
+        role_id,
+        permission_id,
+        granted_by
+    )
+SELECT
+    tenant.company_id,
+    templates.role_id,
+    templates.permission_id,
+    @test_user_id
+FROM (
+    SELECT @tenant_a_company_id AS company_id
+    UNION ALL
+    SELECT @tenant_b_company_id AS company_id
+) tenant
+CROSS JOIN role_permissions templates
+WHERE tenant.company_id IS NOT NULL
+ON DUPLICATE KEY UPDATE
+    granted_by = VALUES(granted_by);
 
 DELETE FROM company_role_permissions
 WHERE company_id = @default_company_id

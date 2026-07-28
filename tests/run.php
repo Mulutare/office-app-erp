@@ -22,6 +22,8 @@ use App\Services\DashboardService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\UserAccountStatusService;
 use App\Services\UserAccountUnlockService;
+use App\Services\UserAdministrationService;
+use App\Services\UserDetailsService;
 use App\Services\UserPasswordResetService;
 use App\Services\UserUpdateService;
 
@@ -698,6 +700,186 @@ try {
             'Unlock service protects platform accounts'
         );
     }
+
+    $tenantAAuthentication = new AuthService();
+    $tenantALogin = $tenantAAuthentication->attempt(
+        'test_tenant_a_admin',
+        is_string($password) ? $password : ''
+    );
+    $tenantACompany = $_SESSION['auth']['company']
+        ?? null;
+    $tenantACompanyId = is_array($tenantACompany)
+        ? (int) (
+            $tenantACompany['company_id'] ?? 0
+        )
+        : 0;
+    $tenantAActorId = (int) (
+        $_SESSION['auth']['user_id'] ?? 0
+    );
+
+    $check(
+        $tenantALogin['successful'] === true
+        && is_array($tenantACompany)
+        && ($tenantACompany['code'] ?? null)
+            === 'test_tenant_a',
+        'Tenant A administrator authenticates into Tenant A'
+    );
+
+    $check(
+        $tenantAAuthentication->can(
+            'administration.users.manage'
+        )
+        && $tenantAAuthentication->can(
+            'administration.roles.manage'
+        ),
+        'Tenant A administrator has tenant user-management permissions'
+    );
+
+    $tenantBTargetStatement = db()->prepare(
+        'SELECT
+            users.user_id,
+            users.username,
+            users.email,
+            users.display_name,
+            users.password_hash,
+            users.active,
+            users.must_change_password,
+            users.failed_login_count,
+            users.locked_until
+         FROM users
+         INNER JOIN company_users memberships
+             ON memberships.user_id = users.user_id
+         INNER JOIN companies
+             ON companies.company_id =
+                memberships.company_id
+         WHERE users.username = :username
+           AND companies.code = :company_code
+         LIMIT 1'
+    );
+    $tenantBTargetStatement->execute([
+        'username' => 'test_tenant_b_user',
+        'company_code' => 'test_tenant_b',
+    ]);
+    $tenantBTarget = $tenantBTargetStatement->fetch(
+        \PDO::FETCH_ASSOC
+    );
+    $tenantBUserId = is_array($tenantBTarget)
+        ? (int) ($tenantBTarget['user_id'] ?? 0)
+        : 0;
+
+    $check(
+        $tenantACompanyId > 0
+        && $tenantAActorId > 0
+        && $tenantBUserId > 0,
+        'Cross-tenant isolation fixtures resolve to distinct records'
+    );
+
+    $tenantUserModel = new User();
+    $check(
+        $tenantUserModel->findByIdInCompany(
+            $tenantBUserId,
+            $tenantACompanyId
+        ) === null,
+        'Tenant A cannot read Tenant B user through scoped lookup'
+    );
+
+    $foreignListing =
+        (new UserAdministrationService())->listing(
+            'test_tenant_b_user',
+            'all',
+            'created_at',
+            'desc',
+            1
+        );
+    $check(
+        ($foreignListing['users'] ?? null) === []
+        && (
+            $foreignListing['pagination']['total']
+            ?? null
+        ) === 0,
+        'Tenant A user directory does not reveal Tenant B users'
+    );
+
+    $check(
+        (new UserDetailsService())->details(
+            $tenantBUserId
+        ) === null,
+        'Tenant A cannot open Tenant B user details'
+    );
+
+    $check(
+        $tenantUserModel->roleIds(
+            $tenantACompanyId,
+            $tenantBUserId
+        ) === [],
+        'Tenant A cannot read Tenant B role assignments'
+    );
+
+    $foreignUpdate = (new UserUpdateService())->update(
+        $tenantBUserId,
+        [
+            'username' => 'tenant-b-compromised',
+            'email' => 'compromised@example.test',
+            'display_name' => 'Compromised User',
+            'active' => false,
+            'role_ids' => [],
+        ],
+        $tenantAActorId
+    );
+    $check(
+        $foreignUpdate['successful'] === false
+        && !empty($foreignUpdate['notFound']),
+        'Tenant A cannot update Tenant B profile or role assignments'
+    );
+
+    $foreignStatus =
+        (new UserAccountStatusService())->change(
+            $tenantBUserId,
+            false,
+            $tenantAActorId
+        );
+    $check(
+        $foreignStatus['successful'] === false
+        && !empty($foreignStatus['notFound']),
+        'Tenant A cannot change Tenant B account status'
+    );
+
+    $foreignReset =
+        (new UserPasswordResetService())->reset(
+            $tenantBUserId,
+            $tenantAActorId
+        );
+    $check(
+        $foreignReset['successful'] === false
+        && !empty($foreignReset['notFound']),
+        'Tenant A cannot reset Tenant B password'
+    );
+
+    $foreignUnlock =
+        (new UserAccountUnlockService())->unlock(
+            $tenantBUserId,
+            $tenantAActorId
+        );
+    $check(
+        $foreignUnlock['successful'] === false
+        && !empty($foreignUnlock['notFound']),
+        'Tenant A cannot unlock Tenant B account'
+    );
+
+    $tenantBTargetStatement->execute([
+        'username' => 'test_tenant_b_user',
+        'company_code' => 'test_tenant_b',
+    ]);
+    $tenantBTargetAfter = $tenantBTargetStatement->fetch(
+        \PDO::FETCH_ASSOC
+    );
+
+    $check(
+        is_array($tenantBTarget)
+        && is_array($tenantBTargetAfter)
+        && $tenantBTargetAfter === $tenantBTarget,
+        'Rejected cross-tenant mutations leave Tenant B unchanged'
+    );
 } catch (Throwable $exception) {
     $failures++;
     $results[] = [

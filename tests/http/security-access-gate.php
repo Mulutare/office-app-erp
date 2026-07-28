@@ -186,6 +186,25 @@ function login(
     );
 }
 
+function csrfTokenFromBody(string $body): string
+{
+    if (
+        preg_match(
+            '/name="_token"\s+value="([^"]+)"/',
+            $body,
+            $matches
+        ) !== 1
+    ) {
+        return '';
+    }
+
+    return html_entity_decode(
+        $matches[1],
+        ENT_QUOTES,
+        'UTF-8'
+    );
+}
+
 $publicCookies = [];
 $diagnostics = httpRequest(
     $baseUrl,
@@ -367,6 +386,158 @@ foreach ($protectedPlatformPaths as $path) {
             . $path
     );
 }
+
+$tenantAAdminCookies = [];
+$tenantAAdminLogin = login(
+    $baseUrl,
+    'test_tenant_a_admin',
+    $password,
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAAdminLogin['status'] === 302
+    && str_ends_with(
+        $tenantAAdminLogin['location'],
+        '/dashboard'
+    ),
+    'Tenant A administrator authenticates'
+);
+
+$tenantBUserId = 910002;
+$tenantBSearch = httpRequest(
+    $baseUrl,
+    '/administration/users?search=test_tenant_b_user',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantBSearch['status'] === 200
+    && !str_contains(
+        $tenantBSearch['body'],
+        '/administration/users/view?id='
+            . $tenantBUserId
+    )
+    && !str_contains(
+        $tenantBSearch['body'],
+        'tenant-b-user@example.test'
+    ),
+    'Tenant A directory does not reveal Tenant B user'
+);
+
+$foreignTenantPaths = [
+    '/administration/users/view?id='
+        . $tenantBUserId,
+    '/administration/users/edit?id='
+        . $tenantBUserId,
+    '/administration/users/reset-password?id='
+        . $tenantBUserId,
+    '/administration/users/account-status?id='
+        . $tenantBUserId,
+    '/administration/users/unlock?id='
+        . $tenantBUserId,
+];
+
+foreach ($foreignTenantPaths as $path) {
+    $response = httpRequest(
+        $baseUrl,
+        $path,
+        $tenantAAdminCookies
+    );
+
+    $check(
+        $response['status'] === 404,
+        'Tenant A receives 404 for Tenant B route: '
+            . $path
+    );
+}
+
+$tenantACreateForm = httpRequest(
+    $baseUrl,
+    '/administration/users/create',
+    $tenantAAdminCookies
+);
+$tenantACsrf = csrfTokenFromBody(
+    $tenantACreateForm['body']
+);
+$check(
+    $tenantACreateForm['status'] === 200
+    && $tenantACsrf !== '',
+    'Tenant A state-changing test obtains a valid CSRF token'
+);
+
+$foreignTenantMutations = [
+    [
+        'path' => '/administration/users/update',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'user_id' => (string) $tenantBUserId,
+            'username' => 'test_tenant_b_user',
+            'email' => 'tenant-b-user@example.test',
+            'display_name' => 'Test Tenant B User',
+            'active' => '1',
+        ],
+        'label' => 'profile and role update',
+    ],
+    [
+        'path' =>
+            '/administration/users/reset-password',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'user_id' => (string) $tenantBUserId,
+        ],
+        'label' => 'password reset',
+    ],
+    [
+        'path' =>
+            '/administration/users/account-status',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'user_id' => (string) $tenantBUserId,
+            'active' => '0',
+        ],
+        'label' => 'account status change',
+    ],
+    [
+        'path' => '/administration/users/unlock',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'user_id' => (string) $tenantBUserId,
+        ],
+        'label' => 'account unlock',
+    ],
+];
+
+foreach ($foreignTenantMutations as $mutation) {
+    $response = httpRequest(
+        $baseUrl,
+        $mutation['path'],
+        $tenantAAdminCookies,
+        'POST',
+        $mutation['form']
+    );
+
+    $check(
+        $response['status'] === 404,
+        'Tenant A cross-tenant '
+            . $mutation['label']
+            . ' is rejected'
+    );
+}
+
+$tenantBUserCookies = [];
+$tenantBUserLogin = login(
+    $baseUrl,
+    'test_tenant_b_user',
+    $password,
+    $tenantBUserCookies
+);
+$check(
+    $tenantBUserLogin['status'] === 302
+    && str_ends_with(
+        $tenantBUserLogin['location'],
+        '/dashboard'
+    ),
+    'Tenant B credentials remain valid after rejected attacks'
+);
 
 foreach ($results as $result) {
     echo $result['passed'] ? 'PASS ' : 'FAIL ';
