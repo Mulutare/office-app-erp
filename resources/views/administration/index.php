@@ -52,6 +52,16 @@ $modules = [
         'tenantOnly' => true,
     ],
     [
+        'title' => 'Job title catalogue',
+        'description' =>
+            'Standardize job titles, job families and grade references for workforce planning.',
+        'path' =>
+            '/office_app/public/organization/job-titles',
+        'permission' =>
+            'organization.job_titles.view',
+        'tenantOnly' => true,
+    ],
+    [
         'title' => 'Audit logs',
         'description' =>
             'Review security and business activity records.',

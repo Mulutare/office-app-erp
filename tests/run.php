@@ -26,6 +26,7 @@ use App\Services\EmployeeActivityService;
 use App\Services\EmployeeDirectoryService;
 use App\Services\EmployeeUpdateService;
 use App\Services\FinanceDashboardService;
+use App\Services\JobTitleManagementService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\RolePermissionUpdateService;
 use App\Services\UserAccountStatusService;
@@ -259,8 +260,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 7,
-        'Oracle migration catalog contains seven valid definitions'
+        && count($oracleMigrationFiles) === 8,
+        'Oracle migration catalog contains eight valid definitions'
     );
 
     $check(
@@ -279,6 +280,7 @@ try {
                 '050',
                 '060',
                 '070',
+                '080',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -297,8 +299,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 18
-        && $oracleIdentityCount === 12,
+        $oracleTableCount === 19
+        && $oracleIdentityCount === 13,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -374,8 +376,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 18,
-        'All 18 application tables were created'
+        $tableCount === 19,
+        'All 19 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -387,8 +389,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 46,
-        'All 46 foreign-key relationships were created'
+        $foreignKeyCount === 49,
+        'All 49 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -788,6 +790,16 @@ try {
         'Tenant A administrator has branch-management permissions'
     );
 
+    $check(
+        $tenantAAuthentication->can(
+            'organization.job_titles.view'
+        )
+        && $tenantAAuthentication->can(
+            'organization.job_titles.manage'
+        ),
+        'Tenant A administrator has job-title management permissions'
+    );
+
     $tenantAModules = is_array(
         $_SESSION['auth']['modules'] ?? null
     )
@@ -1025,6 +1037,117 @@ try {
             ]
         ),
         'Branch rules enforce one head office per company'
+    );
+
+    $jobTitleManagement =
+        new JobTitleManagementService();
+    $jobTitleListing =
+        $jobTitleManagement->listing();
+    $jobTitleNames = array_map(
+        static fn (array $jobTitle): string =>
+            (string) ($jobTitle['name'] ?? ''),
+        $jobTitleListing['jobTitles']
+    );
+
+    $check(
+        in_array(
+            'Tenant A Security Analyst',
+            $jobTitleNames,
+            true
+        )
+        && !in_array(
+            'Tenant B Confidential Manager',
+            $jobTitleNames,
+            true
+        ),
+        'Tenant A job-title catalogue excludes Tenant B records'
+    );
+
+    $check(
+        $jobTitleManagement->form(940002) === null,
+        'Tenant A cannot open a Tenant B job title'
+    );
+
+    $foreignJobTitleUpdate =
+        $jobTitleManagement->update(
+            940002,
+            [],
+            $tenantAActorId
+        );
+    $check(
+        $foreignJobTitleUpdate['successful']
+            === false
+        && !empty(
+            $foreignJobTitleUpdate['notFound']
+        ),
+        'Tenant A cannot update a Tenant B job title'
+    );
+
+    $jobTitleSuffix = strtoupper(
+        bin2hex(random_bytes(4))
+    );
+    $jobTitleInput = [
+        'code' => 'JT-' . $jobTitleSuffix,
+        'name' => 'Integration Specialist '
+            . $jobTitleSuffix,
+        'job_family' => 'Integration Services',
+        'grade_level' => 'P2',
+        'description' =>
+            'Automated job-title integration fixture',
+        'active' => true,
+    ];
+    $createdJobTitle =
+        $jobTitleManagement->create(
+            $jobTitleInput,
+            $tenantAActorId
+        );
+
+    $check(
+        $createdJobTitle['successful'] === true
+        && (int) (
+            $createdJobTitle['jobTitleId'] ?? 0
+        ) > 0,
+        'Tenant job-title creation succeeds with valid data'
+    );
+
+    $duplicateJobTitle =
+        $jobTitleManagement->create(
+            $jobTitleInput,
+            $tenantAActorId
+        );
+    $check(
+        $duplicateJobTitle['successful'] === false
+        && isset(
+            $duplicateJobTitle['errors']['code']
+        ),
+        'Tenant job-title creation rejects duplicate codes'
+    );
+
+    $createdJobTitleId = (int) (
+        $createdJobTitle['jobTitleId'] ?? 0
+    );
+    $jobTitleAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND action = :action
+           AND module = :module
+           AND table_name = :table_name
+           AND record_id = :record_id'
+    );
+    $jobTitleAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'action' => 'CREATE',
+        'module' => 'organization',
+        'table_name' =>
+            'organization_job_titles',
+        'record_id' =>
+            (string) $createdJobTitleId,
+    ]);
+    $check(
+        (int) $jobTitleAuditStatement
+            ->fetchColumn() === 1,
+        'Job-title creation records a company-scoped audit event'
     );
 
     $financeDashboard =

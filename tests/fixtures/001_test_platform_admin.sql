@@ -631,6 +631,58 @@ ON DUPLICATE KEY UPDATE
 
 
 /*
+ * Phase B2 cross-company job-title records.
+ */
+INSERT INTO organization_job_titles
+    (
+        job_title_id,
+        company_id,
+        code,
+        name,
+        job_family,
+        grade_level,
+        description,
+        active,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        940001,
+        @tenant_a_company_id,
+        'TA-SEC-ANL',
+        'Tenant A Security Analyst',
+        'Information Security',
+        'P3',
+        'Tenant A job-title isolation fixture',
+        TRUE,
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        940002,
+        @tenant_b_company_id,
+        'TB-CONF-MGR',
+        'Tenant B Confidential Manager',
+        'Confidential Operations',
+        'M2',
+        'Tenant B job-title isolation fixture',
+        TRUE,
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    code = VALUES(code),
+    name = VALUES(name),
+    job_family = VALUES(job_family),
+    grade_level = VALUES(grade_level),
+    description = VALUES(description),
+    active = TRUE,
+    deleted_at = NULL;
+
+
+/*
  * Phase A6 cross-company HR and Finance records.
  */
 INSERT INTO company_modules

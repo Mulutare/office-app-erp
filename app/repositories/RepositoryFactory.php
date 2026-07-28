@@ -16,6 +16,10 @@ use App\Repositories\MySql\AuditLogRepository
     as MySqlAuditLogRepository;
 use App\Repositories\Oracle\AuditLogRepository
     as OracleAuditLogRepository;
+use App\Repositories\MySql\JobTitleRepository
+    as MySqlJobTitleRepository;
+use App\Repositories\Oracle\JobTitleRepository
+    as OracleJobTitleRepository;
 use RuntimeException;
 
 /**
@@ -23,6 +27,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function jobTitles():
+        JobTitleRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlJobTitleRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleJobTitleRepository();
+        }
+
+        throw new RuntimeException(
+            'No job-title repository is available for the configured database driver.'
+        );
+    }
+
     public static function auditLogs(): AuditLogWriter
     {
         if (\databaseDriver()->name() === 'mysql') {

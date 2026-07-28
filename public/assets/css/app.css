@@ -3800,3 +3800,78 @@ a {
         grid-template-columns: 1fr;
     }
 }
+
+/* Tenant organization: job-title catalogue */
+.job-title-overview {
+    display: grid;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.job-title-overview-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.job-title-overview-heading h2 {
+    margin: 5px 0 7px;
+    color: var(--color-primary-dark);
+    font-size: 1.25rem;
+}
+
+.job-title-overview-heading p {
+    max-width: 680px;
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.job-title-metrics {
+    display: grid;
+    grid-template-columns:
+        repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.job-title-metrics .card {
+    display: grid;
+    gap: 7px;
+    padding: 18px 20px;
+}
+
+.job-title-metrics span {
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.job-title-metrics strong {
+    color: var(--color-primary-dark);
+    font-size: 1.45rem;
+}
+
+.job-title-description {
+    min-width: 250px;
+    max-width: 430px;
+    white-space: normal !important;
+}
+
+.job-title-form {
+    max-width: 980px;
+}
+
+@media (max-width: 720px) {
+    .job-title-overview-heading {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .job-title-overview-heading .btn {
+        justify-content: center;
+    }
+
+    .job-title-metrics {
+        grid-template-columns: 1fr;
+    }
+}

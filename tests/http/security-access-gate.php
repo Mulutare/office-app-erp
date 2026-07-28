@@ -323,6 +323,15 @@ $check(
     $platformBranches['status'] === 403,
     'Platform administrator is denied tenant branch routes'
 );
+$platformJobTitles = httpRequest(
+    $baseUrl,
+    '/organization/job-titles',
+    $platformAdminCookies
+);
+$check(
+    $platformJobTitles['status'] === 403,
+    'Platform administrator is denied tenant job-title routes'
+);
 
 $companyAdminCookies = [];
 $companyAdminLogin = login(
@@ -493,6 +502,38 @@ $check(
     'Tenant A receives 404 for Tenant B branch'
 );
 
+$tenantAJobTitles = httpRequest(
+    $baseUrl,
+    '/organization/job-titles',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAJobTitles['status'] === 200
+    && str_contains(
+        $tenantAJobTitles['body'],
+        'Tenant A Security Analyst'
+    )
+    && !str_contains(
+        $tenantAJobTitles['body'],
+        'Tenant B Confidential Manager'
+    ),
+    'Tenant A job-title catalogue exposes only Tenant A records'
+);
+
+$foreignJobTitle = httpRequest(
+    $baseUrl,
+    '/organization/job-titles/edit?id=940002',
+    $tenantAAdminCookies
+);
+$check(
+    $foreignJobTitle['status'] === 404
+    && !str_contains(
+        $foreignJobTitle['body'],
+        'Tenant B Confidential Manager'
+    ),
+    'Tenant A receives 404 for Tenant B job title'
+);
+
 $tenantADashboard = httpRequest(
     $baseUrl,
     '/dashboard',
@@ -622,6 +663,15 @@ $check(
 );
 
 $foreignHrMutations = [
+    [
+        'path' =>
+            '/organization/job-titles/update',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'job_title_id' => '940002',
+        ],
+        'label' => 'job-title update',
+    ],
     [
         'path' => '/organization/branches/update',
         'form' => [
@@ -770,6 +820,34 @@ $tenantBBranchCreate = httpRequest(
 $check(
     $tenantBBranchCreate['status'] === 403,
     'Tenant branch viewer cannot open branch management'
+);
+
+$tenantBJobTitles = httpRequest(
+    $baseUrl,
+    '/organization/job-titles',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBJobTitles['status'] === 200
+    && str_contains(
+        $tenantBJobTitles['body'],
+        'Tenant B Confidential Manager'
+    )
+    && !str_contains(
+        $tenantBJobTitles['body'],
+        'Tenant A Security Analyst'
+    ),
+    'Tenant B viewer sees only its own job-title catalogue'
+);
+
+$tenantBJobTitleCreate = httpRequest(
+    $baseUrl,
+    '/organization/job-titles/create',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBJobTitleCreate['status'] === 403,
+    'Tenant job-title viewer cannot open management forms'
 );
 
 $tenantBOwnFinance = httpRequest(
