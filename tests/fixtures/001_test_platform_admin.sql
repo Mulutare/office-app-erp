@@ -561,6 +561,243 @@ VALUES
 ON DUPLICATE KEY UPDATE
     assigned_by = VALUES(assigned_by);
 
+
+/*
+ * Phase A6 cross-company HR and Finance records.
+ */
+INSERT INTO company_modules
+    (
+        company_id,
+        module_id,
+        enabled,
+        license_status,
+        licensed_at,
+        expires_at,
+        updated_by
+    )
+SELECT
+    @tenant_b_company_id,
+    modules.module_id,
+    TRUE,
+    'active',
+    NOW(),
+    NULL,
+    @test_user_id
+FROM erp_modules modules
+WHERE modules.code = 'finance'
+ON DUPLICATE KEY UPDATE
+    enabled = TRUE,
+    license_status = 'active',
+    licensed_at = VALUES(licensed_at),
+    expires_at = NULL,
+    updated_by = VALUES(updated_by);
+
+INSERT INTO hr_departments
+    (
+        department_id,
+        company_id,
+        code,
+        name,
+        description,
+        active,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        9201,
+        @tenant_a_company_id,
+        'TA-SEC',
+        'Tenant A Security',
+        'Cross-company isolation fixture',
+        TRUE,
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        9202,
+        @tenant_b_company_id,
+        'TB-SEC',
+        'Tenant B Confidential',
+        'Cross-company isolation fixture',
+        TRUE,
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    code = VALUES(code),
+    name = VALUES(name),
+    description = VALUES(description),
+    active = TRUE,
+    deleted_at = NULL;
+
+INSERT INTO hr_employees
+    (
+        employee_id,
+        company_id,
+        employee_number,
+        user_id,
+        first_name,
+        last_name,
+        work_email,
+        department_id,
+        job_title,
+        employment_type,
+        employment_status,
+        hire_date,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        920001,
+        @tenant_a_company_id,
+        'TA-EMP-SEC',
+        NULL,
+        'Alice',
+        'TenantA',
+        'alice-tenant-a@example.test',
+        9201,
+        'Tenant A Analyst',
+        'permanent',
+        'active',
+        '2026-01-01',
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        920002,
+        @tenant_b_company_id,
+        'TB-EMP-CONFIDENTIAL',
+        NULL,
+        'Bob',
+        'TenantB',
+        'bob-tenant-b@example.test',
+        9202,
+        'Tenant B Confidential Analyst',
+        'permanent',
+        'active',
+        '2026-01-01',
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    employee_number = VALUES(employee_number),
+    user_id = NULL,
+    first_name = VALUES(first_name),
+    last_name = VALUES(last_name),
+    work_email = VALUES(work_email),
+    department_id = VALUES(department_id),
+    job_title = VALUES(job_title),
+    employment_status = 'active',
+    deleted_at = NULL;
+
+INSERT INTO finance_expense_categories
+    (
+        category_id,
+        company_id,
+        code,
+        name,
+        description,
+        active,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        9201,
+        @tenant_a_company_id,
+        'TA-SEC',
+        'Tenant A Security Expense',
+        'Cross-company isolation fixture',
+        TRUE,
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        9202,
+        @tenant_b_company_id,
+        'TB-SEC',
+        'Tenant B Confidential Expense',
+        'Cross-company isolation fixture',
+        TRUE,
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    code = VALUES(code),
+    name = VALUES(name),
+    description = VALUES(description),
+    active = TRUE,
+    deleted_at = NULL;
+
+INSERT INTO finance_expense_requests
+    (
+        expense_request_id,
+        company_id,
+        request_number,
+        requested_by_employee_id,
+        category_id,
+        title,
+        description,
+        amount,
+        currency,
+        expense_date,
+        status,
+        submitted_at,
+        created_by,
+        updated_by
+    )
+VALUES
+    (
+        920001,
+        @tenant_a_company_id,
+        'TA-EXP-SEC',
+        920001,
+        9201,
+        'Tenant A Security Expense',
+        'Tenant A confidential finance fixture',
+        1250.00,
+        'KES',
+        '2026-07-01',
+        'submitted',
+        NOW(),
+        @tenant_a_admin_user_id,
+        @tenant_a_admin_user_id
+    ),
+    (
+        920002,
+        @tenant_b_company_id,
+        'TB-EXP-CONFIDENTIAL',
+        920002,
+        9202,
+        'Tenant B Confidential Expense',
+        'Tenant B confidential finance fixture',
+        2450.00,
+        'KES',
+        '2026-07-02',
+        'submitted',
+        NOW(),
+        @tenant_b_user_id,
+        @tenant_b_user_id
+    )
+ON DUPLICATE KEY UPDATE
+    company_id = VALUES(company_id),
+    request_number = VALUES(request_number),
+    requested_by_employee_id =
+        VALUES(requested_by_employee_id),
+    category_id = VALUES(category_id),
+    title = VALUES(title),
+    description = VALUES(description),
+    amount = VALUES(amount),
+    currency = VALUES(currency),
+    expense_date = VALUES(expense_date),
+    status = VALUES(status),
+    deleted_at = NULL;
+
 INSERT INTO company_user_roles
     (
         company_id,

@@ -464,6 +464,31 @@ $check(
     'Licensed HR direct route is accessible'
 );
 
+$foreignHrPaths = [
+    '/hr/employees/view?id=920002',
+    '/hr/employees/activity?id=920002',
+    '/hr/employees/edit?id=920002',
+    '/hr/departments/edit?id=9202',
+];
+
+foreach ($foreignHrPaths as $path) {
+    $response = httpRequest(
+        $baseUrl,
+        $path,
+        $tenantAAdminCookies
+    );
+
+    $check(
+        $response['status'] === 404
+        && !str_contains(
+            $response['body'],
+            'Tenant B Confidential'
+        ),
+        'Tenant A receives 404 for Tenant B HR route: '
+            . $path
+    );
+}
+
 $unlicensedFinance = httpRequest(
     $baseUrl,
     '/finance',
@@ -539,6 +564,46 @@ $check(
     'Tenant A state-changing test obtains a valid CSRF token'
 );
 
+$foreignHrMutations = [
+    [
+        'path' => '/hr/employees/update',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'employee_id' => '920002',
+        ],
+        'label' => 'employee update',
+    ],
+    [
+        'path' => '/hr/departments/update',
+        'form' => [
+            '_token' => $tenantACsrf,
+            'department_id' => '9202',
+        ],
+        'label' => 'department update',
+    ],
+];
+
+foreach ($foreignHrMutations as $mutation) {
+    $response = httpRequest(
+        $baseUrl,
+        $mutation['path'],
+        $tenantAAdminCookies,
+        'POST',
+        $mutation['form']
+    );
+
+    $check(
+        $response['status'] === 404
+        && !str_contains(
+            $response['body'],
+            'Tenant B Confidential'
+        ),
+        'Tenant A cross-company '
+            . $mutation['label']
+            . ' is rejected with 404'
+    );
+}
+
 $foreignTenantMutations = [
     [
         'path' => '/administration/users/update',
@@ -612,6 +677,34 @@ $check(
         '/dashboard'
     ),
     'Tenant B credentials remain valid after rejected attacks'
+);
+
+$tenantBOwnFinance = httpRequest(
+    $baseUrl,
+    '/finance?search=TB-EXP-CONFIDENTIAL',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBOwnFinance['status'] === 200
+    && str_contains(
+        $tenantBOwnFinance['body'],
+        'Tenant B Confidential Expense'
+    ),
+    'Tenant B can find its licensed Finance record'
+);
+
+$tenantBForeignFinance = httpRequest(
+    $baseUrl,
+    '/finance?search=TA-EXP-SEC',
+    $tenantBUserCookies
+);
+$check(
+    $tenantBForeignFinance['status'] === 200
+    && !str_contains(
+        $tenantBForeignFinance['body'],
+        'Tenant A Security Expense'
+    ),
+    'Tenant B Finance search does not reveal Tenant A records'
 );
 
 $delegatedAdminCookies = [];

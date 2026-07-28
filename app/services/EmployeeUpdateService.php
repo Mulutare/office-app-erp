@@ -56,6 +56,7 @@ final class EmployeeUpdateService
      *
      * @return array{
      *     successful: bool,
+     *     notFound?: bool,
      *     errors: array<string, string>,
      *     employeeId?: int,
      *     employeeName?: string,
@@ -76,10 +77,8 @@ final class EmployeeUpdateService
         if ($employee === null) {
             return [
                 'successful' => false,
-                'errors' => [
-                    'form' =>
-                        'The employee record no longer exists.',
-                ],
+                'notFound' => true,
+                'errors' => [],
             ];
         }
 

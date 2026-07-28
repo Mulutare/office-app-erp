@@ -20,6 +20,11 @@ use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
 use App\Services\CompanyModuleService;
 use App\Services\DashboardService;
+use App\Services\DepartmentManagementService;
+use App\Services\EmployeeActivityService;
+use App\Services\EmployeeDirectoryService;
+use App\Services\EmployeeUpdateService;
+use App\Services\FinanceDashboardService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\RolePermissionUpdateService;
 use App\Services\UserAccountStatusService;
@@ -798,6 +803,118 @@ try {
     $check(
         !$companyModules->isEnabled('finance'),
         'Unlicensed Finance module fails the central entitlement check'
+    );
+
+    $foreignEmployeeId = 920002;
+    $foreignDepartmentId = 9202;
+    $employeeDirectory =
+        new EmployeeDirectoryService();
+    $foreignEmployeeSearch =
+        $employeeDirectory->directory(
+            'TB-EMP-CONFIDENTIAL',
+            '',
+            0,
+            1
+        );
+
+    $check(
+        ($foreignEmployeeSearch['employees'] ?? null)
+            === []
+        && (
+            $foreignEmployeeSearch[
+                'pagination'
+            ]['total'] ?? null
+        ) === 0,
+        'Tenant A employee directory does not reveal Tenant B records'
+    );
+
+    $check(
+        $employeeDirectory->profile(
+            $foreignEmployeeId
+        ) === null,
+        'Tenant A cannot open a Tenant B employee profile'
+    );
+
+    $check(
+        (new EmployeeActivityService())->listing(
+            $foreignEmployeeId,
+            1
+        ) === null,
+        'Tenant A cannot read Tenant B employee activity'
+    );
+
+    $foreignEmployeeUpdate =
+        (new EmployeeUpdateService())->update(
+            $foreignEmployeeId,
+            [],
+            $tenantAActorId
+        );
+    $check(
+        $foreignEmployeeUpdate['successful']
+            === false
+        && !empty(
+            $foreignEmployeeUpdate['notFound']
+        ),
+        'Tenant A cannot update a Tenant B employee'
+    );
+
+    $departmentManagement =
+        new DepartmentManagementService();
+    $check(
+        $departmentManagement->form(
+            $foreignDepartmentId
+        ) === null,
+        'Tenant A cannot open a Tenant B department'
+    );
+
+    $foreignDepartmentUpdate =
+        $departmentManagement->update(
+            $foreignDepartmentId,
+            [],
+            $tenantAActorId
+        );
+    $check(
+        $foreignDepartmentUpdate['successful']
+            === false
+        && !empty(
+            $foreignDepartmentUpdate['notFound']
+        ),
+        'Tenant A cannot update a Tenant B department'
+    );
+
+    $financeDashboard =
+        new FinanceDashboardService();
+    $ownFinanceSearch =
+        $financeDashboard->dashboard(
+            'TA-EXP-SEC',
+            '',
+            1
+        );
+    $foreignFinanceSearch =
+        $financeDashboard->dashboard(
+            'TB-EXP-CONFIDENTIAL',
+            '',
+            1
+        );
+
+    $check(
+        (
+            $ownFinanceSearch['pagination'][
+                'total'
+            ] ?? null
+        ) === 1,
+        'Finance search retains the active company parameter'
+    );
+
+    $check(
+        ($foreignFinanceSearch['requests'] ?? null)
+            === []
+        && (
+            $foreignFinanceSearch[
+                'pagination'
+            ]['total'] ?? null
+        ) === 0,
+        'Tenant A finance search does not reveal Tenant B records'
     );
 
     $tenantBTargetStatement = db()->prepare(

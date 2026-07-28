@@ -228,7 +228,7 @@ class ExpenseRequestRepository extends MySqlRepository
                     LIKE :search_category
             )';
             $searchValue = '%' . $search . '%';
-            $parameters = [
+            $parameters += [
                 'search_request' => $searchValue,
                 'search_title' => $searchValue,
                 'search_employee_number' =>

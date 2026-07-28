@@ -49,6 +49,7 @@ final class DepartmentManagementService
      *
      * @return array{
      *     successful: bool,
+     *     notFound?: bool,
      *     errors: array<string, string>,
      *     departmentId?: int,
      *     departmentName?: string,
@@ -69,10 +70,8 @@ final class DepartmentManagementService
         if ($department === null) {
             return [
                 'successful' => false,
-                'errors' => [
-                    'form' =>
-                        'The department record no longer exists.',
-                ],
+                'notFound' => true,
+                'errors' => [],
             ];
         }
 

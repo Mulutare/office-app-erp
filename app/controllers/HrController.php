@@ -313,6 +313,10 @@ final class HrController
             (int) $_SESSION['auth']['user_id']
         );
 
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
         if (!$result['successful']) {
             \flash(
                 'employee_update_errors',
@@ -545,6 +549,10 @@ final class HrController
                 $input,
                 (int) $_SESSION['auth']['user_id']
             );
+
+        if (!empty($result['notFound'])) {
+            $this->departmentNotFound();
+        }
 
         if (!$result['successful']) {
             \flash(
