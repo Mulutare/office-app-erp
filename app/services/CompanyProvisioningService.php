@@ -519,6 +519,43 @@ final class CompanyProvisioningService
             return null;
         }
 
+        $ownerUserId = (int) (
+            $company['owner_user_id'] ?? 0
+        );
+        $owner = $ownerUserId > 0
+            ? $this->users->findByIdInCompany(
+                $ownerUserId,
+                $companyId
+            )
+            : null;
+
+        if (is_array($owner)) {
+            $lockedUntil =
+                $owner['locked_until'] ?? null;
+            $lockedTimestamp = is_string(
+                $lockedUntil
+            )
+                ? strtotime($lockedUntil)
+                : false;
+            $company['owner_account_active'] =
+                !empty($owner['active']);
+            $company['owner_account_locked'] =
+                $lockedTimestamp !== false
+                && $lockedTimestamp > time();
+            $company[
+                'owner_must_change_password'
+            ] = !empty(
+                $owner['must_change_password']
+            );
+            $company['owner_last_login_at'] =
+                $owner['last_login_at'] ?? null;
+            $company[
+                'owner_password_changed_at'
+            ] = $owner[
+                'password_changed_at'
+            ] ?? null;
+        }
+
         $company += $this->statusPresentation(
             $company
         );

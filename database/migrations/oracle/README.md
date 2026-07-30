@@ -1,6 +1,6 @@
 # Oracle migrations
 
-These PHP migration definitions build the same final 17-table logical schema
+These PHP migration definitions build the same final 27-table logical schema
 used by the MySQL/MariaDB reference implementation.
 
 They are intentionally separate because Oracle uses:

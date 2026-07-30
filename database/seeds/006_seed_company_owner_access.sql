@@ -9,7 +9,7 @@ INSERT INTO roles
 SELECT
     'Company Owner',
     'company_owner',
-    'Owns company users, access and licensed ERP operations',
+    'Administers company users, security, configuration and licensed ERP operations',
     TRUE,
     TRUE
 WHERE NOT EXISTS (
@@ -17,6 +17,15 @@ WHERE NOT EXISTS (
     FROM roles
     WHERE code = 'company_owner'
 );
+
+UPDATE roles
+SET
+    name = 'Company Owner',
+    description =
+        'Administers company users, security, configuration and licensed ERP operations',
+    is_system = TRUE,
+    active = TRUE
+WHERE code = 'company_owner';
 
 INSERT INTO role_permissions
     (
@@ -35,6 +44,7 @@ WHERE roles.code = 'company_owner'
       'administration.companies.manage',
       'administration.modules.manage'
   )
+  AND permissions.code NOT LIKE '%.self.%'
   AND NOT EXISTS (
       SELECT 1
       FROM role_permissions existing

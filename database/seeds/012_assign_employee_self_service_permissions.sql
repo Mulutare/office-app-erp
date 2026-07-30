@@ -78,7 +78,6 @@ WHERE (
    OR (
         roles.code IN (
             'system_administrator',
-            'company_owner',
             'executive_viewer',
             'hr_administrator',
             'it_administrator',
@@ -92,6 +91,11 @@ WHERE (
             'hr.leave.self.request',
             'hr.leave.team.approve'
         )
+    )
+   OR (
+        roles.code = 'company_owner'
+        AND permissions.code =
+            'hr.leave.team.approve'
     )
 ON DUPLICATE KEY UPDATE
     permission_id = VALUES(permission_id);

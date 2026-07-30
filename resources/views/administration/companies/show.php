@@ -26,6 +26,14 @@ $ownerCredentials = is_array(
 )
     ? $data['ownerCredentials']
     : null;
+$ownerCredentialPurpose = is_array(
+    $ownerCredentials
+)
+    ? (string) (
+        $ownerCredentials['purpose']
+        ?? 'provisioning'
+    )
+    : '';
 $approvalErrors = is_array(
     $data['approvalErrors'] ?? null
 )
@@ -58,7 +66,9 @@ $companyInitials = strtoupper(substr(
         role="status"
     >
         <strong>
-            Company owner credentials
+            <?= $ownerCredentialPurpose === 'reset'
+                ? 'Company owner password reset'
+                : 'Company owner credentials' ?>
         </strong>
         <p>
             Transfer these credentials securely. The
@@ -86,8 +96,16 @@ $companyInitials = strtoupper(substr(
             </div>
         </dl>
         <p class="credential-warning">
-            The owner cannot sign in until the vendor
-            approves this company.
+            <?php if (
+                $ownerCredentialPurpose === 'reset'
+            ): ?>
+                The previous password no longer works.
+                The owner must change this temporary
+                password at the next successful sign-in.
+            <?php else: ?>
+                The owner cannot sign in until the vendor
+                approves this company.
+            <?php endif; ?>
         </p>
     </section>
 <?php endif; ?>
@@ -348,6 +366,7 @@ $companyInitials = strtoupper(substr(
                 </dd>
             </div>
         </dl>
+
     </article>
 
     <article class="card company-profile-panel">
@@ -380,7 +399,95 @@ $companyInitials = strtoupper(substr(
                     ) ?>
                 </dd>
             </div>
+            <div>
+                <dt>Account</dt>
+                <dd>
+                    <?php if (
+                        !empty(
+                            $company[
+                                'owner_account_locked'
+                            ]
+                        )
+                    ): ?>
+                        <span class="badge badge-danger">
+                            Locked
+                        </span>
+                    <?php elseif (
+                        !empty(
+                            $company[
+                                'owner_account_active'
+                            ]
+                        )
+                    ): ?>
+                        <span class="badge badge-success">
+                            Active
+                        </span>
+                    <?php else: ?>
+                        <span class="badge badge-muted">
+                            Inactive
+                        </span>
+                    <?php endif; ?>
+                </dd>
+            </div>
+            <div>
+                <dt>Last login</dt>
+                <dd>
+                    <?= e(
+                        $company[
+                            'owner_last_login_at'
+                        ] ?? 'Never'
+                    ) ?>
+                </dd>
+            </div>
+            <div>
+                <dt>Password</dt>
+                <dd>
+                    <?php if (
+                        !empty(
+                            $company[
+                                'owner_must_change_password'
+                            ]
+                        )
+                    ): ?>
+                        Change required
+                    <?php else: ?>
+                        Updated
+                        <?= e(
+                            $company[
+                                'owner_password_changed_at'
+                            ] ?? 'date unavailable'
+                        ) ?>
+                    <?php endif; ?>
+                </dd>
+            </div>
         </dl>
+
+        <?php if (
+            (int) (
+                $company['owner_user_id'] ?? 0
+            ) > 0
+            && (string) (
+                $company['code'] ?? ''
+            ) !== 'default'
+        ): ?>
+            <div class="company-owner-security-action">
+                <div>
+                    <strong>Owner credential recovery</strong>
+                    <small>
+                        Vendor-only, audited and
+                        one-time.
+                    </small>
+                </div>
+                <a
+                    href="/office_app/public/administration/companies/reset-owner-password?id=<?= e(
+                        $company['company_id'] ?? 0
+                    ) ?>"
+                    class="btn btn-secondary"
+                >
+                    Reset owner password
+                </a>
+            </div>
+        <?php endif; ?>
     </article>
 
     <article class="card company-profile-panel">

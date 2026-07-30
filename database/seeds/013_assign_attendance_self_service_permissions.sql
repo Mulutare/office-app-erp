@@ -55,7 +55,6 @@ WHERE (
    OR (
         roles.code IN (
             'system_administrator',
-            'company_owner',
             'executive_viewer',
             'hr_administrator',
             'it_administrator',
@@ -69,6 +68,11 @@ WHERE (
             'attendance.self.record',
             'attendance.team.view'
         )
+    )
+   OR (
+        roles.code = 'company_owner'
+        AND permissions.code =
+            'attendance.team.view'
     )
 ON DUPLICATE KEY UPDATE
     permission_id = VALUES(permission_id);

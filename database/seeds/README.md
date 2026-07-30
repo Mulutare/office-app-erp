@@ -6,8 +6,9 @@ migration:
 1. `001_seed_roles_and_permissions.sql`
 2. `002_assign_system_administrator_permissions.sql`
 3. `003_assign_standard_role_permissions.sql`
-4. Continue through the remaining numbered, additive module seeds,
-   including `013_assign_attendance_self_service_permissions.sql`.
+4. Continue through the remaining numbered, additive module seeds.
+5. Always run the final owner-access cleanup seed so populated installations
+   receive the current administrative-only company owner baseline.
 
 For a configured MySQL/MariaDB application, run the full repeatable catalog
 with:
@@ -35,6 +36,7 @@ Future modules should:
 | Role | Baseline permissions |
 |---|---|
 | `system_administrator` | Every active permission |
+| `company_owner` | Company administration, audit, licensed-module management and team oversight; no employee self-service by default |
 | `executive_viewer` | Dashboard and read-only access to HR, IT, Finance, and Business records |
 | `hr_administrator` | Dashboard plus HR view and management |
 | `it_administrator` | Dashboard plus IT view and management |

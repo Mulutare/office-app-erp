@@ -25,6 +25,7 @@ use App\Services\AttendanceSelfServiceService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
 use App\Services\CompanyLifecycleService;
+use App\Services\CompanyOwnerPasswordResetService;
 use App\Services\CompanyProvisioningService;
 use App\Services\CompanyUpdateService;
 use App\Services\DashboardService;
@@ -274,8 +275,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 17,
-        'Oracle migration catalog contains seventeen valid definitions'
+        && count($oracleMigrationFiles) === 18,
+        'Oracle migration catalog contains eighteen valid definitions'
     );
 
     $check(
@@ -304,6 +305,7 @@ try {
                 '150',
                 '160',
                 '170',
+                '180',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -536,8 +538,8 @@ try {
     )->fetch(\PDO::FETCH_ASSOC);
 
     $check(
-        count($synchronization['files']) === 15
-        && $synchronization['statementCount'] > 15
+        count($synchronization['files']) === 16
+        && $synchronization['statementCount'] > 16
         && $referenceCountsBefore
             === $referenceCountsAfter,
         'MySQL reference-data synchronization is repeatable without duplicate grants'
@@ -988,6 +990,176 @@ try {
             'administration.roles.manage'
         ),
         'Tenant A administrator has tenant user-management permissions'
+    );
+
+    $ownerRecovery =
+        new CompanyOwnerPasswordResetService();
+    $ownerRecoveryTarget = $ownerRecovery
+        ->target(
+            $tenantACompanyId,
+            is_int($userId) ? $userId : 0
+        );
+
+    $check(
+        is_array($ownerRecoveryTarget)
+        && (int) (
+            $ownerRecoveryTarget[
+                'owner'
+            ]['user_id'] ?? 0
+        ) === $tenantAActorId
+        && (string) (
+            $ownerRecoveryTarget[
+                'company'
+            ]['code'] ?? ''
+        ) === 'test_tenant_a',
+        'Vendor recovery resolves the primary owner inside the selected company'
+    );
+
+    $ownerSecurityDetails = (
+        new CompanyProvisioningService()
+    )->details($tenantACompanyId);
+    $ownerSecurityCompany = is_array(
+        $ownerSecurityDetails
+    )
+        ? $ownerSecurityDetails['company']
+            ?? []
+        : [];
+    $check(
+        is_array($ownerSecurityCompany)
+        && array_key_exists(
+            'owner_account_active',
+            $ownerSecurityCompany
+        )
+        && !empty(
+            $ownerSecurityCompany[
+                'owner_account_active'
+            ]
+        )
+        && array_key_exists(
+            'owner_account_locked',
+            $ownerSecurityCompany
+        )
+        && array_key_exists(
+            'owner_must_change_password',
+            $ownerSecurityCompany
+        ),
+        'Vendor company details include primary-owner security state'
+    );
+
+    $unauthorizedOwnerReset =
+        $ownerRecovery->reset(
+            $tenantACompanyId,
+            $tenantAActorId
+        );
+    $check(
+        $unauthorizedOwnerReset['successful']
+            === false
+        && isset(
+            $unauthorizedOwnerReset[
+                'errors'
+            ]['form']
+        ),
+        'Tenant administrators cannot invoke vendor owner recovery'
+    );
+
+    $ownerCredentialStatement = db()->prepare(
+        'SELECT
+            password_hash,
+            must_change_password,
+            failed_login_count,
+            locked_until
+         FROM users
+         WHERE user_id = :user_id'
+    );
+    $ownerRecoveryResult = null;
+    $ownerAfterRecovery = null;
+    $ownerRecoveryAudit = null;
+
+    db()->beginTransaction();
+
+    try {
+        $ownerRecoveryResult =
+            $ownerRecovery->reset(
+                $tenantACompanyId,
+                is_int($userId) ? $userId : 0
+            );
+        $ownerCredentialStatement->execute([
+            'user_id' => $tenantAActorId,
+        ]);
+        $ownerAfterRecovery =
+            $ownerCredentialStatement->fetch(
+                \PDO::FETCH_ASSOC
+            );
+        $ownerRecoveryAuditStatement =
+            db()->prepare(
+                'SELECT new_values
+                 FROM audit_logs
+                 WHERE company_id = :company_id
+                   AND action = :action
+                   AND table_name = :table_name
+                   AND record_id = :record_id
+                 ORDER BY audit_log_id DESC
+                 LIMIT 1'
+            );
+        $ownerRecoveryAuditStatement->execute([
+            'company_id' => $tenantACompanyId,
+            'action' =>
+                'RESET_COMPANY_OWNER_PASSWORD',
+            'table_name' => 'users',
+            'record_id' =>
+                (string) $tenantAActorId,
+        ]);
+        $ownerRecoveryAudit =
+            $ownerRecoveryAuditStatement
+                ->fetchColumn();
+    } finally {
+        if (db()->inTransaction()) {
+            db()->rollBack();
+        }
+    }
+
+    $temporaryOwnerPassword = is_array(
+        $ownerRecoveryResult
+    )
+        ? (string) (
+            $ownerRecoveryResult[
+                'temporaryPassword'
+            ] ?? ''
+        )
+        : '';
+
+    $check(
+        is_array($ownerRecoveryResult)
+        && $ownerRecoveryResult['successful']
+            === true
+        && is_array($ownerAfterRecovery)
+        && $temporaryOwnerPassword !== ''
+        && password_verify(
+            $temporaryOwnerPassword,
+            (string) $ownerAfterRecovery[
+                'password_hash'
+            ]
+        )
+        && !empty(
+            $ownerAfterRecovery[
+                'must_change_password'
+            ]
+        )
+        && (int) $ownerAfterRecovery[
+            'failed_login_count'
+        ] === 0
+        && $ownerAfterRecovery['locked_until']
+            === null,
+        'Vendor reset generates a hashed one-time owner password and clears lock state'
+    );
+
+    $check(
+        is_string($ownerRecoveryAudit)
+        && !str_contains(
+            $ownerRecoveryAudit,
+            $temporaryOwnerPassword
+        ),
+        'Company owner recovery is audited without storing the temporary password'
     );
 
     $check(
@@ -3684,7 +3856,7 @@ try {
                 companies.company_id
            AND employee_membership.user_id =
                 employee_user.user_id
-         INNER JOIN hr_employees owner_profile
+         LEFT JOIN hr_employees owner_profile
             ON owner_profile.company_id =
                 companies.company_id
            AND owner_profile.user_id =
@@ -3716,6 +3888,17 @@ try {
             $sampleCompanyId
         )
         : [];
+    $sampleOwnerPermissions =
+        is_array($sampleTopology)
+            ? (
+                new CompanyMembership()
+            )->permissionCodes(
+                (int) $sampleTopology[
+                    'owner_user_id'
+                ],
+                $sampleCompanyId
+            )
+            : [];
 
     $check(
         $sampleCompanyId > 0
@@ -3728,12 +3911,40 @@ try {
         ] === (int) $sampleTopology[
             'owner_user_id'
         ]
-        && (int) $sampleTopology[
+        && $sampleTopology[
             'manager_employee_id'
-        ] === (int) $sampleTopology[
+        ] === null
+        && $sampleTopology[
             'owner_employee_id'
-        ],
-        'Development sample provisioning creates an approved tenant with linked manager and employee records'
+        ] === null,
+        'Development sample provisioning keeps the owner administrative while linking the employee reporting line'
+    );
+
+    $ownerPersonalPermissions = [
+        'hr.leave.self.view',
+        'hr.leave.self.request',
+        'attendance.self.view',
+        'attendance.self.record',
+    ];
+    $ownerAdministrativePermissions = [
+        'dashboard.view',
+        'administration.users.manage',
+        'administration.roles.manage',
+        'audit.logs.view',
+        'hr.leave.team.approve',
+        'attendance.team.view',
+    ];
+
+    $check(
+        array_intersect(
+            $ownerPersonalPermissions,
+            $sampleOwnerPermissions
+        ) === []
+        && array_diff(
+            $ownerAdministrativePermissions,
+            $sampleOwnerPermissions
+        ) === [],
+        'Development sample owner receives administration and team oversight without employee self service'
     );
 
     $check(

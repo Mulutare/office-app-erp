@@ -81,6 +81,10 @@ The current Oracle versions are:
 120  attendance records and HR leave operations
 130  employee self-service reporting managers and leave access
 140  attendance self-service source and permissions
+150  configurable leave policy management
+160  leave balance allocations and adjustments
+170  configurable staged leave approval workflows
+180  administrative-only company owner permission defaults
 ```
 
 ## Running the optional Oracle lab

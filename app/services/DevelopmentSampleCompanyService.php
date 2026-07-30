@@ -139,27 +139,6 @@ final class DevelopmentSampleCompanyService
             $departmentId = (int) (
                 $department['departmentId'] ?? 0
             );
-            $ownerEmployee =
-                $this->employees->create(
-                    $this->employeeInput(
-                        'SAMPLE-001',
-                        $ownerUserId,
-                        'Sample',
-                        'Owner',
-                        'sample.owner@example.test',
-                        'Operations Manager',
-                        $departmentId,
-                        null
-                    ),
-                    $ownerUserId
-                );
-            $this->requireSuccess(
-                $ownerEmployee,
-                'The sample manager profile could not be created.'
-            );
-            $ownerEmployeeId = (int) (
-                $ownerEmployee['employeeId'] ?? 0
-            );
             $employeeRoleId =
                 $this->employeeRoleId();
             $employeeAccount =
@@ -197,7 +176,7 @@ final class DevelopmentSampleCompanyService
                         'sample.employee@example.test',
                         'Operations Assistant',
                         $departmentId,
-                        $ownerEmployeeId
+                        null
                     ),
                     $ownerUserId
                 );

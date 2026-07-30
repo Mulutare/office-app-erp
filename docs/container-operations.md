@@ -59,8 +59,10 @@ docker compose exec app php bin/provision-development-sample.php
 ```
 
 The command prints one-time temporary passwords for `sample.owner` and
-`sample.employee`. The employee is linked to the company, reporting manager,
-HR employee profile, Employee Self Service role, HR module and Attendance
+`sample.employee`. The owner is an administrative identity for company users,
+security and licensed modules; it is not created as an HR employee. The
+employee is linked to the owner through the company reporting line and receives
+an HR employee profile, Employee Self Service role, HR module and Attendance
 module. The command is development-only and refuses to overwrite an existing
 sample company.
 

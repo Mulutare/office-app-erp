@@ -4042,6 +4042,36 @@ a {
     text-align: right;
 }
 
+.company-owner-security-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding-top: 16px;
+    margin-top: 8px;
+    border-top: 1px solid var(--color-border);
+}
+
+.company-owner-security-action strong,
+.company-owner-security-action small {
+    display: block;
+}
+
+.company-owner-security-action strong {
+    color: var(--color-primary-dark);
+    font-size: 0.8rem;
+}
+
+.company-owner-security-action small {
+    margin-top: 4px;
+    color: var(--color-muted);
+    font-size: 0.72rem;
+}
+
+.company-owner-recovery-summary {
+    margin: 18px 0;
+}
+
 .company-color-value {
     display: flex;
     align-items: center;
@@ -4260,6 +4290,11 @@ a {
     .company-color-value {
         justify-content: flex-start;
         text-align: left;
+    }
+
+    .company-owner-security-action {
+        align-items: stretch;
+        flex-direction: column;
     }
 }
 

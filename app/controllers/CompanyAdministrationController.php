@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Services\AuthorizationService;
 use App\Services\CompanyLifecycleService;
+use App\Services\CompanyOwnerPasswordResetService;
 use App\Services\CompanyProvisioningService;
 use App\Services\CompanyUpdateService;
 
@@ -15,6 +16,8 @@ final class CompanyAdministrationController
     private CompanyProvisioningService $companies;
     private CompanyUpdateService $updates;
     private CompanyLifecycleService $lifecycle;
+    private CompanyOwnerPasswordResetService
+        $ownerPasswordResets;
 
     public function __construct()
     {
@@ -26,6 +29,8 @@ final class CompanyAdministrationController
             new CompanyUpdateService();
         $this->lifecycle =
             new CompanyLifecycleService();
+        $this->ownerPasswordResets =
+            new CompanyOwnerPasswordResetService();
     }
 
     public function index(): void
@@ -192,6 +197,7 @@ final class CompanyAdministrationController
                     $result['ownerUsername'],
                 'temporary_password' =>
                     $result['temporaryPassword'],
+                'purpose' => 'provisioning',
             ]
         );
         \redirect(
@@ -249,6 +255,119 @@ final class CompanyAdministrationController
                 []
             ),
         ]);
+    }
+
+    public function showOwnerPasswordReset(): void
+    {
+        $this->authorization
+            ->requirePlatformAdministrator();
+        $companyId = $this->queryInteger('id');
+        $target = $this->ownerPasswordResets
+            ->target(
+                $companyId,
+                (int) (
+                    $_SESSION['auth']['user_id']
+                    ?? 0
+                )
+            );
+
+        if ($target === null) {
+            $this->notFound();
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment' => \config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle' =>
+                'Reset Company Owner Password',
+            'pageDescription' =>
+                'Issue a one-time credential for the primary owner of this customer workspace.',
+            'contentView' =>
+                'administration.companies.reset-owner-password',
+            'user' => $_SESSION['auth'],
+            'company' => $target['company'],
+            'owner' => $target['owner'],
+            'errors' => \getFlash(
+                'company_owner_password_reset_errors',
+                []
+            ),
+        ]);
+    }
+
+    public function resetOwnerPassword(): void
+    {
+        $this->authorization
+            ->requirePlatformAdministrator();
+        $companyId = $this->postInteger(
+            'company_id'
+        );
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            \flash(
+                'company_owner_password_reset_errors',
+                [
+                    'form' =>
+                        'The form session expired. Please try again.',
+                ]
+            );
+            \redirect(
+                '/administration/companies/reset-owner-password?id='
+                . $companyId
+            );
+        }
+
+        $result = $this->ownerPasswordResets
+            ->reset(
+                $companyId,
+                (int) (
+                    $_SESSION['auth']['user_id']
+                    ?? 0
+                )
+            );
+
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+
+        if (!$result['successful']) {
+            \flash(
+                'company_owner_password_reset_errors',
+                $result['errors']
+            );
+            \redirect(
+                '/administration/companies/reset-owner-password?id='
+                . $companyId
+            );
+        }
+
+        \flash(
+            'company_notice',
+            'The company owner password was reset. Transfer the one-time credential securely.'
+        );
+        \flash(
+            'company_owner_credentials',
+            [
+                'username' =>
+                    $result['username'],
+                'temporary_password' =>
+                    $result[
+                        'temporaryPassword'
+                    ],
+                'purpose' => 'reset',
+            ]
+        );
+        \redirect(
+            '/administration/companies/view?id='
+            . $companyId
+        );
     }
 
     public function edit(): void

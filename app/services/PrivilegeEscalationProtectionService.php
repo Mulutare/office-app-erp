@@ -37,7 +37,8 @@ final class PrivilegeEscalationProtectionService
             $requestedPermissionCodes,
             $actorId,
             $companyId,
-            'You cannot assign a role containing permissions you do not hold.'
+            'You cannot assign a role containing permissions you do not hold.',
+            true
         );
     }
 
@@ -69,7 +70,8 @@ final class PrivilegeEscalationProtectionService
         array $requestedPermissionCodes,
         int $actorId,
         int $companyId,
-        string $message
+        string $message,
+        bool $allowSelfServiceDelegation = false
     ): ?string {
         if (
             $actorId < 1
@@ -91,6 +93,31 @@ final class PrivilegeEscalationProtectionService
             $requestedPermissionCodes,
             $actorPermissionCodes
         );
+
+        if (
+            $allowSelfServiceDelegation
+            && in_array(
+                'administration.users.manage',
+                $actorPermissionCodes,
+                true
+            )
+            && in_array(
+                'administration.roles.manage',
+                $actorPermissionCodes,
+                true
+            )
+        ) {
+            $excessPermissions = array_values(
+                array_filter(
+                    $excessPermissions,
+                    static fn (string $permission): bool =>
+                        !str_contains(
+                            $permission,
+                            '.self.'
+                        )
+                )
+            );
+        }
 
         return $excessPermissions === []
             ? null

@@ -315,6 +315,13 @@ $router->get(
     '/administration/companies/edit',
     [$companyAdministrationController, 'edit']
 );
+$router->get(
+    '/administration/companies/reset-owner-password',
+    [
+        $companyAdministrationController,
+        'showOwnerPasswordReset',
+    ]
+);
 $router->post(
     '/administration/companies',
     [$companyAdministrationController, 'store']
@@ -326,6 +333,13 @@ $router->post(
 $router->post(
     '/administration/companies/approve',
     [$companyAdministrationController, 'approve']
+);
+$router->post(
+    '/administration/companies/reset-owner-password',
+    [
+        $companyAdministrationController,
+        'resetOwnerPassword',
+    ]
 );
 $router->post(
     '/administration/companies/lifecycle',

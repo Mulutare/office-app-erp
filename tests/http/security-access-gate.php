@@ -391,6 +391,62 @@ $check(
     'Platform administrator can open vendor company editing'
 );
 
+$ownerCompanyDirectory = httpRequest(
+    $baseUrl,
+    '/administration/companies?search=Test%20Tenant%20A',
+    $platformAdminCookies
+);
+$ownerCompanyId = 0;
+
+if (preg_match(
+    '/administration\/companies\/view\?id=(\d+)/',
+    $ownerCompanyDirectory['body'],
+    $matches
+) === 1) {
+    $ownerCompanyId = (int) $matches[1];
+}
+
+$ownerPasswordResetForm = httpRequest(
+    $baseUrl,
+    '/administration/companies/reset-owner-password?id='
+        . $ownerCompanyId,
+    $platformAdminCookies
+);
+$check(
+    $ownerCompanyDirectory['status'] === 200
+    && $ownerCompanyId > 0
+    && $ownerPasswordResetForm['status'] === 200
+    && str_contains(
+        $ownerPasswordResetForm['body'],
+        'Generate temporary password'
+    )
+    && str_contains(
+        $ownerPasswordResetForm['body'],
+        'Test Tenant A Administrator'
+    ),
+    'Platform administrator can open company-owner recovery for the selected tenant'
+);
+
+$invalidOwnerPasswordReset = httpRequest(
+    $baseUrl,
+    '/administration/companies/reset-owner-password',
+    $platformAdminCookies,
+    'POST',
+    [
+        'company_id' =>
+            (string) $ownerCompanyId,
+        '_token' => str_repeat('0', 64),
+    ]
+);
+$check(
+    $invalidOwnerPasswordReset['status'] === 302
+    && str_contains(
+        $invalidOwnerPasswordReset['location'],
+        '/administration/companies/reset-owner-password?id='
+    ),
+    'Company-owner recovery rejects an invalid CSRF token'
+);
+
 $invalidLifecycle = httpRequest(
     $baseUrl,
     '/administration/companies/lifecycle',
@@ -435,6 +491,12 @@ $tenantCompanyEdit = httpRequest(
         . $vendorCompanyId,
     $companyAdminCookies
 );
+$tenantOwnerPasswordReset = httpRequest(
+    $baseUrl,
+    '/administration/companies/reset-owner-password?id='
+        . $ownerCompanyId,
+    $companyAdminCookies
+);
 $tenantLifecycleMutation = httpRequest(
     $baseUrl,
     '/administration/companies/lifecycle',
@@ -453,9 +515,11 @@ $tenantLifecycleMutation = httpRequest(
 );
 $check(
     $tenantCompanyEdit['status'] === 403
+    && $tenantOwnerPasswordReset['status']
+        === 403
     && $tenantLifecycleMutation['status']
         === 403,
-    'Tenant administrators cannot access vendor company lifecycle routes'
+    'Tenant administrators cannot access vendor company lifecycle or owner-recovery routes'
 );
 $platformSearch = httpRequest(
     $baseUrl,
