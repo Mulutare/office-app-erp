@@ -874,11 +874,25 @@ $formatDate = static function (
                 >
                     Enable browser alerts
                 </button>
+                <button
+                    type="button"
+                    class="btn btn-secondary btn-small"
+                    data-test-attendance-browser
+                >
+                    Send test alert
+                </button>
                 <small
                     class="attendance-browser-status"
                     data-attendance-browser-status
                     aria-live="polite"
                 ></small>
+                <small class="attendance-delivery-note">
+                    The private OfficeApp inbox works on phones and
+                    computers after sign-in. Live device alerts need
+                    notification permission, HTTPS, and an open
+                    OfficeApp page. Background push while the browser
+                    is fully closed is not enabled yet.
+                </small>
             </div>
 
             <div class="form-actions attendance-reminder-wide">

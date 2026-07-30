@@ -2651,6 +2651,7 @@ try {
     );
     $assignedCalendar = $workforceCalendars->assign(
         [
+            'assignment_scope' => 'employee',
             'employee_id' => '920001',
             'calendar_id' => (string) $calendarId,
             'effective_from' => '2026-01-01',
@@ -2658,9 +2659,20 @@ try {
         ],
         $tenantAActorId
     );
+    $defaultCalendarCoverage =
+        $workforceCalendars->assign(
+            [
+                'assignment_scope' =>
+                    'company_default',
+                'calendar_id' =>
+                    (string) $calendarId,
+            ],
+            $tenantAActorId
+        );
     $overlappingCalendar =
         $workforceCalendars->assign(
             [
+                'assignment_scope' => 'employee',
                 'employee_id' => '920001',
                 'calendar_id' =>
                     (string) $calendarId,
@@ -2709,8 +2721,15 @@ try {
         ) === $calendarId
         && $savedWeek['successful'] === true
         && $addedHoliday['successful'] === true
-        && $assignedCalendar['successful'] === true,
-        'Company administrator can configure a safe default international calendar, holiday and employee schedule'
+        && $assignedCalendar['successful'] === true
+        && $defaultCalendarCoverage[
+            'successful'
+        ] === true
+        && (
+            $defaultCalendarCoverage['scope']
+            ?? null
+        ) === 'company_default',
+        'Company administrator can configure a company-wide calendar plus an effective employee override'
     );
     $check(
         $overlappingCalendar['successful'] === false
@@ -2776,6 +2795,22 @@ try {
         $foreignRead === false
         && $ownedRead === true,
         'Attendance notification inbox enforces company and user ownership'
+    );
+    $serviceWorkerSource = file_get_contents(
+        __DIR__
+        . '/../public/service-worker.js'
+    );
+    $check(
+        is_string($serviceWorkerSource)
+        && str_contains(
+            $serviceWorkerSource,
+            'notificationclick'
+        )
+        && str_contains(
+            $serviceWorkerSource,
+            'attendance/me'
+        ),
+        'Device notification service worker returns users to personal attendance'
     );
 
     $overnightSettings =

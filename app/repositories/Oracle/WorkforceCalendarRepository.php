@@ -145,6 +145,39 @@ final class WorkforceCalendarRepository extends OracleRepository
         ]);
     }
 
+    public function setDefault(
+        int $companyId,
+        int $calendarId,
+        int $actorUserId
+    ): void {
+        $statement = $this->connection()->prepare(
+            'UPDATE workforce_calendars
+             SET is_default = 1,
+                 updated_by = :updated_by,
+                 updated_at = SYSTIMESTAMP
+             WHERE company_id = :company_id
+               AND calendar_id = :calendar_id
+               AND active = 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'calendar_id' => $calendarId,
+            'updated_by' => $actorUserId,
+        ]);
+
+        if (
+            $statement->rowCount() !== 1
+            && $this->calendar(
+                $companyId,
+                $calendarId
+            ) === null
+        ) {
+            throw new \RuntimeException(
+                'The workforce calendar is not available in the active company.'
+            );
+        }
+    }
+
     public function days(
         int $companyId,
         int $calendarId

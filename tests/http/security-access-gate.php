@@ -667,6 +667,14 @@ $check(
         $tenantAWorkforceCalendars['body'],
         'Create calendar'
     )
+    && str_contains(
+        $tenantAWorkforceCalendars['body'],
+        'All employees (company default)'
+    )
+    && str_contains(
+        $tenantAWorkforceCalendars['body'],
+        'Specific employee override'
+    )
     && !str_contains(
         $tenantAWorkforceCalendars['body'],
         'Tenant B Confidential'
@@ -1112,6 +1120,14 @@ $check(
     && str_contains(
         $employeeAttendance['body'],
         'Configure personal attendance reminders'
+    )
+    && str_contains(
+        $employeeAttendance['body'],
+        'Send test alert'
+    )
+    && str_contains(
+        $employeeAttendance['body'],
+        'Background push while the browser'
     )
     && !str_contains(
         $employeeAttendance['body'],

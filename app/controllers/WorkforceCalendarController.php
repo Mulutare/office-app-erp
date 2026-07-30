@@ -247,6 +247,8 @@ final class WorkforceCalendarController
             $redirect
         );
         $input = [
+            'assignment_scope' =>
+                \postString('assignment_scope'),
             'employee_id' =>
                 \postString('employee_id'),
             'calendar_id' => (string) $calendarId,
@@ -274,8 +276,11 @@ final class WorkforceCalendarController
 
         \flash('workforce_calendar_notice', [
             'type' => 'success',
-            'message' =>
-                'The employee work schedule was assigned.',
+            'message' => (
+                $result['scope'] ?? ''
+            ) === 'company_default'
+                ? 'This is now the company default calendar. It applies to every active employee unless an effective-dated employee override exists.'
+                : 'The employee-specific calendar override was assigned.',
         ]);
         \redirect($redirect);
     }

@@ -70,7 +70,7 @@ $companySwitchSuccess = getFlash(
     >
 </head>
 
-<body>
+<body data-app-base="<?= e(appBasePath()) ?>">
 <div class="app-shell">
     <header class="app-header">
         <div class="brand">

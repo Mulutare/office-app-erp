@@ -24,6 +24,12 @@ interface WorkforceCalendarRepository
 
     public function clearDefault(int $companyId): void;
 
+    public function setDefault(
+        int $companyId,
+        int $calendarId,
+        int $actorUserId
+    ): void;
+
     /** @return list<array<string, mixed>> */
     public function days(
         int $companyId,

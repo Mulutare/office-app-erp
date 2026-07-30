@@ -212,6 +212,70 @@ document.addEventListener('DOMContentLoaded', () => {
         synchronize();
     }
 
+    const calendarScope = document.querySelector(
+        '[data-calendar-scope]'
+    );
+
+    if (calendarScope instanceof HTMLSelectElement) {
+        const employeePanels = document.querySelectorAll(
+            '[data-calendar-employee-scope]'
+        );
+        const companyPanel = document.querySelector(
+            '[data-calendar-company-scope]'
+        );
+        const submitLabel = document.querySelector(
+            '[data-calendar-scope-submit]'
+        );
+
+        const synchronizeCalendarScope = () => {
+            const employeeScope =
+                calendarScope.value === 'employee';
+
+            employeePanels.forEach((panel) => {
+                if (!(panel instanceof HTMLElement)) {
+                    return;
+                }
+
+                panel.hidden = !employeeScope;
+
+                panel
+                    .querySelectorAll('input, select')
+                    .forEach((field) => {
+                        if (
+                            field instanceof HTMLInputElement
+                            || field
+                                instanceof HTMLSelectElement
+                        ) {
+                            field.disabled = !employeeScope;
+
+                            if (
+                                field.id === 'schedule-employee'
+                                || field.id === 'effective-from'
+                            ) {
+                                field.required = employeeScope;
+                            }
+                        }
+                    });
+            });
+
+            if (companyPanel instanceof HTMLElement) {
+                companyPanel.hidden = employeeScope;
+            }
+
+            if (submitLabel instanceof HTMLElement) {
+                submitLabel.textContent = employeeScope
+                    ? 'Assign employee override'
+                    : 'Set company default';
+            }
+        };
+
+        calendarScope.addEventListener(
+            'change',
+            synchronizeCalendarScope
+        );
+        synchronizeCalendarScope();
+    }
+
     const attendanceNotification =
         document.querySelector(
             '[data-attendance-notification]'
@@ -224,12 +288,76 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelector(
             '[data-attendance-browser-checkbox]'
         );
+    const attendanceBrowserTestButton =
+        document.querySelector(
+            '[data-test-attendance-browser]'
+        );
     const attendanceBrowserStatus =
         document.querySelector(
             '[data-attendance-browser-status]'
         );
     const browserNotificationsSupported =
         'Notification' in window;
+    const serviceWorkerSupported =
+        'serviceWorker' in navigator
+        && window.isSecureContext;
+    const appBasePath =
+        document.body.dataset.appBase ?? '';
+    const serviceWorkerUrl =
+        (appBasePath === '' ? '' : appBasePath)
+        + '/service-worker.js';
+    let attendanceServiceWorker = null;
+
+    const registerAttendanceServiceWorker =
+        async () => {
+            if (!serviceWorkerSupported) {
+                return null;
+            }
+
+            if (attendanceServiceWorker !== null) {
+                return attendanceServiceWorker;
+            }
+
+            try {
+                attendanceServiceWorker =
+                    await navigator.serviceWorker.register(
+                        serviceWorkerUrl
+                    );
+
+                return attendanceServiceWorker;
+            } catch (error) {
+                return null;
+            }
+        };
+
+    const showAttendanceDeviceNotification =
+        async (title, body, tag) => {
+            const registration =
+                await registerAttendanceServiceWorker();
+
+            if (registration !== null) {
+                await registration.showNotification(
+                    title,
+                    {
+                        body,
+                        tag,
+                    }
+                );
+
+                return true;
+            }
+
+            try {
+                new Notification(title, {
+                    body,
+                    tag,
+                });
+
+                return true;
+            } catch (error) {
+                return false;
+            }
+        };
 
     const setAttendanceBrowserStatus = (
         message
@@ -249,13 +377,34 @@ document.addEventListener('DOMContentLoaded', () => {
     ) {
         if (!browserNotificationsSupported) {
             attendanceBrowserButton.disabled = true;
+            if (
+                attendanceBrowserTestButton
+                    instanceof HTMLButtonElement
+            ) {
+                attendanceBrowserTestButton.disabled =
+                    true;
+            }
             setAttendanceBrowserStatus(
                 'This browser does not support local alerts.'
             );
+        } else if (!window.isSecureContext) {
+            attendanceBrowserButton.disabled = true;
+            if (
+                attendanceBrowserTestButton
+                    instanceof HTMLButtonElement
+            ) {
+                attendanceBrowserTestButton.disabled =
+                    true;
+            }
+            setAttendanceBrowserStatus(
+                'Device alerts require HTTPS outside localhost.'
+            );
         } else {
+            registerAttendanceServiceWorker();
+
             if (Notification.permission === 'granted') {
                 setAttendanceBrowserStatus(
-                    'Browser permission is enabled.'
+                    'Device notification permission is enabled.'
                 );
             } else if (
                 Notification.permission === 'denied'
@@ -295,6 +444,38 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (
+        attendanceBrowserTestButton
+            instanceof HTMLButtonElement
+        && browserNotificationsSupported
+    ) {
+        attendanceBrowserTestButton.addEventListener(
+            'click',
+            async () => {
+                if (Notification.permission !== 'granted') {
+                    setAttendanceBrowserStatus(
+                        'Enable notification permission before sending a test alert.'
+                    );
+
+                    return;
+                }
+
+                const delivered =
+                    await showAttendanceDeviceNotification(
+                        'OfficeApp attendance test',
+                        'This device can display live attendance alerts while OfficeApp is open.',
+                        'attendance:test'
+                    );
+
+                setAttendanceBrowserStatus(
+                    delivered
+                        ? 'Test alert sent to this device.'
+                        : 'This device could not display the test alert. The private in-app inbox remains available.'
+                );
+            }
+        );
+    }
+
+    if (
         attendanceNotification instanceof HTMLElement
         && attendanceNotification.dataset
             .browserEnabled === '1'
@@ -319,7 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ?? '';
         const maximumDelay = 24 * 60 * 60 * 1000;
 
-        const deliverNotification = () => {
+        const deliverNotification = async () => {
             if (key === '') {
                 return;
             }
@@ -332,17 +513,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                new Notification(title, {
-                    body,
-                    tag: key,
-                });
-                window.sessionStorage.setItem(
-                    key,
-                    'delivered'
-                );
+                const delivered =
+                    await showAttendanceDeviceNotification(
+                        title,
+                        body,
+                        key
+                    );
+
+                if (delivered) {
+                    window.sessionStorage.setItem(
+                        key,
+                        'delivered'
+                    );
+                }
             } catch (error) {
                 setAttendanceBrowserStatus(
-                    'The in-app reminder remains active, but this browser could not display a local alert.'
+                    'The private in-app reminder remains active, but this device could not display a live alert.'
                 );
             }
         };

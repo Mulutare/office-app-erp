@@ -43,6 +43,31 @@ result is 540 gross minutes minus 60 lunch minutes: 480 net minutes.
 The attendance record stores the policy results as snapshots. Historical
 attendance therefore remains stable when a future calendar is changed.
 
+## Calendar coverage
+
+Every company has one default workforce calendar. It applies to every active
+employee unless an effective-dated employee override exists. Overrides are
+appropriate for another country, branch, shift pattern or temporary
+assignment. This default-plus-exceptions model avoids creating duplicate
+schedule rows for the whole workforce while allowing both company-wide and
+individual policy.
+
+Changing the company default takes effect immediately for employees without
+an override. Employee overrides retain their own start and optional end date.
+
+## Notification delivery
+
+- The server-generated private inbox works on desktop and mobile after the
+  employee signs in, including reminders created while the browser was
+  closed.
+- Live device alerts work on supported desktop and mobile browsers while an
+  OfficeApp page remains open. They require HTTPS and device notification
+  permission.
+- Employees can use **Send test alert** to verify the current device.
+- Background operating-system push while the browser is fully closed is not
+  enabled until a Web Push subscription and VAPID delivery service are
+  configured.
+
 ## Production controls
 
 - HR must assign an effective workforce calendar before relying on lateness,

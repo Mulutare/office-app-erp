@@ -57,6 +57,20 @@ $scheduleErrors = is_array($data['scheduleErrors'] ?? null)
 $scheduleOld = is_array($data['scheduleOld'] ?? null)
     ? $data['scheduleOld']
     : [];
+$scheduleScope = (string) (
+    $scheduleOld['assignment_scope']
+    ?? (!empty($selected['is_default'])
+        ? 'company_default'
+        : 'employee')
+);
+
+if (!in_array(
+    $scheduleScope,
+    ['company_default', 'employee'],
+    true
+)) {
+    $scheduleScope = 'employee';
+}
 $formatDate = static function (mixed $value): string {
     $timestamp = is_string($value)
         ? strtotime($value)
@@ -586,9 +600,9 @@ $formatDate = static function (mixed $value): string {
             </article>
 
             <article class="card">
-                <span class="section-kicker">Assign schedule</span>
+                <span class="section-kicker">Apply calendar</span>
                 <h2 class="card-title">
-                    Effective employee calendar
+                    Calendar coverage
                 </h2>
                 <?php if (!empty($scheduleErrors['form'])): ?>
                     <div class="alert alert-danger">
@@ -607,6 +621,49 @@ $formatDate = static function (mixed $value): string {
                         value="<?= e($calendarId) ?>"
                     >
                     <div class="form-field">
+                        <label for="schedule-scope">
+                            Apply this calendar to
+                        </label>
+                        <select
+                            id="schedule-scope"
+                            name="assignment_scope"
+                            data-calendar-scope
+                            required
+                        >
+                            <option
+                                value="company_default"
+                                <?= $scheduleScope
+                                    === 'company_default'
+                                    ? 'selected'
+                                    : '' ?>
+                            >
+                                All employees (company default)
+                            </option>
+                            <option
+                                value="employee"
+                                <?= $scheduleScope === 'employee'
+                                    ? 'selected'
+                                    : '' ?>
+                            >
+                                Specific employee override
+                            </option>
+                        </select>
+                    </div>
+                    <div
+                        class="calendar-scope-message"
+                        data-calendar-company-scope
+                    >
+                        <strong>Company-wide baseline</strong>
+                        <small>
+                            Applies immediately to every active
+                            employee who does not have a dated
+                            employee-specific override.
+                        </small>
+                    </div>
+                    <div
+                        class="form-field"
+                        data-calendar-employee-scope
+                    >
                         <label for="schedule-employee">Employee</label>
                         <select
                             id="schedule-employee"
@@ -638,7 +695,10 @@ $formatDate = static function (mixed $value): string {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="calendar-form-pair">
+                    <div
+                        class="calendar-form-pair"
+                        data-calendar-employee-scope
+                    >
                         <div class="form-field">
                             <label for="effective-from">
                                 Effective from
@@ -674,7 +734,12 @@ $formatDate = static function (mixed $value): string {
                         <?php endif; ?>
                     <?php endforeach; ?>
                     <button type="submit" class="btn btn-primary">
-                        Assign calendar
+                        <span data-calendar-scope-submit>
+                            <?= $scheduleScope
+                                === 'company_default'
+                                ? 'Set company default'
+                                : 'Assign employee override' ?>
+                        </span>
                     </button>
                 </form>
             </article>
@@ -795,8 +860,9 @@ $formatDate = static function (mixed $value): string {
                     <?php if ($assignments === []): ?>
                         <tr>
                             <td colspan="3" class="empty-state">
-                                Employees without assignments use
-                                the company default calendar.
+                                No employee-specific overrides.
+                                Every employee uses the company
+                                default calendar.
                             </td>
                         </tr>
                     <?php else: ?>
@@ -863,7 +929,8 @@ $formatDate = static function (mixed $value): string {
         <p>
             The server dispatcher stores due reminders in each
             employee’s private inbox even when their browser is
-            closed. Browser alerts remain an optional live convenience.
+            closed. Live device alerts work on supported desktop
+            and mobile browsers while OfficeApp is open.
         </p>
     </div>
     <code>php bin/queue-attendance-notifications.php</code>

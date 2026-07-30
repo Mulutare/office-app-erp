@@ -1917,6 +1917,28 @@ a {
     gap: 10px;
 }
 
+.calendar-scope-message {
+    padding: 13px 14px;
+    border: 1px solid #b2ddff;
+    border-radius: 10px;
+    background: #eff8ff;
+}
+
+.calendar-scope-message strong,
+.calendar-scope-message small {
+    display: block;
+}
+
+.calendar-scope-message small {
+    margin-top: 4px;
+    color: var(--color-muted);
+}
+
+.calendar-scope-message[hidden],
+[data-calendar-employee-scope][hidden] {
+    display: none;
+}
+
 .calendar-lists-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7182,7 +7204,8 @@ a {
 
 .attendance-browser-option {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns:
+        minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 12px 18px;
     padding: 16px;
@@ -7191,11 +7214,21 @@ a {
     background: #eff8ff;
 }
 
-.attendance-browser-status {
+.attendance-browser-status,
+.attendance-delivery-note {
     grid-column: 1 / -1;
+}
+
+.attendance-browser-status {
     min-height: 1em;
     color: #175cd3;
     font-weight: 700;
+}
+
+.attendance-browser-option
+    .attendance-delivery-note {
+    margin-top: 0;
+    line-height: 1.5;
 }
 
 @media (max-width: 760px) {
@@ -7225,7 +7258,8 @@ a {
         grid-template-columns: 1fr;
     }
 
-    .attendance-browser-status {
+    .attendance-browser-status,
+    .attendance-delivery-note {
         grid-column: auto;
     }
 }

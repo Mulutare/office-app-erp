@@ -638,6 +638,9 @@ final class WorkforceCalendarService
         int $actorUserId
     ): array {
         $companyId = $this->tenant->companyId();
+        $scope = trim((string) (
+            $input['assignment_scope'] ?? 'employee'
+        ));
         $employeeId = $this->integer(
             $input['employee_id'] ?? null
         );
@@ -651,6 +654,40 @@ final class WorkforceCalendarService
             $input['effective_to'] ?? null
         );
         $errors = [];
+        $calendar = $this->calendars->calendar(
+            $companyId,
+            $calendarId
+        );
+
+        if (!in_array(
+            $scope,
+            ['company_default', 'employee'],
+            true
+        )) {
+            $errors['assignment_scope'] =
+                'Select company-wide coverage or a specific employee override.';
+        }
+
+        if (
+            $calendar === null
+            || empty($calendar['active'])
+        ) {
+            $errors['calendar_id'] =
+                'Select an active company calendar.';
+        }
+
+        if (
+            $errors === []
+            && $scope === 'company_default'
+        ) {
+            return $this->setCompanyDefault(
+                $companyId,
+                $calendarId,
+                $calendar,
+                $actorUserId
+            );
+        }
+
         $employeeIds = array_map(
             static fn (array $employee): int =>
                 (int) ($employee['employee_id'] ?? 0),
@@ -666,14 +703,6 @@ final class WorkforceCalendarService
         )) {
             $errors['employee_id'] =
                 'Select an active employee from this company.';
-        }
-
-        if ($this->calendars->calendar(
-            $companyId,
-            $calendarId
-        ) === null) {
-            $errors['calendar_id'] =
-                'Select an active company calendar.';
         }
 
         if (!$this->validDate($from)) {
@@ -744,6 +773,88 @@ final class WorkforceCalendarService
         return [
             'successful' => true,
             'errors' => [],
+            'scope' => 'employee',
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $calendar
+     * @return array<string, mixed>
+     */
+    private function setCompanyDefault(
+        int $companyId,
+        int $calendarId,
+        array $calendar,
+        int $actorUserId
+    ): array {
+        $previousCalendarId = null;
+
+        foreach (
+            $this->calendars->calendars($companyId)
+            as $candidate
+        ) {
+            if (!empty($candidate['is_default'])) {
+                $previousCalendarId = (int) (
+                    $candidate['calendar_id'] ?? 0
+                );
+                break;
+            }
+        }
+
+        $connection = \db();
+        $ownsTransaction =
+            !$connection->inTransaction();
+
+        try {
+            if ($ownsTransaction) {
+                $connection->beginTransaction();
+            }
+
+            $this->calendars->clearDefault($companyId);
+            $this->calendars->setDefault(
+                $companyId,
+                $calendarId,
+                $actorUserId
+            );
+            $this->auditLogs->record(
+                $actorUserId,
+                'SET_DEFAULT_WORKFORCE_CALENDAR',
+                'attendance',
+                'workforce_calendars',
+                (string) $calendarId,
+                [
+                    'calendar_id' =>
+                        $previousCalendarId,
+                ],
+                [
+                    'calendar_id' => $calendarId,
+                    'calendar_name' => (string) (
+                        $calendar['name'] ?? ''
+                    ),
+                    'coverage' =>
+                        'all_employees_without_override',
+                ],
+                $companyId
+            );
+
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
+        } catch (Throwable $exception) {
+            if (
+                $ownsTransaction
+                && $connection->inTransaction()
+            ) {
+                $connection->rollBack();
+            }
+
+            throw $exception;
+        }
+
+        return [
+            'successful' => true,
+            'errors' => [],
+            'scope' => 'company_default',
         ];
     }
 
