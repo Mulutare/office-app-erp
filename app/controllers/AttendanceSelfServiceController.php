@@ -84,7 +84,8 @@ final class AttendanceSelfServiceController
                     'notification'
                 ],
             'workSchedule' =>
-                $reminderWorkspace['schedule'],
+                $workspace['workSchedule']
+                    ?? $reminderWorkspace['schedule'],
             'serverNotifications' =>
                 $this->notifications->inbox(
                     $this->actorUserId()

@@ -34,3 +34,5 @@ Thumbs.db
 # Future dependencies
 /vendor/
 config/database.php
+config/app.local.php
+dist/

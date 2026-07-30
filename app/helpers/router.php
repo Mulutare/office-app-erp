@@ -44,7 +44,7 @@ final class Router
          * A domain rooted directly at public/ already supplies paths
          * without this prefix and therefore needs no removal.
          */
-        $basePath = '/office_app/public';
+        $basePath = appBasePath();
 
         if (
             $basePath !== ''

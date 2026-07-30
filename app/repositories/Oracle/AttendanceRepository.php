@@ -97,6 +97,10 @@ final class AttendanceRepository extends OracleRepository
                 ) AS check_out_at,
                 attendance.attendance_status,
                 attendance.work_minutes,
+                attendance.gross_minutes,
+                attendance.break_minutes,
+                attendance.target_work_minutes,
+                attendance.work_variance_minutes,
                 attendance.source,
                 attendance.notes,
                 attendance.updated_at
@@ -164,6 +168,10 @@ final class AttendanceRepository extends OracleRepository
                 ) AS check_out_at,
                 attendance.attendance_status,
                 attendance.work_minutes,
+                attendance.gross_minutes,
+                attendance.break_minutes,
+                attendance.target_work_minutes,
+                attendance.work_variance_minutes,
                 attendance.source,
                 attendance.notes
              FROM company_users memberships
@@ -249,6 +257,10 @@ final class AttendanceRepository extends OracleRepository
                 ) AS check_out_at,
                 attendance.attendance_status,
                 attendance.work_minutes,
+                attendance.gross_minutes,
+                attendance.break_minutes,
+                attendance.target_work_minutes,
+                attendance.work_variance_minutes,
                 attendance.source,
                 attendance.notes,
                 attendance.updated_at
@@ -316,6 +328,10 @@ final class AttendanceRepository extends OracleRepository
                 ) AS check_out_at,
                 attendance_status,
                 work_minutes,
+                gross_minutes,
+                break_minutes,
+                target_work_minutes,
+                work_variance_minutes,
                 source,
                 notes
              FROM attendance_records
@@ -391,6 +407,12 @@ final class AttendanceRepository extends OracleRepository
                     :attendance_status
                         AS attendance_status,
                     :work_minutes AS work_minutes,
+                    :gross_minutes AS gross_minutes,
+                    :break_minutes AS break_minutes,
+                    :target_work_minutes
+                        AS target_work_minutes,
+                    :work_variance_minutes
+                        AS work_variance_minutes,
                     :source AS source,
                     :notes AS notes,
                     :updated_by AS updated_by
@@ -412,6 +434,14 @@ final class AttendanceRepository extends OracleRepository
                     source.attendance_status,
                 target.work_minutes =
                     source.work_minutes,
+                target.gross_minutes =
+                    source.gross_minutes,
+                target.break_minutes =
+                    source.break_minutes,
+                target.target_work_minutes =
+                    source.target_work_minutes,
+                target.work_variance_minutes =
+                    source.work_variance_minutes,
                 target.source = source.source,
                 target.notes = source.notes,
                 target.updated_by =
@@ -425,6 +455,10 @@ final class AttendanceRepository extends OracleRepository
                 check_out_at,
                 attendance_status,
                 work_minutes,
+                gross_minutes,
+                break_minutes,
+                target_work_minutes,
+                work_variance_minutes,
                 source,
                 notes,
                 created_by,
@@ -437,6 +471,10 @@ final class AttendanceRepository extends OracleRepository
                 source.check_out_at,
                 source.attendance_status,
                 source.work_minutes,
+                source.gross_minutes,
+                source.break_minutes,
+                source.target_work_minutes,
+                source.work_variance_minutes,
                 source.source,
                 source.notes,
                 source.updated_by,
@@ -452,6 +490,14 @@ final class AttendanceRepository extends OracleRepository
             'attendance_status' =>
                 $values['attendance_status'],
             'work_minutes' => $values['work_minutes'],
+            'gross_minutes' =>
+                $values['gross_minutes'] ?? 0,
+            'break_minutes' =>
+                $values['break_minutes'] ?? 0,
+            'target_work_minutes' =>
+                $values['target_work_minutes'] ?? 0,
+            'work_variance_minutes' =>
+                $values['work_variance_minutes'] ?? 0,
             'source' => $values['source'],
             'notes' => $values['notes'],
             'updated_by' => $updatedBy,

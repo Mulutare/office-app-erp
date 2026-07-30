@@ -1,7 +1,7 @@
 # Container Operations
 
 Docker is the recommended development and production packaging path. Systems
-without Docker use the same application on native PHP 8.4 as documented in
+without Docker use the same application on native PHP 8.1+ as documented in
 `docs/native-php-deployment.md`.
 
 ## Prerequisites

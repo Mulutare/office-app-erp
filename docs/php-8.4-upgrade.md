@@ -2,13 +2,14 @@
 
 ## Supported runtime policy
 
-OfficeApp ERP requires PHP 8.4 or newer.
+OfficeApp ERP uses PHP 8.4 for its maintained container runtime and supports
+PHP 8.1 or newer for native/cPanel hosting.
 
 Supported execution modes are:
 
 - Docker or another OCI-compatible container runtime using the supplied
   PHP 8.4 image.
-- A native web-server deployment using PHP 8.4 and MySQL 8 or MariaDB.
+- A native web-server deployment using PHP 8.1+ and MySQL 8 or MariaDB.
 
 PHP 8.0 is no longer a supported fallback. The application performs a
 centralized startup check and stops with a clear error on an older runtime.
@@ -40,7 +41,7 @@ container log.
 
 ## Native deployment
 
-Systems that cannot run Docker must install PHP 8.4 directly and follow
+Systems that cannot run Docker must install PHP 8.1 or newer and follow
 `docs/native-php-deployment.md`. They use the same source code, database
 configuration, front controller and security controls as the container path.
 

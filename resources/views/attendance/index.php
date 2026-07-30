@@ -342,7 +342,7 @@ $formatDate = static function (string $value): string {
                             <th>Status</th>
                             <th>Check-in</th>
                             <th>Check-out</th>
-                            <th>Worked</th>
+                            <th>Net worked</th>
                             <th>Note</th>
                         </tr>
                     </thead>
@@ -410,6 +410,20 @@ $formatDate = static function (string $value): string {
                                         $record['workDuration']
                                         ?? '—'
                                     ) ?>
+                                    <small>
+                                        Gross <?= e(
+                                            $record['grossDuration']
+                                                ?? '0m'
+                                        ) ?>
+                                        · lunch <?= e(
+                                            $record['breakDuration']
+                                                ?? '0m'
+                                        ) ?>
+                                        · <?= e(
+                                            $record['varianceDuration']
+                                                ?? '+0m'
+                                        ) ?>
+                                    </small>
                                 </td>
                                 <td class="table-note-cell">
                                     <?= e(

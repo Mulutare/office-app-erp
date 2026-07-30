@@ -20,7 +20,36 @@ function view(string $view, array $data = []): void
         );
     }
 
-    require $viewPath;
+    ob_start();
+
+    try {
+        require $viewPath;
+        $contents = ob_get_clean();
+    } catch (Throwable $exception) {
+        ob_end_clean();
+        throw $exception;
+    }
+
+    if (!is_string($contents)) {
+        return;
+    }
+
+    /*
+     * Existing templates use the canonical development mount path.
+     * Translate it only at the final rendering boundary so the same
+     * views work when public/ is a cPanel domain document root.
+     */
+    $basePath = appBasePath();
+
+    if ($basePath !== '/office_app/public') {
+        $contents = str_replace(
+            '/office_app/public',
+            $basePath,
+            $contents
+        );
+    }
+
+    echo $contents;
 }
 
 /**
@@ -44,7 +73,7 @@ function assetUrl(string $path): string
     $filePath = __DIR__
         . '/../../public/assets/'
         . $path;
-    $url = '/office_app/public/assets/'
+    $url = appUrl('/assets/')
         . str_replace(
             '%2F',
             '/',

@@ -2,10 +2,11 @@
 
 ## Runtime
 
-OfficeApp requires PHP 8.4 or newer. It supports:
+OfficeApp requires PHP 8.1 or newer. It supports:
 
 - a containerized PHP 8.4 and MariaDB runtime;
-- a native PHP 8.4 web-server and MySQL/MariaDB runtime.
+- a native PHP 8.1+ web-server and MySQL/MariaDB runtime, including
+  cPanel PHP-FPM hosting.
 
 Both deployment modes execute the same application source.
 

@@ -6,11 +6,11 @@ $runtimeRequirements = require __DIR__
     . '/../../config/runtime.php';
 $minimumPhpVersion = (string) (
     $runtimeRequirements['minimum_php_version']
-    ?? '8.4.0'
+    ?? '8.1.0'
 );
 $minimumPhpVersionId = (int) (
     $runtimeRequirements['minimum_php_version_id']
-    ?? 80400
+    ?? 80100
 );
 $requiredExtensions = is_array(
     $runtimeRequirements['required_extensions']
@@ -131,7 +131,9 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
     session_set_cookie_params([
         'lifetime' => 0,
-        'path' => '/office_app/public',
+        'path' => appBasePath() === ''
+            ? '/'
+            : appBasePath(),
         'domain' => '',
         'secure' => (bool) config(
             'session_cookie_secure',

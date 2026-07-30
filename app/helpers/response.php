@@ -7,10 +7,6 @@ declare(strict_types=1);
  */
 function redirect(string $path): never
 {
-    $basePath = '/office_app/public';
-
-    $normalizedPath = '/' . ltrim($path, '/');
-
-    header('Location: ' . $basePath . $normalizedPath);
+    header('Location: ' . appUrl($path));
     exit;
 }

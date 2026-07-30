@@ -86,4 +86,15 @@ interface WorkforceCalendarRepository
         int $userId,
         string $localDate
     ): ?array;
+
+    /**
+     * Resolve an employee's effective calendar for an attendance date.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function contextForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $localDate
+    ): ?array;
 }

@@ -192,7 +192,15 @@ final class WorkforceCalendarRepository extends OracleRepository
                     :working_day AS working_day,
                     :start_time AS start_time,
                     :end_time AS end_time,
-                    :break_minutes AS break_minutes
+                    :break_start_time
+                        AS break_start_time,
+                    :break_end_time
+                        AS break_end_time,
+                    :break_minutes AS break_minutes,
+                    :target_work_minutes
+                        AS target_work_minutes,
+                    :flex_start_minutes
+                        AS flex_start_minutes
                 FROM dual
              ) source
              ON (
@@ -206,8 +214,16 @@ final class WorkforceCalendarRepository extends OracleRepository
                     source.working_day,
                 target.start_time = source.start_time,
                 target.end_time = source.end_time,
+                target.break_start_time =
+                    source.break_start_time,
+                target.break_end_time =
+                    source.break_end_time,
                 target.break_minutes =
-                    source.break_minutes
+                    source.break_minutes,
+                target.target_work_minutes =
+                    source.target_work_minutes,
+                target.flex_start_minutes =
+                    source.flex_start_minutes
              WHEN NOT MATCHED THEN INSERT
                 (
                     calendar_id,
@@ -215,7 +231,11 @@ final class WorkforceCalendarRepository extends OracleRepository
                     working_day,
                     start_time,
                     end_time,
-                    break_minutes
+                    break_start_time,
+                    break_end_time,
+                    break_minutes,
+                    target_work_minutes,
+                    flex_start_minutes
                 )
              VALUES
                 (
@@ -224,7 +244,11 @@ final class WorkforceCalendarRepository extends OracleRepository
                     source.working_day,
                     source.start_time,
                     source.end_time,
-                    source.break_minutes
+                    source.break_start_time,
+                    source.break_end_time,
+                    source.break_minutes,
+                    source.target_work_minutes,
+                    source.flex_start_minutes
                 )'
         );
         $statement->execute([
@@ -234,8 +258,16 @@ final class WorkforceCalendarRepository extends OracleRepository
                 !empty($values['working_day']) ? 1 : 0,
             'start_time' => $values['start_time'],
             'end_time' => $values['end_time'],
+            'break_start_time' =>
+                $values['break_start_time'],
+            'break_end_time' =>
+                $values['break_end_time'],
             'break_minutes' =>
                 $values['break_minutes'],
+            'target_work_minutes' =>
+                $values['target_work_minutes'],
+            'flex_start_minutes' =>
+                $values['flex_start_minutes'],
         ]);
     }
 
@@ -544,6 +576,22 @@ final class WorkforceCalendarRepository extends OracleRepository
             $employeeStatement->fetchColumn() ?: 0
         );
 
+        if ($employeeId < 1) {
+            return null;
+        }
+
+        return $this->contextForEmployee(
+            $companyId,
+            $employeeId,
+            $localDate
+        );
+    }
+
+    public function contextForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $localDate
+    ): ?array {
         if ($employeeId < 1) {
             return null;
         }

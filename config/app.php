@@ -88,4 +88,8 @@ return [
         'APP_COMPANY_CODE',
         'default'
     ),
+    'base_path' => $stringEnvironment(
+        'APP_BASE_PATH',
+        '/office_app/public'
+    ),
 ];

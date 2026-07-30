@@ -393,7 +393,31 @@ $formatDate = static function (mixed $value): string {
                                 >
                             </label>
                             <label class="form-field">
-                                <span>Break</span>
+                                <span>Lunch start</span>
+                                <input
+                                    type="time"
+                                    name="days[<?= e(
+                                        $weekday
+                                    ) ?>][break_start_time]"
+                                    value="<?= e(
+                                        $day['break_start_time'] ?? ''
+                                    ) ?>"
+                                >
+                            </label>
+                            <label class="form-field">
+                                <span>Lunch end</span>
+                                <input
+                                    type="time"
+                                    name="days[<?= e(
+                                        $weekday
+                                    ) ?>][break_end_time]"
+                                    value="<?= e(
+                                        $day['break_end_time'] ?? ''
+                                    ) ?>"
+                                >
+                            </label>
+                            <label class="form-field">
+                                <span>Unpaid lunch (min)</span>
                                 <input
                                     type="number"
                                     name="days[<?= e(
@@ -404,6 +428,38 @@ $formatDate = static function (mixed $value): string {
                                     ) ?>"
                                     min="0"
                                     max="480"
+                                    step="5"
+                                >
+                            </label>
+                            <label class="form-field">
+                                <span>Net target (min)</span>
+                                <input
+                                    type="number"
+                                    name="days[<?= e(
+                                        $weekday
+                                    ) ?>][target_work_minutes]"
+                                    value="<?= e(
+                                        $day['target_work_minutes']
+                                            ?? 480
+                                    ) ?>"
+                                    min="60"
+                                    max="960"
+                                    step="15"
+                                >
+                            </label>
+                            <label class="form-field">
+                                <span>Flexible arrival (min)</span>
+                                <input
+                                    type="number"
+                                    name="days[<?= e(
+                                        $weekday
+                                    ) ?>][flex_start_minutes]"
+                                    value="<?= e(
+                                        $day['flex_start_minutes']
+                                            ?? 0
+                                    ) ?>"
+                                    min="0"
+                                    max="240"
                                     step="5"
                                 >
                             </label>

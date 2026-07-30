@@ -88,6 +88,10 @@ final class AttendanceRepository extends MySqlRepository
                 attendance.check_out_at,
                 attendance.attendance_status,
                 attendance.work_minutes,
+                attendance.gross_minutes,
+                attendance.break_minutes,
+                attendance.target_work_minutes,
+                attendance.work_variance_minutes,
                 attendance.source,
                 attendance.notes,
                 attendance.updated_at
@@ -139,6 +143,10 @@ final class AttendanceRepository extends MySqlRepository
                 attendance.check_out_at,
                 attendance.attendance_status,
                 attendance.work_minutes,
+                attendance.gross_minutes,
+                attendance.break_minutes,
+                attendance.target_work_minutes,
+                attendance.work_variance_minutes,
                 attendance.source,
                 attendance.notes
              FROM company_users memberships
@@ -208,6 +216,10 @@ final class AttendanceRepository extends MySqlRepository
                 attendance.check_out_at,
                 attendance.attendance_status,
                 attendance.work_minutes,
+                attendance.gross_minutes,
+                attendance.break_minutes,
+                attendance.target_work_minutes,
+                attendance.work_variance_minutes,
                 attendance.source,
                 attendance.notes,
                 attendance.updated_at
@@ -263,6 +275,10 @@ final class AttendanceRepository extends MySqlRepository
                 check_out_at,
                 attendance_status,
                 work_minutes,
+                gross_minutes,
+                break_minutes,
+                target_work_minutes,
+                work_variance_minutes,
                 source,
                 notes
              FROM attendance_records
@@ -325,6 +341,10 @@ final class AttendanceRepository extends MySqlRepository
                     check_out_at,
                     attendance_status,
                     work_minutes,
+                    gross_minutes,
+                    break_minutes,
+                    target_work_minutes,
+                    work_variance_minutes,
                     source,
                     notes,
                     created_by,
@@ -339,6 +359,10 @@ final class AttendanceRepository extends MySqlRepository
                     :check_out_at,
                     :attendance_status,
                     :work_minutes,
+                    :gross_minutes,
+                    :break_minutes,
+                    :target_work_minutes,
+                    :work_variance_minutes,
                     :source,
                     :notes,
                     :created_by,
@@ -350,6 +374,12 @@ final class AttendanceRepository extends MySqlRepository
                 attendance_status =
                     VALUES(attendance_status),
                 work_minutes = VALUES(work_minutes),
+                gross_minutes = VALUES(gross_minutes),
+                break_minutes = VALUES(break_minutes),
+                target_work_minutes =
+                    VALUES(target_work_minutes),
+                work_variance_minutes =
+                    VALUES(work_variance_minutes),
                 source = VALUES(source),
                 notes = VALUES(notes),
                 updated_by = VALUES(updated_by)'
@@ -363,6 +393,14 @@ final class AttendanceRepository extends MySqlRepository
             'attendance_status' =>
                 $values['attendance_status'],
             'work_minutes' => $values['work_minutes'],
+            'gross_minutes' =>
+                $values['gross_minutes'] ?? 0,
+            'break_minutes' =>
+                $values['break_minutes'] ?? 0,
+            'target_work_minutes' =>
+                $values['target_work_minutes'] ?? 0,
+            'work_variance_minutes' =>
+                $values['work_variance_minutes'] ?? 0,
             'source' => $values['source'],
             'notes' => $values['notes'],
             'created_by' => $updatedBy,

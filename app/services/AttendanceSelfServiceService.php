@@ -24,11 +24,15 @@ final class AttendanceSelfServiceService
     private AttendanceRepository $attendance;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
+    private WorkforceCalendarService $calendars;
+    private AttendanceWorkPolicyService $workPolicy;
 
     public function __construct(
         ?AttendanceRepository $attendance = null,
         ?AuditLogWriter $auditLogs = null,
-        ?TenantContext $tenant = null
+        ?TenantContext $tenant = null,
+        ?WorkforceCalendarService $calendars = null,
+        ?AttendanceWorkPolicyService $workPolicy = null
     ) {
         $this->attendance = $attendance
             ?? RepositoryFactory::attendance();
@@ -36,6 +40,10 @@ final class AttendanceSelfServiceService
             ?? RepositoryFactory::auditLogs();
         $this->tenant = $tenant
             ?? new TenantContext();
+        $this->calendars = $calendars
+            ?? new WorkforceCalendarService();
+        $this->workPolicy = $workPolicy
+            ?? new AttendanceWorkPolicyService();
     }
 
     /**
@@ -55,6 +63,14 @@ final class AttendanceSelfServiceService
         $employeeId = (int) (
             $employee['employee_id'] ?? 0
         );
+        $schedule = $employeeId > 0
+            ? $this->scheduleContext(
+                $actorUserId
+            )
+            : null;
+        $todayDate = (string) (
+            $schedule['localDate'] ?? date('Y-m-d')
+        );
         $records = $employeeId > 0
             ? $this->attendance
                 ->historyForEmployee(
@@ -68,7 +84,7 @@ final class AttendanceSelfServiceService
             ? $this->attendance->find(
                 $companyId,
                 $employeeId,
-                date('Y-m-d')
+                $todayDate
             )
             : null;
 
@@ -81,6 +97,25 @@ final class AttendanceSelfServiceService
         $today = is_array($today)
             ? $this->presentRecord($today)
             : null;
+
+        if (
+            is_array($today)
+            && !empty($today['check_in_at'])
+        ) {
+            $metrics = $this->workPolicy->evaluate(
+                $schedule,
+                $todayDate,
+                (string) $today['check_in_at'],
+                empty($today['check_out_at'])
+                    ? null
+                    : (string) $today['check_out_at']
+            );
+            $today['expectedCheckoutTime'] =
+                $this->timeOnly(
+                    $metrics['expected_checkout_at']
+                        ?? null
+                );
+        }
         $employmentStatus = (string) (
             $employee['employment_status'] ?? ''
         );
@@ -100,7 +135,8 @@ final class AttendanceSelfServiceService
             'profileRequired' => $employeeId < 1,
             'records' => $records,
             'today' => $today,
-            'todayDate' => date('Y-m-d'),
+            'todayDate' => $todayDate,
+            'workSchedule' => $schedule,
             'summary' =>
                 $this->summarize($records),
             'range' => $range,
@@ -258,19 +294,37 @@ final class AttendanceSelfServiceService
             );
         }
 
-        $now = date('Y-m-d H:i:s');
+        $now = $this->now(
+            (string) (
+                $context['schedule']['timezone']
+                    ?? \config('timezone', 'UTC')
+            )
+        );
+        $metrics = $this->workPolicy->evaluate(
+            $context['schedule'],
+            (string) $context['date'],
+            $now
+        );
         $values = [
             'attendance_status' => is_array($old)
-                && in_array(
-                    $old['attendance_status'] ?? '',
-                    ['present', 'late', 'remote'],
-                    true
-                )
-                    ? $old['attendance_status']
-                    : 'present',
+                && ($old['attendance_status'] ?? '')
+                    === 'remote'
+                    ? 'remote'
+                    : (!empty($metrics['late'])
+                        ? 'late'
+                        : 'present'),
             'check_in_at' => $now,
             'check_out_at' => null,
-            'work_minutes' => 0,
+            'work_minutes' =>
+                $metrics['work_minutes'],
+            'gross_minutes' =>
+                $metrics['gross_minutes'],
+            'break_minutes' =>
+                $metrics['break_minutes'],
+            'target_work_minutes' =>
+                $metrics['target_work_minutes'],
+            'work_variance_minutes' =>
+                $metrics['work_variance_minutes'],
             'source' => 'self_service',
             'notes' => $old['notes'] ?? null,
         ];
@@ -318,7 +372,12 @@ final class AttendanceSelfServiceService
             );
         }
 
-        $now = date('Y-m-d H:i:s');
+        $now = $this->now(
+            (string) (
+                $context['schedule']['timezone']
+                    ?? \config('timezone', 'UTC')
+            )
+        );
         $checkIn = strtotime(
             (string) $old['check_in_at']
         );
@@ -334,6 +393,12 @@ final class AttendanceSelfServiceService
             );
         }
 
+        $metrics = $this->workPolicy->evaluate(
+            $context['schedule'],
+            (string) $context['date'],
+            (string) $old['check_in_at'],
+            $now
+        );
         $values = [
             'attendance_status' => (string) (
                 $old['attendance_status']
@@ -343,9 +408,16 @@ final class AttendanceSelfServiceService
                 $old['check_in_at']
             ),
             'check_out_at' => $now,
-            'work_minutes' => (int) floor(
-                ($checkOut - $checkIn) / 60
-            ),
+            'work_minutes' =>
+                $metrics['work_minutes'],
+            'gross_minutes' =>
+                $metrics['gross_minutes'],
+            'break_minutes' =>
+                $metrics['break_minutes'],
+            'target_work_minutes' =>
+                $metrics['target_work_minutes'],
+            'work_variance_minutes' =>
+                $metrics['work_variance_minutes'],
             'source' => 'self_service',
             'notes' => $old['notes'] ?? null,
         ];
@@ -375,6 +447,14 @@ final class AttendanceSelfServiceService
             $employee['employee_id'] ?? 0
         );
         $errors = [];
+        $schedule = $employeeId > 0
+            ? $this->scheduleContext(
+                $actorUserId
+            )
+            : null;
+        $date = (string) (
+            $schedule['localDate'] ?? date('Y-m-d')
+        );
 
         if ($employeeId < 1) {
             $errors['form'] =
@@ -390,12 +470,13 @@ final class AttendanceSelfServiceService
         return [
             'companyId' => $companyId,
             'employeeId' => $employeeId,
-            'date' => date('Y-m-d'),
+            'date' => $date,
+            'schedule' => $schedule,
             'record' => $employeeId > 0
                 ? $this->attendance->find(
                     $companyId,
                     $employeeId,
-                    date('Y-m-d')
+                    $date
                 )
                 : null,
             'errors' => $errors,
@@ -555,6 +636,25 @@ final class AttendanceSelfServiceService
         );
         $record['workDuration'] =
             $this->durationLabel($minutes);
+        $record['grossDuration'] =
+            $this->durationLabel((int) (
+                $record['gross_minutes']
+                ?? $minutes
+            ));
+        $record['breakDuration'] =
+            $this->durationLabel((int) (
+                $record['break_minutes'] ?? 0
+            ));
+        $record['targetDuration'] =
+            $this->durationLabel((int) (
+                $record['target_work_minutes'] ?? 0
+            ));
+        $variance = (int) (
+            $record['work_variance_minutes'] ?? 0
+        );
+        $record['varianceDuration'] =
+            ($variance >= 0 ? '+' : '-')
+            . $this->durationLabel(abs($variance));
 
         return $record;
     }
@@ -670,5 +770,60 @@ final class AttendanceSelfServiceService
             . ($remaining > 0
                 ? ' ' . $remaining . 'm'
                 : '');
+    }
+
+    /** @return array<string, mixed>|null */
+    private function scheduleContext(
+        int $actorUserId
+    ): ?array {
+        $context = $this->calendars
+            ->contextForUser(
+                $actorUserId,
+                date('Y-m-d')
+            );
+
+        if ($context === null) {
+            return null;
+        }
+
+        $timezone = $this->timezone(
+            (string) (
+                $context['timezone'] ?? 'UTC'
+            )
+        );
+        $localDate = (new DateTimeImmutable(
+            'now',
+            $timezone
+        ))->format('Y-m-d');
+
+        if ($localDate !== date('Y-m-d')) {
+            $context = $this->calendars
+                ->contextForUser(
+                    $actorUserId,
+                    $localDate
+                ) ?? $context;
+        }
+
+        $context['localDate'] = $localDate;
+
+        return $context;
+    }
+
+    private function now(string $timezone): string
+    {
+        return (new DateTimeImmutable(
+            'now',
+            $this->timezone($timezone)
+        ))->format('Y-m-d H:i:s');
+    }
+
+    private function timezone(
+        string $identifier
+    ): \DateTimeZone {
+        try {
+            return new \DateTimeZone($identifier);
+        } catch (Throwable $exception) {
+            return new \DateTimeZone('UTC');
+        }
     }
 }

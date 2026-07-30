@@ -326,11 +326,27 @@ final class WorkforceCalendarService
             $end = $this->nullable(
                 $source['end_time'] ?? null
             );
+            $breakStart = $this->nullable(
+                $source['break_start_time'] ?? null
+            );
+            $breakEnd = $this->nullable(
+                $source['break_end_time'] ?? null
+            );
             $break = filter_var(
                 $source['break_minutes'] ?? 0,
                 FILTER_VALIDATE_INT
             );
             $break = is_int($break) ? $break : -1;
+            $target = filter_var(
+                $source['target_work_minutes'] ?? 480,
+                FILTER_VALIDATE_INT
+            );
+            $target = is_int($target) ? $target : -1;
+            $flex = filter_var(
+                $source['flex_start_minutes'] ?? 0,
+                FILTER_VALIDATE_INT
+            );
+            $flex = is_int($flex) ? $flex : -1;
 
             if (
                 $working
@@ -348,6 +364,42 @@ final class WorkforceCalendarService
                     'Break time must be between 0 and 480 minutes.';
             }
 
+            if ($target < 60 || $target > 960) {
+                $errors['days'] =
+                    'Net work target must be between 60 and 960 minutes on every working day.';
+            }
+
+            if ($flex < 0 || $flex > 240) {
+                $errors['days'] =
+                    'Flexible arrival must be between 0 and 240 minutes.';
+            }
+
+            if (
+                $working
+                && (($breakStart === null)
+                    !== ($breakEnd === null))
+            ) {
+                $errors['days'] =
+                    'Lunch start and end must both be entered or both be left empty.';
+            } elseif (
+                $working
+                && $breakStart !== null
+                && (
+                    !$this->validTime($breakStart)
+                    || !$this->validTime($breakEnd)
+                    || !$this->validLunchWindow(
+                        (string) $start,
+                        (string) $end,
+                        $breakStart,
+                        (string) $breakEnd,
+                        $break
+                    )
+                )
+            ) {
+                $errors['days'] =
+                    'Lunch must fall inside the shift and its window must match the unpaid break minutes.';
+            }
+
             $workingDays += $working ? 1 : 0;
             $days[$weekday] = [
                 'iso_weekday' => $weekday,
@@ -358,8 +410,20 @@ final class WorkforceCalendarService
                 'end_time' => $working
                     ? $end
                     : null,
+                'break_start_time' => $working
+                    ? $breakStart
+                    : null,
+                'break_end_time' => $working
+                    ? $breakEnd
+                    : null,
                 'break_minutes' => $working
                     ? $break
+                    : 0,
+                'target_work_minutes' => $working
+                    ? $target
+                    : 0,
+                'flex_start_minutes' => $working
+                    ? $flex
                     : 0,
             ];
         }
@@ -695,6 +759,30 @@ final class WorkforceCalendarService
                 $localDate
             );
 
+        return $this->presentContext($context);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function contextForEmployee(
+        int $employeeId,
+        string $localDate
+    ): ?array {
+        $context = $this->calendars
+            ->contextForEmployee(
+                $this->tenant->companyId(),
+                $employeeId,
+                $localDate
+            );
+
+        return $this->presentContext($context);
+    }
+
+    /**
+     * @param array<string, mixed>|null $context
+     * @return array<string, mixed>|null
+     */
+    private function presentContext(?array $context): ?array
+    {
         if ($context === null) {
             return null;
         }
@@ -743,6 +831,18 @@ final class WorkforceCalendarService
             'breakMinutes' => (int) (
                 $day['break_minutes'] ?? 0
             ),
+            'breakStartTime' => (string) (
+                $day['break_start_time'] ?? ''
+            ),
+            'breakEndTime' => (string) (
+                $day['break_end_time'] ?? ''
+            ),
+            'targetWorkMinutes' => (int) (
+                $day['target_work_minutes'] ?? 0
+            ),
+            'flexStartMinutes' => (int) (
+                $day['flex_start_minutes'] ?? 0
+            ),
             'holiday' => $holiday === null
                 ? null
                 : [
@@ -781,8 +881,20 @@ final class WorkforceCalendarService
                 'end_time' => $working
                     ? '17:30'
                     : null,
+                'break_start_time' => $working
+                    ? '12:30'
+                    : null,
+                'break_end_time' => $working
+                    ? '13:30'
+                    : null,
                 'break_minutes' => $working
                     ? 60
+                    : 0,
+                'target_work_minutes' => $working
+                    ? 480
+                    : 0,
+                'flex_start_minutes' => $working
+                    ? 30
                     : 0,
             ];
         }
@@ -804,8 +916,18 @@ final class WorkforceCalendarService
                 !empty($day['working_day']),
             'start_time' => $day['start_time'] ?? null,
             'end_time' => $day['end_time'] ?? null,
+            'break_start_time' =>
+                $day['break_start_time'] ?? null,
+            'break_end_time' =>
+                $day['break_end_time'] ?? null,
             'break_minutes' => (int) (
                 $day['break_minutes'] ?? 0
+            ),
+            'target_work_minutes' => (int) (
+                $day['target_work_minutes'] ?? 0
+            ),
+            'flex_start_minutes' => (int) (
+                $day['flex_start_minutes'] ?? 0
             ),
         ];
     }
@@ -956,6 +1078,55 @@ final class WorkforceCalendarService
         }
 
         return true;
+    }
+
+    private function validLunchWindow(
+        string $shiftStart,
+        string $shiftEnd,
+        string $breakStart,
+        string $breakEnd,
+        int $breakMinutes
+    ): bool {
+        $shiftStartMinutes =
+            $this->timeMinutes($shiftStart);
+        $shiftEndMinutes =
+            $this->timeMinutes($shiftEnd);
+        $breakStartMinutes =
+            $this->timeMinutes($breakStart);
+        $breakEndMinutes =
+            $this->timeMinutes($breakEnd);
+        $shiftDuration = (
+            $shiftEndMinutes
+            - $shiftStartMinutes
+            + 1440
+        ) % 1440;
+        $breakOffset = (
+            $breakStartMinutes
+            - $shiftStartMinutes
+            + 1440
+        ) % 1440;
+        $breakDuration = (
+            $breakEndMinutes
+            - $breakStartMinutes
+            + 1440
+        ) % 1440;
+
+        return $shiftDuration > 0
+            && $breakDuration > 0
+            && $breakDuration === $breakMinutes
+            && $breakOffset > 0
+            && ($breakOffset + $breakDuration)
+                < $shiftDuration;
+    }
+
+    private function timeMinutes(string $time): int
+    {
+        [$hour, $minute] = array_map(
+            'intval',
+            explode(':', $time)
+        );
+
+        return ($hour * 60) + $minute;
     }
 
     private function validDate(string $value): bool

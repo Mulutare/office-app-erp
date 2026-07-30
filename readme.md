@@ -4,13 +4,19 @@ OfficeApp ERP is a modular, multi-company enterprise application.
 
 ## Runtime requirement
 
-PHP 8.4 or newer is required. PHP 8.0 is not supported.
+PHP 8.1 or newer is required. The native cPanel baseline is PHP 8.1,
+while the container runtime and continuous tests use PHP 8.4.
 
 Run:
 
 ```text
 php bin/check-runtime.php
 ```
+
+For a new empty native-hosting database, use the guarded
+`bin/install-database.php` workflow in `docs/cpanel-deployment.md`.
+Existing databases continue to use `bin/migrate.php` followed by
+`bin/sync-reference-data.php`.
 
 ## Docker deployment
 
@@ -40,7 +46,7 @@ docker compose exec app php bin/provision-development-sample.php
 
 ## Deployment without Docker
 
-Install PHP 8.4, the required extensions, Apache/Nginx/IIS and
+Install PHP 8.1 or newer, the required extensions, Apache/Nginx/IIS and
 MySQL/MariaDB directly on the host. The application source and business
 behavior are identical to the container deployment.
 
@@ -50,10 +56,12 @@ The current supported application URL is:
 http://localhost/office_app/public/login
 ```
 
-See `docs/native-php-deployment.md`.
+See `docs/native-php-deployment.md`. For PHP-FPM hosting managed through
+cPanel, use `docs/cpanel-deployment.md`.
 
 ## Database support
 
-MySQL 8 and MariaDB are the currently supported engines. Oracle remains a
-planned optional adapter and must not be represented as supported until real
-Oracle integration tests pass.
+MySQL 8 and MariaDB are the verified production engines. Oracle migrations
+and repository adapters are maintained in parallel and pass structural
+contract tests; live Oracle integration certification remains required
+before selecting Oracle for a production tenant.

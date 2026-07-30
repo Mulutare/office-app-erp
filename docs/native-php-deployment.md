@@ -1,11 +1,11 @@
-# Native PHP 8.4 deployment
+# Native PHP 8.1+ deployment
 
 This deployment mode is for systems where Docker or another container runtime
 is unavailable. It is a first-class runtime path, not a PHP 8.0 fallback.
 
 ## Requirements
 
-- PHP 8.4 or newer.
+- PHP 8.1 or newer.
 - Apache, Nginx, IIS or another supported PHP web server.
 - MySQL 8 or MariaDB 10.11.
 - PDO, PDO MySQL, mbstring, OpenSSL, session and OPcache.
@@ -69,7 +69,7 @@ release because generated application URLs use `/office_app/public`.
 
 ## Windows without Docker
 
-Install a supported PHP 8.4 build that matches the selected web server. Do not
+Install a supported PHP 8.1+ build that matches the selected web server. Do not
 point OfficeApp at an older PHP executable bundled with an existing XAMPP
 installation.
 
@@ -85,7 +85,7 @@ php bin/check-runtime.php
 
 ## Linux without Docker
 
-Install PHP 8.4, the required extensions, a web server and MySQL/MariaDB using
+Install PHP 8.1+, the required extensions, a web server and MySQL/MariaDB using
 the operating system's supported repositories. Configure PHP-FPM or the Apache
 PHP integration deliberately, then run the same runtime check.
 
@@ -103,4 +103,5 @@ After database provisioning and web-server configuration:
 4. Sign in with a controlled administrator account.
 5. Confirm forced temporary-password change, RBAC and tenant isolation.
 
-Native and container deployments must use the same PHP 8.4 integration tests.
+Native and container deployments must use the same integration tests. The
+repository validates both the PHP 8.1 hosting baseline and PHP 8.4 containers.

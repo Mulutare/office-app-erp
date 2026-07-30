@@ -6,11 +6,11 @@ $requirements = require __DIR__
     . '/../config/runtime.php';
 $minimumVersion = (string) (
     $requirements['minimum_php_version']
-    ?? '8.4.0'
+    ?? '8.1.0'
 );
 $minimumVersionId = (int) (
     $requirements['minimum_php_version_id']
-    ?? 80400
+    ?? 80100
 );
 $requiredExtensions = is_array(
     $requirements['required_extensions']

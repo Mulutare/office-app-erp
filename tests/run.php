@@ -32,6 +32,7 @@ use App\Services\AttendanceManagementService;
 use App\Services\AttendanceReminderService;
 use App\Services\AttendanceSelfServiceService;
 use App\Services\AttendanceNotificationService;
+use App\Services\AttendanceWorkPolicyService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
 use App\Services\CompanyLifecycleService;
@@ -87,12 +88,12 @@ try {
     $minimumPhpVersionId = (int) (
         $runtimeRequirements[
             'minimum_php_version_id'
-        ] ?? 80400
+        ] ?? 80100
     );
 
     $check(
         PHP_VERSION_ID >= $minimumPhpVersionId,
-        'Runtime uses PHP 8.4 or newer'
+        'Runtime uses PHP 8.1 or newer'
     );
 
     $check(
@@ -147,6 +148,68 @@ try {
             'Required extension is loaded: ' . $extension
         );
     }
+
+    $attendancePolicy =
+        new AttendanceWorkPolicyService();
+    $policyContext = [
+        'timezone' => 'Africa/Nairobi',
+        'workingDay' => true,
+        'startTime' => '08:30',
+        'endTime' => '17:30',
+        'breakStartTime' => '12:30',
+        'breakEndTime' => '13:30',
+        'breakMinutes' => 60,
+        'targetWorkMinutes' => 480,
+        'flexStartMinutes' => 30,
+    ];
+    $completePolicyDay = $attendancePolicy
+        ->evaluate(
+            $policyContext,
+            '2026-07-30',
+            '2026-07-30 08:45:00',
+            '2026-07-30 17:45:00'
+        );
+    $latePolicyDay = $attendancePolicy->evaluate(
+        $policyContext,
+        '2026-07-30',
+        '2026-07-30 09:01:00'
+    );
+    $partialPolicyDay = $attendancePolicy
+        ->evaluate(
+            $policyContext,
+            '2026-07-30',
+            '2026-07-30 08:30:00',
+            '2026-07-30 12:00:00'
+        );
+
+    $check(
+        $completePolicyDay['gross_minutes'] === 540
+        && $completePolicyDay['break_minutes'] === 60
+        && $completePolicyDay['work_minutes'] === 480
+        && $completePolicyDay[
+            'work_variance_minutes'
+        ] === 0
+        && $completePolicyDay['late'] === false,
+        'Attendance policy calculates an eight-hour net day after scheduled lunch'
+    );
+
+    $check(
+        $latePolicyDay['late'] === true
+        && str_ends_with(
+            (string) $completePolicyDay[
+                'expected_checkout_at'
+            ],
+            '17:45:00'
+        ),
+        'Flexible arrival controls late status and expected check-out'
+    );
+
+    $check(
+        $partialPolicyDay['gross_minutes'] === 210
+        && $partialPolicyDay['break_minutes'] === 0
+        && $partialPolicyDay['work_minutes'] === 210,
+        'Lunch is deducted only when attendance overlaps the configured window'
+    );
 
     $databaseVersion = (string) db()
         ->query('SELECT VERSION()')
@@ -307,8 +370,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 21,
-        'Oracle migration catalog contains twenty-one valid definitions'
+        && count($oracleMigrationFiles) === 22,
+        'Oracle migration catalog contains twenty-two valid definitions'
     );
 
     $check(
@@ -341,6 +404,7 @@ try {
                 '190',
                 '200',
                 '210',
+                '220',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -445,6 +509,7 @@ try {
                 '019',
                 '020',
                 '021',
+                '022',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -460,13 +525,14 @@ try {
                 \'018\',
                 \'019\',
                 \'020\',
-                \'021\'
+                \'021\',
+                \'022\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 7,
+        $migrationLedgerCount === 8,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 

@@ -179,7 +179,11 @@ final class WorkforceCalendarRepository extends MySqlRepository
                     working_day,
                     start_time,
                     end_time,
-                    break_minutes
+                    break_start_time,
+                    break_end_time,
+                    break_minutes,
+                    target_work_minutes,
+                    flex_start_minutes
                 )
              VALUES
                 (
@@ -188,13 +192,25 @@ final class WorkforceCalendarRepository extends MySqlRepository
                     :working_day,
                     :start_time,
                     :end_time,
-                    :break_minutes
+                    :break_start_time,
+                    :break_end_time,
+                    :break_minutes,
+                    :target_work_minutes,
+                    :flex_start_minutes
                 )
              ON DUPLICATE KEY UPDATE
                 working_day = VALUES(working_day),
                 start_time = VALUES(start_time),
                 end_time = VALUES(end_time),
-                break_minutes = VALUES(break_minutes)'
+                break_start_time =
+                    VALUES(break_start_time),
+                break_end_time =
+                    VALUES(break_end_time),
+                break_minutes = VALUES(break_minutes),
+                target_work_minutes =
+                    VALUES(target_work_minutes),
+                flex_start_minutes =
+                    VALUES(flex_start_minutes)'
         );
         $statement->execute([
             'calendar_id' => $calendarId,
@@ -203,8 +219,16 @@ final class WorkforceCalendarRepository extends MySqlRepository
                 !empty($values['working_day']) ? 1 : 0,
             'start_time' => $values['start_time'],
             'end_time' => $values['end_time'],
+            'break_start_time' =>
+                $values['break_start_time'],
+            'break_end_time' =>
+                $values['break_end_time'],
             'break_minutes' =>
                 $values['break_minutes'],
+            'target_work_minutes' =>
+                $values['target_work_minutes'],
+            'flex_start_minutes' =>
+                $values['flex_start_minutes'],
         ]);
     }
 
@@ -463,6 +487,22 @@ final class WorkforceCalendarRepository extends MySqlRepository
             $employeeStatement->fetchColumn() ?: 0
         );
 
+        if ($employeeId < 1) {
+            return null;
+        }
+
+        return $this->contextForEmployee(
+            $companyId,
+            $employeeId,
+            $localDate
+        );
+    }
+
+    public function contextForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $localDate
+    ): ?array {
         if ($employeeId < 1) {
             return null;
         }

@@ -355,6 +355,38 @@ $formatDate = static function (
                     ) ?>
                 </strong>
             </div>
+            <div>
+                <span>Lunch</span>
+                <strong>
+                    <?php if (
+                        !empty($workSchedule['breakStartTime'])
+                        && !empty($workSchedule['breakEndTime'])
+                    ): ?>
+                        <?= e($workSchedule['breakStartTime']) ?>
+                        – <?= e($workSchedule['breakEndTime']) ?>
+                    <?php else: ?>
+                        <?= e(
+                            $workSchedule['breakMinutes'] ?? 0
+                        ) ?> min unpaid
+                    <?php endif; ?>
+                </strong>
+            </div>
+            <div>
+                <span>Net work target</span>
+                <strong>
+                    <?= e(
+                        $workSchedule['targetWorkMinutes'] ?? 0
+                    ) ?> min
+                </strong>
+            </div>
+            <div>
+                <span>Flexible arrival</span>
+                <strong>
+                    <?= e(
+                        $workSchedule['flexStartMinutes'] ?? 0
+                    ) ?> min after start
+                </strong>
+            </div>
         </section>
     <?php endif; ?>
 
@@ -468,11 +500,56 @@ $formatDate = static function (
                     </strong>
                 </div>
                 <div>
-                    <span>Working time</span>
+                    <span>Gross time</span>
+                    <strong>
+                        <?= e(
+                            $today['grossDuration']
+                            ?? '0m'
+                        ) ?>
+                    </strong>
+                </div>
+                <div>
+                    <span>Lunch deducted</span>
+                    <strong>
+                        <?= e(
+                            $today['breakDuration']
+                            ?? '0m'
+                        ) ?>
+                    </strong>
+                </div>
+                <div>
+                    <span>Net working time</span>
                     <strong>
                         <?= e(
                             $today['workDuration']
                             ?? '0m'
+                        ) ?>
+                    </strong>
+                </div>
+                <div>
+                    <span>Daily target</span>
+                    <strong>
+                        <?= e(
+                            $today['targetDuration']
+                            ?? '0m'
+                        ) ?>
+                    </strong>
+                </div>
+                <div>
+                    <span>Net variance</span>
+                    <strong>
+                        <?= e(
+                            $today['varianceDuration']
+                            ?? '+0m'
+                        ) ?>
+                    </strong>
+                </div>
+                <div>
+                    <span>Expected check-out</span>
+                    <strong>
+                        <?= e(
+                            $today['expectedCheckoutTime']
+                            ?? '—'
                         ) ?>
                     </strong>
                 </div>
@@ -866,7 +943,7 @@ $formatDate = static function (
         </strong>
     </article>
     <article>
-        <span>Working time</span>
+        <span>Net working time</span>
         <strong>
             <?= e(
                 $summary['workDuration'] ?? '0h'
@@ -905,7 +982,7 @@ $formatDate = static function (
                         <th>Status</th>
                         <th>Check-in</th>
                         <th>Check-out</th>
-                        <th>Working time</th>
+                        <th>Net working time</th>
                         <th>Source</th>
                     </tr>
                 </thead>
@@ -956,6 +1033,20 @@ $formatDate = static function (
                                         'workDuration'
                                     ] ?? '0m'
                                 ) ?>
+                                <small>
+                                    Gross <?= e(
+                                        $record['grossDuration']
+                                            ?? '0m'
+                                    ) ?>
+                                    · lunch <?= e(
+                                        $record['breakDuration']
+                                            ?? '0m'
+                                    ) ?>
+                                    · <?= e(
+                                        $record['varianceDuration']
+                                            ?? '+0m'
+                                    ) ?>
+                                </small>
                             </td>
                             <td>
                                 <?= e(ucwords(str_replace(

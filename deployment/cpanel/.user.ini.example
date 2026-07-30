@@ -1,0 +1,16 @@
+display_errors = Off
+display_startup_errors = Off
+log_errors = On
+expose_php = Off
+session.use_strict_mode = On
+session.cookie_httponly = On
+session.cookie_secure = On
+session.cookie_samesite = Lax
+opcache.enable = On
+opcache.validate_timestamps = On
+memory_limit = 256M
+max_execution_time = 60
+post_max_size = 32M
+upload_max_filesize = 32M
+date.timezone = Africa/Nairobi
+

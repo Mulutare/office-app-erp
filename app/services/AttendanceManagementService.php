@@ -46,11 +46,15 @@ final class AttendanceManagementService
     private AttendanceRepository $attendance;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
+    private WorkforceCalendarService $calendars;
+    private AttendanceWorkPolicyService $workPolicy;
 
     public function __construct(
         ?AttendanceRepository $attendance = null,
         ?AuditLogWriter $auditLogs = null,
-        ?TenantContext $tenant = null
+        ?TenantContext $tenant = null,
+        ?WorkforceCalendarService $calendars = null,
+        ?AttendanceWorkPolicyService $workPolicy = null
     ) {
         $this->attendance = $attendance
             ?? RepositoryFactory::attendance();
@@ -58,6 +62,10 @@ final class AttendanceManagementService
             ?? RepositoryFactory::auditLogs();
         $this->tenant = $tenant
             ?? new TenantContext();
+        $this->calendars = $calendars
+            ?? new WorkforceCalendarService();
+        $this->workPolicy = $workPolicy
+            ?? new AttendanceWorkPolicyService();
     }
 
     /**
@@ -113,6 +121,30 @@ final class AttendanceManagementService
                     (int) (
                         $record['work_minutes'] ?? 0
                     )
+                );
+            $record['grossDuration'] =
+                $this->durationLabel((int) (
+                    $record['gross_minutes']
+                        ?? $record['work_minutes']
+                        ?? 0
+                ));
+            $record['breakDuration'] =
+                $this->durationLabel((int) (
+                    $record['break_minutes'] ?? 0
+                ));
+            $record['targetDuration'] =
+                $this->durationLabel((int) (
+                    $record['target_work_minutes']
+                        ?? 0
+                ));
+            $variance = (int) (
+                $record['work_variance_minutes']
+                    ?? 0
+            );
+            $record['varianceDuration'] =
+                ($variance >= 0 ? '+' : '-')
+                . $this->durationLabel(
+                    abs($variance)
                 );
 
             if ($status !== 'not_recorded') {
@@ -180,6 +212,11 @@ final class AttendanceManagementService
         );
         $attendanceDate = (string) (
             $values['attendance_date']
+        );
+        $values = $this->applyWorkPolicy(
+            $values,
+            $employeeId,
+            $attendanceDate
         );
         $old = $this->attendance->find(
             $companyId,
@@ -307,6 +344,14 @@ final class AttendanceManagementService
                     $checkInAt,
                     $checkOutAt
                 ),
+            'gross_minutes' =>
+                $this->workMinutes(
+                    $checkInAt,
+                    $checkOutAt
+                ),
+            'break_minutes' => 0,
+            'target_work_minutes' => 0,
+            'work_variance_minutes' => 0,
             'source' => 'manual',
             'notes' => $this->nullable(
                 $input['notes'] ?? null
@@ -452,6 +497,18 @@ final class AttendanceManagementService
             'work_minutes' => (int) (
                 $record['work_minutes'] ?? 0
             ),
+            'gross_minutes' => (int) (
+                $record['gross_minutes'] ?? 0
+            ),
+            'break_minutes' => (int) (
+                $record['break_minutes'] ?? 0
+            ),
+            'target_work_minutes' => (int) (
+                $record['target_work_minutes'] ?? 0
+            ),
+            'work_variance_minutes' => (int) (
+                $record['work_variance_minutes'] ?? 0
+            ),
             'source' => (string) (
                 $record['source'] ?? 'manual'
             ),
@@ -470,6 +527,63 @@ final class AttendanceManagementService
 
         return $parsed !== false
             && $parsed->format('Y-m-d') === $date;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     * @return array<string, mixed>
+     */
+    private function applyWorkPolicy(
+        array $values,
+        int $employeeId,
+        string $attendanceDate
+    ): array {
+        if (empty($values['check_in_at'])) {
+            $values['work_minutes'] = 0;
+            $values['gross_minutes'] = 0;
+            $values['break_minutes'] = 0;
+            $values['target_work_minutes'] = 0;
+            $values['work_variance_minutes'] = 0;
+
+            return $values;
+        }
+
+        $context = $this->calendars
+            ->contextForEmployee(
+                $employeeId,
+                $attendanceDate
+            );
+        $metrics = $this->workPolicy->evaluate(
+            $context,
+            $attendanceDate,
+            (string) $values['check_in_at'],
+            empty($values['check_out_at'])
+                ? null
+                : (string) $values['check_out_at']
+        );
+
+        foreach ([
+            'work_minutes',
+            'gross_minutes',
+            'break_minutes',
+            'target_work_minutes',
+            'work_variance_minutes',
+        ] as $field) {
+            $values[$field] = (int) $metrics[$field];
+        }
+
+        if (in_array(
+            $values['attendance_status'],
+            ['present', 'late'],
+            true
+        )) {
+            $values['attendance_status'] =
+                !empty($metrics['late'])
+                    ? 'late'
+                    : 'present';
+        }
+
+        return $values;
     }
 
     private function normalizeTime(
