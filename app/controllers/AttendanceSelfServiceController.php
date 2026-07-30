@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Services\AttendanceSelfServiceService;
+use App\Services\AttendanceReminderService;
 use App\Services\AuthorizationService;
 
 final class AttendanceSelfServiceController
 {
     private AuthorizationService $authorization;
     private AttendanceSelfServiceService $attendance;
+    private AttendanceReminderService $reminders;
 
     public function __construct()
     {
@@ -18,6 +20,8 @@ final class AttendanceSelfServiceController
             new AuthorizationService();
         $this->attendance =
             new AttendanceSelfServiceService();
+        $this->reminders =
+            new AttendanceReminderService();
     }
 
     public function index(): void
@@ -29,6 +33,11 @@ final class AttendanceSelfServiceController
             $this->actorUserId(),
             $this->queryMonth()
         );
+        $reminderWorkspace =
+            $this->reminders->workspace(
+                $this->actorUserId(),
+                $workspace
+            );
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -64,11 +73,37 @@ final class AttendanceSelfServiceController
             'canViewTeam' => $this->can(
                 'attendance.team.view'
             ),
+            'reminderSettings' =>
+                $reminderWorkspace['settings'],
+            'attendanceNotification' =>
+                $reminderWorkspace[
+                    'notification'
+                ],
+            'workdayOptions' =>
+                $reminderWorkspace[
+                    'workdayOptions'
+                ],
+            'reminderLeadOptions' =>
+                $reminderWorkspace[
+                    'leadOptions'
+                ],
+            'timezoneOptions' =>
+                $reminderWorkspace[
+                    'timezoneOptions'
+                ],
+            'reminderOld' => \getFlash(
+                'attendance_reminder_old',
+                []
+            ),
             'notice' => \getFlash(
                 'attendance_self_notice'
             ),
             'errors' => \getFlash(
                 'attendance_self_errors',
+                []
+            ),
+            'reminderErrors' => \getFlash(
+                'attendance_reminder_errors',
                 []
             ),
         ]);
@@ -82,6 +117,78 @@ final class AttendanceSelfServiceController
     public function checkOut(): void
     {
         $this->recordAction('checkOut');
+    }
+
+    public function saveReminders(): void
+    {
+        $this->requirePermission(
+            'attendance.self.view'
+        );
+
+        if (
+            !\verifyCsrfToken(
+                \postString('_token')
+            )
+        ) {
+            \flash(
+                'attendance_reminder_errors',
+                [
+                    'form' =>
+                        'The reminder session expired. Please try again.',
+                ]
+            );
+            \redirect('/attendance/me');
+        }
+
+        $input = [
+            'timezone' =>
+                \postString('timezone'),
+            'workdays' =>
+                $_POST['workdays'] ?? [],
+            'check_in_enabled' =>
+                isset($_POST[
+                    'check_in_enabled'
+                ]),
+            'check_in_time' =>
+                \postString('check_in_time'),
+            'check_out_enabled' =>
+                isset($_POST[
+                    'check_out_enabled'
+                ]),
+            'check_out_time' =>
+                \postString('check_out_time'),
+            'reminder_lead_minutes' =>
+                \postString(
+                    'reminder_lead_minutes'
+                ),
+            'browser_notifications_enabled' =>
+                isset($_POST[
+                    'browser_notifications_enabled'
+                ]),
+        ];
+        $result = $this->reminders->save(
+            $input,
+            $this->actorUserId()
+        );
+
+        if (!$result['successful']) {
+            \flash(
+                'attendance_reminder_errors',
+                $result['errors']
+            );
+            \flash(
+                'attendance_reminder_old',
+                $result['old'] ?? $input
+            );
+            \redirect('/attendance/me');
+        }
+
+        \flash('attendance_self_notice', [
+            'type' => 'success',
+            'message' =>
+                'Your personal attendance reminders were updated.',
+        ]);
+        \redirect('/attendance/me');
     }
 
     public function team(): void

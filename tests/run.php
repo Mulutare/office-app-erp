@@ -18,11 +18,14 @@ use App\Repositories\MySql\CompanyMembershipRepository;
 use App\Repositories\MySql\DashboardStatisticsRepository;
 use App\Repositories\MySql\OrganizationReadinessRepository
     as MySqlOrganizationReadinessRepository;
+use App\Repositories\MySql\AttendanceReminderRepository
+    as MySqlAttendanceReminderRepository;
 use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
 use App\Services\AttendanceManagementService;
+use App\Services\AttendanceReminderService;
 use App\Services\AttendanceSelfServiceService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
@@ -188,6 +191,12 @@ try {
         'Repository factory selects the MySQL organization-readiness repository'
     );
 
+    $check(
+        RepositoryFactory::attendanceReminders()
+            instanceof MySqlAttendanceReminderRepository,
+        'Repository factory selects the MySQL attendance-reminder repository'
+    );
+
     $oracleManager = ConnectionManager::fromConfig([
         'driver' => 'oracle',
     ]);
@@ -284,8 +293,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 19,
-        'Oracle migration catalog contains nineteen valid definitions'
+        && count($oracleMigrationFiles) === 20,
+        'Oracle migration catalog contains twenty valid definitions'
     );
 
     $check(
@@ -316,6 +325,7 @@ try {
                 '170',
                 '180',
                 '190',
+                '200',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -334,8 +344,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 27
-        && $oracleIdentityCount === 21,
+        $oracleTableCount === 28
+        && $oracleIdentityCount === 22,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -418,6 +428,7 @@ try {
                 '017',
                 '018',
                 '019',
+                '020',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -431,13 +442,14 @@ try {
                 \'016\',
                 \'017\',
                 \'018\',
-                \'019\'
+                \'019\',
+                \'020\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 5,
+        $migrationLedgerCount === 6,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -618,8 +630,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 27,
-        'All 27 application tables were created'
+        $tableCount === 28,
+        'All 28 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -631,8 +643,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 87,
-        'All 87 foreign-key relationships were created'
+        $foreignKeyCount === 88,
+        'All 88 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -2335,6 +2347,147 @@ try {
         'Personal attendance actions create tenant-scoped audit events'
     );
 
+    $attendanceReminders =
+        new AttendanceReminderService();
+    $invalidReminder =
+        $attendanceReminders->save(
+            [
+                'timezone' => 'Invalid/Timezone',
+                'workdays' => [],
+                'check_in_enabled' => false,
+                'check_in_time' => '25:00',
+                'check_out_enabled' => false,
+                'check_out_time' => '17:30',
+                'reminder_lead_minutes' => '7',
+                'browser_notifications_enabled' =>
+                    false,
+            ],
+            910004
+        );
+    $foreignReminder =
+        $attendanceReminders->save(
+            [
+                'timezone' => 'Africa/Nairobi',
+                'workdays' => ['1'],
+                'check_in_enabled' => true,
+                'check_in_time' => '08:30',
+                'check_out_enabled' => false,
+                'check_out_time' => '17:30',
+                'reminder_lead_minutes' => '10',
+                'browser_notifications_enabled' =>
+                    false,
+            ],
+            910002
+        );
+    $savedReminder =
+        $attendanceReminders->save(
+            [
+                'timezone' => 'Africa/Nairobi',
+                'workdays' => [
+                    '1',
+                    '2',
+                    '3',
+                    '4',
+                    '5',
+                    '6',
+                    '7',
+                ],
+                'check_in_enabled' => true,
+                'check_in_time' => '08:30',
+                'check_out_enabled' => true,
+                'check_out_time' => '17:30',
+                'reminder_lead_minutes' => '15',
+                'browser_notifications_enabled' =>
+                    true,
+            ],
+            910004
+        );
+    $reminderWorkspace =
+        $attendanceReminders->workspace(
+            910004,
+            [
+                'profileRequired' => false,
+                'today' => null,
+            ],
+            new \DateTimeImmutable(
+                '2026-07-30 08:20:00',
+                new \DateTimeZone(
+                    'Africa/Nairobi'
+                )
+            )
+        );
+
+    $check(
+        $invalidReminder['successful'] === false
+        && isset(
+            $invalidReminder['errors']['timezone'],
+            $invalidReminder['errors']['workdays'],
+            $invalidReminder['errors']['reminders'],
+            $invalidReminder['errors'][
+                'check_in_time'
+            ],
+            $invalidReminder['errors'][
+                'reminder_lead_minutes'
+            ]
+        ),
+        'Attendance reminder settings reject invalid personal schedules'
+    );
+    $check(
+        $foreignReminder['successful'] === false
+        && isset(
+            $foreignReminder['errors']['form']
+        ),
+        'Attendance reminders cannot be configured for a user outside the active company'
+    );
+    $check(
+        $savedReminder['successful'] === true
+        && (
+            $reminderWorkspace['settings'][
+                'checkInTime'
+            ] ?? null
+        ) === '08:30'
+        && (
+            $reminderWorkspace['settings'][
+                'browserEnabled'
+            ] ?? null
+        ) === true
+        && (
+            $reminderWorkspace['notification'][
+                'kind'
+            ] ?? null
+        ) === 'check-in'
+        && (
+            $reminderWorkspace['notification'][
+                'status'
+            ] ?? null
+        ) === 'due',
+        'Employee-owned attendance reminders use the saved timezone, schedule and delivery preference'
+    );
+
+    $attendanceReminderAudit = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND user_id = :user_id
+           AND action = :action
+           AND module = :module
+           AND table_name = :table_name'
+    );
+    $attendanceReminderAudit->execute([
+        'company_id' => $tenantACompanyId,
+        'user_id' => 910004,
+        'action' =>
+            'UPDATE_ATTENDANCE_REMINDERS',
+        'module' => 'attendance',
+        'table_name' =>
+            'attendance_user_reminders',
+    ]);
+    $check(
+        (int) $attendanceReminderAudit
+            ->fetchColumn() === 1,
+        'Personal attendance reminder changes create a tenant-scoped audit event'
+    );
+
     $leaveManagement = new LeaveManagementService();
     $leaveDashboard = $leaveManagement->dashboard();
     $leaveEmployeeIds = array_map(
@@ -2814,7 +2967,23 @@ try {
             $pendingTwoStage[
                 'currentApproverUserId'
             ] ?? null
-        ) === $tenantAActorId,
+        ) === $tenantAActorId
+        && (
+            $pendingTwoStage[
+                'approvalProgressLabel'
+            ] ?? null
+        ) ===
+            'Manager approved — waiting for HR'
+        && (
+            $pendingTwoStage[
+                'approvalStages'
+            ][0]['statusLabel'] ?? null
+        ) === 'Approved'
+        && (
+            $pendingTwoStage[
+                'approvalStages'
+            ][1]['statusLabel'] ?? null
+        ) === 'In review',
         'Two-stage leave waits for named HR approval after manager approval'
     );
 

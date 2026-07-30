@@ -36,6 +36,10 @@ use App\Repositories\MySql\AttendanceRepository
     as MySqlAttendanceRepository;
 use App\Repositories\Oracle\AttendanceRepository
     as OracleAttendanceRepository;
+use App\Repositories\MySql\AttendanceReminderRepository
+    as MySqlAttendanceReminderRepository;
+use App\Repositories\Oracle\AttendanceReminderRepository
+    as OracleAttendanceReminderRepository;
 use App\Repositories\MySql\LeaveRepository
     as MySqlLeaveRepository;
 use App\Repositories\Oracle\LeaveRepository
@@ -59,6 +63,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function attendanceReminders():
+        AttendanceReminderRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlAttendanceReminderRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleAttendanceReminderRepository();
+        }
+
+        throw new RuntimeException(
+            'No attendance-reminder repository is available for the configured database driver.'
+        );
+    }
+
     public static function organizationReadiness():
         OrganizationReadinessRepository
     {

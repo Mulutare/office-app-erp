@@ -150,6 +150,13 @@ $router->post(
     '/attendance/me/check-out',
     [$attendanceSelfServiceController, 'checkOut']
 );
+$router->post(
+    '/attendance/me/reminders',
+    [
+        $attendanceSelfServiceController,
+        'saveReminders',
+    ]
+);
 $router->get(
     '/attendance/team',
     [$attendanceSelfServiceController, 'team']

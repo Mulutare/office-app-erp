@@ -1070,11 +1070,74 @@ $check(
         $employeeAttendance['body'],
         'Alice TenantA'
     )
+    && str_contains(
+        $employeeAttendance['body'],
+        'Personal attendance notification'
+    )
+    && str_contains(
+        $employeeAttendance['body'],
+        'Configure personal attendance reminders'
+    )
     && !str_contains(
         $employeeAttendance['body'],
         'Bob TenantB'
     ),
     'Normal employee attendance entry redirects to tenant-scoped personal history'
+);
+
+$employeeAttendanceCsrf = csrfTokenFromBody(
+    $employeeAttendance['body']
+);
+$employeeReminderSave = httpRequest(
+    $baseUrl,
+    '/attendance/me/reminders',
+    $employeeCookies,
+    'POST',
+    [
+        '_token' => $employeeAttendanceCsrf,
+        'timezone' => 'Africa/Nairobi',
+        'workdays' => [
+            '1',
+            '2',
+            '3',
+            '4',
+            '5',
+        ],
+        'check_in_enabled' => '1',
+        'check_in_time' => '08:15',
+        'check_out_enabled' => '1',
+        'check_out_time' => '17:15',
+        'reminder_lead_minutes' => '10',
+        'browser_notifications_enabled' => '1',
+        'user_id' => '910002',
+    ]
+);
+$employeeReminderPage = httpRequest(
+    $baseUrl,
+    '/attendance/me',
+    $employeeCookies
+);
+$check(
+    $employeeAttendanceCsrf !== ''
+    && $employeeReminderSave['status'] === 302
+    && str_ends_with(
+        $employeeReminderSave['location'],
+        '/attendance/me'
+    )
+    && $employeeReminderPage['status'] === 200
+    && str_contains(
+        $employeeReminderPage['body'],
+        'Your personal attendance reminders were updated.'
+    )
+    && str_contains(
+        $employeeReminderPage['body'],
+        'value="08:15"'
+    )
+    && str_contains(
+        $employeeReminderPage['body'],
+        'value="17:15"'
+    ),
+    'Employee can update only the signed-in account attendance reminder preferences'
 );
 $check(
     $employeeAttendanceTeam['status'] === 200

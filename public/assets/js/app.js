@@ -211,4 +211,153 @@ document.addEventListener('DOMContentLoaded', () => {
 
         synchronize();
     }
+
+    const attendanceNotification =
+        document.querySelector(
+            '[data-attendance-notification]'
+        );
+    const attendanceBrowserButton =
+        document.querySelector(
+            '[data-enable-attendance-browser]'
+        );
+    const attendanceBrowserCheckbox =
+        document.querySelector(
+            '[data-attendance-browser-checkbox]'
+        );
+    const attendanceBrowserStatus =
+        document.querySelector(
+            '[data-attendance-browser-status]'
+        );
+    const browserNotificationsSupported =
+        'Notification' in window;
+
+    const setAttendanceBrowserStatus = (
+        message
+    ) => {
+        if (
+            attendanceBrowserStatus
+                instanceof HTMLElement
+        ) {
+            attendanceBrowserStatus.textContent =
+                message;
+        }
+    };
+
+    if (
+        attendanceBrowserButton
+            instanceof HTMLButtonElement
+    ) {
+        if (!browserNotificationsSupported) {
+            attendanceBrowserButton.disabled = true;
+            setAttendanceBrowserStatus(
+                'This browser does not support local alerts.'
+            );
+        } else {
+            if (Notification.permission === 'granted') {
+                setAttendanceBrowserStatus(
+                    'Browser permission is enabled.'
+                );
+            } else if (
+                Notification.permission === 'denied'
+            ) {
+                setAttendanceBrowserStatus(
+                    'Browser permission is blocked. Update the site permission in your browser.'
+                );
+            }
+
+            attendanceBrowserButton.addEventListener(
+                'click',
+                async () => {
+                    const permission =
+                        await Notification
+                            .requestPermission();
+
+                    if (permission === 'granted') {
+                        if (
+                            attendanceBrowserCheckbox
+                                instanceof HTMLInputElement
+                        ) {
+                            attendanceBrowserCheckbox
+                                .checked = true;
+                        }
+
+                        setAttendanceBrowserStatus(
+                            'Browser alerts are enabled. Save your settings.'
+                        );
+                    } else {
+                        setAttendanceBrowserStatus(
+                            'Browser alert permission was not granted.'
+                        );
+                    }
+                }
+            );
+        }
+    }
+
+    if (
+        attendanceNotification instanceof HTMLElement
+        && attendanceNotification.dataset
+            .browserEnabled === '1'
+        && browserNotificationsSupported
+        && Notification.permission === 'granted'
+    ) {
+        const notifyAt = Date.parse(
+            attendanceNotification.dataset.notifyAt
+                ?? ''
+        );
+        const title =
+            attendanceNotification.dataset
+                .notificationTitle
+            ?? 'Attendance reminder';
+        const body =
+            attendanceNotification.dataset
+                .notificationBody
+            ?? '';
+        const key =
+            attendanceNotification.dataset
+                .notificationKey
+            ?? '';
+        const maximumDelay = 24 * 60 * 60 * 1000;
+
+        const deliverNotification = () => {
+            if (key === '') {
+                return;
+            }
+
+            try {
+                if (
+                    window.sessionStorage.getItem(key)
+                        === 'delivered'
+                ) {
+                    return;
+                }
+
+                new Notification(title, {
+                    body,
+                    tag: key,
+                });
+                window.sessionStorage.setItem(
+                    key,
+                    'delivered'
+                );
+            } catch (error) {
+                setAttendanceBrowserStatus(
+                    'The in-app reminder remains active, but this browser could not display a local alert.'
+                );
+            }
+        };
+
+        if (Number.isFinite(notifyAt)) {
+            const delay = notifyAt - Date.now();
+
+            if (delay <= 0) {
+                deliverNotification();
+            } else if (delay <= maximumDelay) {
+                window.setTimeout(
+                    deliverNotification,
+                    delay
+                );
+            }
+        }
+    }
 });

@@ -605,15 +605,84 @@ $formatDate = static function (mixed $value): string {
                                     ) ?>
                                 </td>
                                 <td>
-                                    <span class="badge badge-<?= e(
-                                        $request['statusTone']
-                                        ?? 'muted'
-                                    ) ?>">
-                                        <?= e(
-                                            $request['statusLabel']
-                                            ?? ''
-                                        ) ?>
-                                    </span>
+                                    <div class="leave-status-progress">
+                                        <span class="badge badge-<?= e(
+                                            $request[
+                                                'approvalProgressTone'
+                                            ]
+                                            ?? $request[
+                                                'statusTone'
+                                            ]
+                                            ?? 'muted'
+                                        ) ?>">
+                                            <?= e(
+                                                $request[
+                                                    'approvalProgressLabel'
+                                                ]
+                                                ?? $request[
+                                                    'statusLabel'
+                                                ]
+                                                ?? ''
+                                            ) ?>
+                                        </span>
+                                        <small>
+                                            <?= e(
+                                                $request[
+                                                    'approvalProgressDetail'
+                                                ] ?? ''
+                                            ) ?>
+                                        </small>
+                                        <?php
+                                        $approvalStages = is_array(
+                                            $request[
+                                                'approvalStages'
+                                            ] ?? null
+                                        )
+                                            ? $request[
+                                                'approvalStages'
+                                            ]
+                                            : [];
+                                        ?>
+                                        <?php if (
+                                            $approvalStages !== []
+                                        ): ?>
+                                            <ol
+                                                class="leave-stage-track"
+                                                aria-label="Approval progress"
+                                            >
+                                                <?php foreach (
+                                                    $approvalStages
+                                                    as $approvalStage
+                                                ): ?>
+                                                    <li class="is-<?= e(
+                                                        $approvalStage[
+                                                            'statusTone'
+                                                        ] ?? 'muted'
+                                                    ) ?>">
+                                                        <span
+                                                            aria-hidden="true"
+                                                        ></span>
+                                                        <div>
+                                                            <strong>
+                                                                <?= e(
+                                                                    $approvalStage[
+                                                                        'stageLabel'
+                                                                    ] ?? ''
+                                                                ) ?>
+                                                            </strong>
+                                                            <small>
+                                                                <?= e(
+                                                                    $approvalStage[
+                                                                        'statusLabel'
+                                                                    ] ?? ''
+                                                                ) ?>
+                                                            </small>
+                                                        </div>
+                                                    </li>
+                                                <?php endforeach; ?>
+                                            </ol>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                                 <td class="table-note-cell">
                                     <?= e(

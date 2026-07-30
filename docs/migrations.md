@@ -86,6 +86,7 @@ The current Oracle versions are:
 170  configurable staged leave approval workflows
 180  administrative-only company owner permission defaults
 190  HR job-title management required by position planning
+200  user-owned attendance reminder preferences
 ```
 
 ## Running the optional Oracle lab

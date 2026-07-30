@@ -6466,3 +6466,422 @@ a {
 [data-leave-hr-approver-field][hidden] {
     display: none;
 }
+
+.leave-status-progress {
+    display: grid;
+    gap: 7px;
+    min-width: 220px;
+    max-width: 300px;
+}
+
+.leave-status-progress > .badge {
+    width: fit-content;
+    white-space: normal;
+    text-align: left;
+}
+
+.leave-status-progress > small {
+    color: var(--color-muted);
+    line-height: 1.4;
+    white-space: normal;
+}
+
+.leave-stage-track {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 0;
+    margin: 3px 0 0;
+    list-style: none;
+}
+
+.leave-stage-track li {
+    position: relative;
+    display: grid;
+    grid-template-columns: 11px auto;
+    align-items: start;
+    gap: 6px;
+    min-width: 88px;
+}
+
+.leave-stage-track li:not(:last-child)::after {
+    position: absolute;
+    top: 5px;
+    left: 9px;
+    width: calc(100% - 2px);
+    height: 2px;
+    background: #d0d5dd;
+    content: "";
+}
+
+.leave-stage-track li > span {
+    position: relative;
+    z-index: 1;
+    width: 11px;
+    height: 11px;
+    margin-top: 1px;
+    border: 2px solid #98a2b3;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.leave-stage-track li.is-success > span {
+    border-color: #12b76a;
+    background: #12b76a;
+}
+
+.leave-stage-track li.is-warning > span {
+    border-color: #f79009;
+    background: #fef0c7;
+}
+
+.leave-stage-track li.is-danger > span {
+    border-color: #f04438;
+    background: #f04438;
+}
+
+.leave-stage-track strong,
+.leave-stage-track small {
+    display: block;
+    white-space: normal;
+}
+
+.leave-stage-track strong {
+    color: var(--color-text);
+    font-size: 0.72rem;
+}
+
+.leave-stage-track small {
+    margin-top: 1px;
+    color: var(--color-muted);
+    font-size: 0.68rem;
+}
+
+.attendance-reminder-banner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+    border: 1px solid #d0d5dd;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 10px 30px rgba(16, 24, 40, 0.06);
+}
+
+.attendance-reminder-banner.is-warning {
+    border-color: #fedf89;
+    background:
+        linear-gradient(
+            120deg,
+            #fffaeb 0%,
+            #fff 68%
+        );
+}
+
+.attendance-reminder-banner.is-info {
+    border-color: #b2ddff;
+    background:
+        linear-gradient(
+            120deg,
+            #eff8ff 0%,
+            #fff 68%
+        );
+}
+
+.attendance-reminder-banner.is-success {
+    border-color: #abefc6;
+    background:
+        linear-gradient(
+            120deg,
+            #ecfdf3 0%,
+            #fff 68%
+        );
+}
+
+.attendance-reminder-icon {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 13px;
+    background: #175cd3;
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.attendance-reminder-banner.is-warning
+    .attendance-reminder-icon {
+    background: #dc6803;
+}
+
+.attendance-reminder-banner.is-success
+    .attendance-reminder-icon {
+    background: #079455;
+}
+
+.attendance-reminder-banner h2 {
+    margin: 4px 0 5px;
+    font-size: 1.12rem;
+}
+
+.attendance-reminder-banner p {
+    margin: 0;
+    color: var(--color-muted);
+    line-height: 1.45;
+}
+
+.attendance-reminder-context {
+    display: grid;
+    gap: 5px;
+    min-width: 130px;
+    text-align: right;
+}
+
+.attendance-reminder-context span {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.attendance-reminder-context strong {
+    font-size: 1.4rem;
+}
+
+.attendance-reminder-settings {
+    padding: 0;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.attendance-reminder-settings summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 20px 22px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.attendance-reminder-settings summary::-webkit-details-marker {
+    display: none;
+}
+
+.attendance-reminder-settings summary strong {
+    display: block;
+    margin-top: 4px;
+    font-size: 1.05rem;
+}
+
+.attendance-reminder-settings summary > span {
+    color: var(--color-accent);
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.attendance-reminder-settings[open] summary {
+    border-bottom: 1px solid var(--color-border);
+}
+
+.attendance-reminder-form {
+    display: grid;
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    padding: 22px;
+}
+
+.attendance-reminder-wide,
+.attendance-workday-fieldset,
+.attendance-browser-option {
+    grid-column: 1 / -1;
+}
+
+.attendance-workday-fieldset {
+    padding: 0;
+    border: 0;
+}
+
+.attendance-workday-fieldset legend {
+    font-size: 0.85rem;
+    font-weight: 800;
+}
+
+.attendance-workday-fieldset > p {
+    margin: 5px 0 12px;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+}
+
+.attendance-workday-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.attendance-workday-grid label {
+    position: relative;
+    cursor: pointer;
+}
+
+.attendance-workday-grid input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.attendance-workday-grid span {
+    display: grid;
+    place-items: center;
+    min-height: 40px;
+    border: 1px solid var(--color-border);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.attendance-workday-grid input:checked + span {
+    border-color: #84adff;
+    background: #eff4ff;
+    color: #1849a9;
+}
+
+.attendance-workday-grid input:focus-visible + span {
+    outline: 3px solid rgba(46, 144, 250, 0.25);
+    outline-offset: 2px;
+}
+
+.attendance-reminder-time-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 125px;
+    align-items: center;
+    gap: 14px;
+    padding: 15px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: #f9fafb;
+}
+
+.attendance-reminder-time-card > label,
+.attendance-browser-option > label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.attendance-reminder-time-card input[type="checkbox"],
+.attendance-browser-option input {
+    margin-top: 4px;
+}
+
+.attendance-reminder-time-card strong,
+.attendance-reminder-time-card small,
+.attendance-browser-option strong,
+.attendance-browser-option small {
+    display: block;
+}
+
+.attendance-reminder-time-card small,
+.attendance-browser-option small {
+    margin-top: 3px;
+    color: var(--color-muted);
+}
+
+.attendance-reminder-time-card
+    input[type="time"] {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.attendance-browser-option {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 18px;
+    padding: 16px;
+    border: 1px solid #b2ddff;
+    border-radius: 10px;
+    background: #eff8ff;
+}
+
+.attendance-browser-status {
+    grid-column: 1 / -1;
+    min-height: 1em;
+    color: #175cd3;
+    font-weight: 700;
+}
+
+@media (max-width: 760px) {
+    .attendance-reminder-banner {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .attendance-reminder-context {
+        grid-column: 2;
+        grid-template-columns: auto auto;
+        justify-content: start;
+        min-width: 0;
+        text-align: left;
+    }
+
+    .attendance-reminder-form {
+        grid-template-columns: 1fr;
+    }
+
+    .attendance-reminder-wide,
+    .attendance-workday-fieldset,
+    .attendance-browser-option {
+        grid-column: auto;
+    }
+
+    .attendance-browser-option {
+        grid-template-columns: 1fr;
+    }
+
+    .attendance-browser-status {
+        grid-column: auto;
+    }
+}
+
+@media (max-width: 520px) {
+    .leave-stage-track {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .leave-stage-track li:not(:last-child)::after {
+        top: 9px;
+        left: 5px;
+        width: 2px;
+        height: calc(100% + 8px);
+    }
+
+    .attendance-reminder-banner {
+        grid-template-columns: 1fr;
+        padding: 18px;
+    }
+
+    .attendance-reminder-context {
+        grid-column: auto;
+    }
+
+    .attendance-workday-grid {
+        grid-template-columns:
+            repeat(4, minmax(0, 1fr));
+    }
+
+    .attendance-reminder-time-card {
+        grid-template-columns: 1fr;
+    }
+}

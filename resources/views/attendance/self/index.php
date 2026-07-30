@@ -25,6 +25,95 @@ $notice = is_array($data['notice'] ?? null)
 $errors = is_array($data['errors'] ?? null)
     ? $data['errors']
     : [];
+$reminderErrors = is_array(
+    $data['reminderErrors'] ?? null
+)
+    ? $data['reminderErrors']
+    : [];
+$reminderSettings = is_array(
+    $data['reminderSettings'] ?? null
+)
+    ? $data['reminderSettings']
+    : [];
+$attendanceNotification = is_array(
+    $data['attendanceNotification'] ?? null
+)
+    ? $data['attendanceNotification']
+    : [];
+$workdayOptions = is_array(
+    $data['workdayOptions'] ?? null
+)
+    ? $data['workdayOptions']
+    : [];
+$reminderLeadOptions = is_array(
+    $data['reminderLeadOptions'] ?? null
+)
+    ? $data['reminderLeadOptions']
+    : [];
+$timezoneOptions = is_array(
+    $data['timezoneOptions'] ?? null
+)
+    ? $data['timezoneOptions']
+    : [];
+$reminderOld = is_array(
+    $data['reminderOld'] ?? null
+)
+    ? $data['reminderOld']
+    : [];
+$selectedWorkdays = is_array(
+    $reminderOld['workdays'] ?? null
+)
+    ? array_map('intval', $reminderOld['workdays'])
+    : array_map(
+        'intval',
+        is_array(
+            $reminderSettings['workdays'] ?? null
+        )
+            ? $reminderSettings['workdays']
+            : []
+    );
+$reminderTimezone = (string) (
+    $reminderOld['timezone']
+    ?? $reminderSettings['timezone']
+    ?? 'UTC'
+);
+$checkInEnabled = array_key_exists(
+    'check_in_enabled',
+    $reminderOld
+)
+    ? !empty($reminderOld['check_in_enabled'])
+    : !empty($reminderSettings['checkInEnabled']);
+$checkOutEnabled = array_key_exists(
+    'check_out_enabled',
+    $reminderOld
+)
+    ? !empty($reminderOld['check_out_enabled'])
+    : !empty($reminderSettings['checkOutEnabled']);
+$browserEnabled = array_key_exists(
+    'browser_notifications_enabled',
+    $reminderOld
+)
+    ? !empty(
+        $reminderOld[
+            'browser_notifications_enabled'
+        ]
+    )
+    : !empty($reminderSettings['browserEnabled']);
+$checkInTime = (string) (
+    $reminderOld['check_in_time']
+    ?? $reminderSettings['checkInTime']
+    ?? '08:30'
+);
+$checkOutTime = (string) (
+    $reminderOld['check_out_time']
+    ?? $reminderSettings['checkOutTime']
+    ?? '17:30'
+);
+$leadMinutes = (int) (
+    $reminderOld['reminder_lead_minutes']
+    ?? $reminderSettings['leadMinutes']
+    ?? 10
+);
 $profileRequired = !empty($data['profileRequired']);
 $canRecord = !empty($data['canRecord']);
 $canCheckIn = $canRecord
@@ -62,6 +151,12 @@ $formatDate = static function (
 <?php if (!empty($errors['form'])): ?>
     <div class="alert alert-danger" role="alert">
         <?= e($errors['form']) ?>
+    </div>
+<?php endif; ?>
+
+<?php if (!empty($reminderErrors['form'])): ?>
+    <div class="alert alert-danger" role="alert">
+        <?= e($reminderErrors['form']) ?>
     </div>
 <?php endif; ?>
 
@@ -129,6 +224,81 @@ $formatDate = static function (
         </p>
     </section>
 <?php else: ?>
+    <section
+        class="attendance-reminder-banner is-<?= e(
+            $attendanceNotification['tone']
+            ?? 'muted'
+        ) ?>"
+        data-attendance-notification
+        data-browser-enabled="<?= $browserEnabled
+            ? '1'
+            : '0' ?>"
+        data-notify-at="<?= e(
+            $attendanceNotification['notifyAtIso']
+            ?? ''
+        ) ?>"
+        data-notification-title="<?= e(
+            $attendanceNotification['title']
+            ?? ''
+        ) ?>"
+        data-notification-body="<?= e(
+            $attendanceNotification['message']
+            ?? ''
+        ) ?>"
+        data-notification-key="<?= e(
+            $attendanceNotification[
+                'notificationKey'
+            ] ?? ''
+        ) ?>"
+    >
+        <div class="attendance-reminder-icon" aria-hidden="true">
+            <?= (
+                $attendanceNotification['status']
+                ?? ''
+            ) === 'due'
+                ? '!'
+                : 'AT' ?>
+        </div>
+        <div>
+            <span class="section-kicker">
+                Personal attendance notification
+            </span>
+            <h2>
+                <?= e(
+                    $attendanceNotification['title']
+                    ?? 'Personal reminders'
+                ) ?>
+            </h2>
+            <p>
+                <?= e(
+                    $attendanceNotification['message']
+                    ?? ''
+                ) ?>
+            </p>
+        </div>
+        <div class="attendance-reminder-context">
+            <span>
+                <?= e(
+                    $attendanceNotification['timezone']
+                    ?? $reminderTimezone
+                ) ?>
+            </span>
+            <?php if (!empty(
+                $attendanceNotification[
+                    'scheduledTime'
+                ]
+            )): ?>
+                <strong>
+                    <?= e(
+                        $attendanceNotification[
+                            'scheduledTime'
+                        ]
+                    ) ?>
+                </strong>
+            <?php endif; ?>
+        </div>
+    </section>
+
     <section class="attendance-today-grid">
         <article class="card attendance-clock-card">
             <div class="attendance-card-heading">
@@ -241,6 +411,284 @@ $formatDate = static function (
             <?php endif; ?>
         </article>
     </section>
+
+    <details
+        class="card attendance-reminder-settings"
+        <?= $reminderErrors !== []
+            ? 'open'
+            : '' ?>
+    >
+        <summary>
+            <div>
+                <span class="section-kicker">
+                    My notification settings
+                </span>
+                <strong>
+                    Configure personal attendance reminders
+                </strong>
+            </div>
+            <span>Open settings</span>
+        </summary>
+
+        <form
+            method="post"
+            action="/office_app/public/attendance/me/reminders"
+            class="attendance-reminder-form"
+        >
+            <?= csrfField() ?>
+
+            <?php if (!empty(
+                $reminderErrors['reminders']
+            )): ?>
+                <div
+                    class="field-error attendance-reminder-wide"
+                >
+                    <?= e(
+                        $reminderErrors['reminders']
+                    ) ?>
+                </div>
+            <?php endif; ?>
+
+            <fieldset class="attendance-workday-fieldset">
+                <legend>My working days</legend>
+                <p>
+                    Reminders run only on the days you
+                    select.
+                </p>
+                <div class="attendance-workday-grid">
+                    <?php foreach (
+                        $workdayOptions
+                        as $day => $dayLabel
+                    ): ?>
+                        <label>
+                            <input
+                                type="checkbox"
+                                name="workdays[]"
+                                value="<?= e($day) ?>"
+                                <?= in_array(
+                                    (int) $day,
+                                    $selectedWorkdays,
+                                    true
+                                )
+                                    ? 'checked'
+                                    : '' ?>
+                            >
+                            <span>
+                                <?= e(
+                                    substr(
+                                        (string) $dayLabel,
+                                        0,
+                                        3
+                                    )
+                                ) ?>
+                            </span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+                <?php if (!empty(
+                    $reminderErrors['workdays']
+                )): ?>
+                    <small class="field-error">
+                        <?= e(
+                            $reminderErrors['workdays']
+                        ) ?>
+                    </small>
+                <?php endif; ?>
+            </fieldset>
+
+            <div class="form-field">
+                <label for="attendance-reminder-timezone">
+                    My timezone
+                </label>
+                <select
+                    id="attendance-reminder-timezone"
+                    name="timezone"
+                    required
+                >
+                    <?php foreach (
+                        $timezoneOptions
+                        as $timezone => $timezoneLabel
+                    ): ?>
+                        <option
+                            value="<?= e($timezone) ?>"
+                            <?= $reminderTimezone
+                                === $timezone
+                                ? 'selected'
+                                : '' ?>
+                        >
+                            <?= e($timezoneLabel) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php if (!empty(
+                    $reminderErrors['timezone']
+                )): ?>
+                    <small class="field-error">
+                        <?= e(
+                            $reminderErrors['timezone']
+                        ) ?>
+                    </small>
+                <?php endif; ?>
+            </div>
+
+            <div class="attendance-reminder-time-card">
+                <label>
+                    <input
+                        type="checkbox"
+                        name="check_in_enabled"
+                        value="1"
+                        <?= $checkInEnabled
+                            ? 'checked'
+                            : '' ?>
+                    >
+                    <span>
+                        <strong>Check-in reminder</strong>
+                        <small>
+                            Alert me before work begins.
+                        </small>
+                    </span>
+                </label>
+                <input
+                    type="time"
+                    name="check_in_time"
+                    value="<?= e($checkInTime) ?>"
+                    required
+                    aria-label="Check-in reminder time"
+                >
+                <?php if (!empty(
+                    $reminderErrors['check_in_time']
+                )): ?>
+                    <small class="field-error">
+                        <?= e(
+                            $reminderErrors[
+                                'check_in_time'
+                            ]
+                        ) ?>
+                    </small>
+                <?php endif; ?>
+            </div>
+
+            <div class="attendance-reminder-time-card">
+                <label>
+                    <input
+                        type="checkbox"
+                        name="check_out_enabled"
+                        value="1"
+                        <?= $checkOutEnabled
+                            ? 'checked'
+                            : '' ?>
+                    >
+                    <span>
+                        <strong>Check-out reminder</strong>
+                        <small>
+                            Alert me when work should end.
+                        </small>
+                    </span>
+                </label>
+                <input
+                    type="time"
+                    name="check_out_time"
+                    value="<?= e($checkOutTime) ?>"
+                    required
+                    aria-label="Check-out reminder time"
+                >
+                <?php if (!empty(
+                    $reminderErrors['check_out_time']
+                )): ?>
+                    <small class="field-error">
+                        <?= e(
+                            $reminderErrors[
+                                'check_out_time'
+                            ]
+                        ) ?>
+                    </small>
+                <?php endif; ?>
+            </div>
+
+            <div class="form-field">
+                <label for="attendance-reminder-lead">
+                    Notify me
+                </label>
+                <select
+                    id="attendance-reminder-lead"
+                    name="reminder_lead_minutes"
+                    required
+                >
+                    <?php foreach (
+                        $reminderLeadOptions
+                        as $minutes => $leadLabel
+                    ): ?>
+                        <option
+                            value="<?= e($minutes) ?>"
+                            <?= $leadMinutes
+                                === (int) $minutes
+                                ? 'selected'
+                                : '' ?>
+                        >
+                            <?= e($leadLabel) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php if (!empty(
+                    $reminderErrors[
+                        'reminder_lead_minutes'
+                    ]
+                )): ?>
+                    <small class="field-error">
+                        <?= e(
+                            $reminderErrors[
+                                'reminder_lead_minutes'
+                            ]
+                        ) ?>
+                    </small>
+                <?php endif; ?>
+            </div>
+
+            <div class="attendance-browser-option">
+                <label>
+                    <input
+                        type="checkbox"
+                        name="browser_notifications_enabled"
+                        value="1"
+                        data-attendance-browser-checkbox
+                        <?= $browserEnabled
+                            ? 'checked'
+                            : '' ?>
+                    >
+                    <span>
+                        <strong>
+                            Browser alert while OfficeApp is open
+                        </strong>
+                        <small>
+                            Requires browser permission and HTTPS
+                            outside localhost.
+                        </small>
+                    </span>
+                </label>
+                <button
+                    type="button"
+                    class="btn btn-secondary btn-small"
+                    data-enable-attendance-browser
+                >
+                    Enable browser alerts
+                </button>
+                <small
+                    class="attendance-browser-status"
+                    data-attendance-browser-status
+                    aria-live="polite"
+                ></small>
+            </div>
+
+            <div class="form-actions attendance-reminder-wide">
+                <button
+                    type="submit"
+                    class="btn btn-primary"
+                >
+                    Save my reminders
+                </button>
+            </div>
+        </form>
+    </details>
 <?php endif; ?>
 
 <section class="attendance-period-bar">

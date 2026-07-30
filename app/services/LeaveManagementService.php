@@ -39,6 +39,30 @@ final class LeaveManagementService
         'manager_then_hr' => 'Manager, then HR',
     ];
 
+    private const APPROVAL_STAGE_LABELS = [
+        'manager' => 'Manager',
+        'hr' => 'HR',
+    ];
+
+    private const APPROVAL_STATUS_PRESENTATION = [
+        'waiting' => [
+            'label' => 'Waiting',
+            'tone' => 'muted',
+        ],
+        'pending' => [
+            'label' => 'In review',
+            'tone' => 'warning',
+        ],
+        'approved' => [
+            'label' => 'Approved',
+            'tone' => 'success',
+        ],
+        'rejected' => [
+            'label' => 'Rejected',
+            'tone' => 'danger',
+        ],
+    ];
+
     private LeaveRepository $leave;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
@@ -480,14 +504,41 @@ final class LeaveManagementService
             $request['currentApprovalStage'] = null;
             $request['currentApproverUserId'] = null;
             $request['currentApproverName'] = null;
+            $request['approvedStageCount'] = 0;
+            $request['totalStageCount'] =
+                count($stages);
 
-            foreach ($stages as $stage) {
+            foreach ($stages as &$stage) {
                 $stageCode = (string) (
                     $stage['approval_stage'] ?? ''
+                );
+                $stageStatus = (string) (
+                    $stage['approval_status']
+                        ?? 'waiting'
                 );
                 $approverName = (string) (
                     $stage['approver_name'] ?? ''
                 );
+                $stagePresentation =
+                    self::APPROVAL_STATUS_PRESENTATION[
+                        $stageStatus
+                    ] ?? self::APPROVAL_STATUS_PRESENTATION[
+                        'waiting'
+                    ];
+                $stage['stageLabel'] =
+                    self::APPROVAL_STAGE_LABELS[
+                        $stageCode
+                    ] ?? ucfirst($stageCode);
+                $stage['statusLabel'] =
+                    $stagePresentation['label'];
+                $stage['statusTone'] =
+                    $stagePresentation['tone'];
+                $stage['isCurrent'] =
+                    $stageStatus === 'pending';
+
+                if ($stageStatus === 'approved') {
+                    $request['approvedStageCount']++;
+                }
 
                 if ($stageCode === 'manager') {
                     $request['managerApproverName'] =
@@ -512,6 +563,9 @@ final class LeaveManagementService
                         $approverName;
                 }
             }
+
+            unset($stage);
+            $request['approvalStages'] = $stages;
         }
 
         unset($request);
@@ -1297,8 +1351,138 @@ final class LeaveManagementService
             self::STATUSES[$status]['label'];
         $request['statusTone'] =
             self::STATUSES[$status]['tone'];
+        $this->presentApprovalProgress(
+            $request,
+            $status
+        );
         $request['employeeName'] =
             $this->employeeName($request);
+    }
+
+    /**
+     * Present the exact approval position without changing
+     * the persisted request status.
+     *
+     * @param array<string, mixed> $request
+     */
+    private function presentApprovalProgress(
+        array &$request,
+        string $requestStatus
+    ): void {
+        $currentStage = (string) (
+            $request['currentApprovalStage'] ?? ''
+        );
+        $currentApprover = trim((string) (
+            $request['currentApproverName'] ?? ''
+        ));
+        $stages = is_array(
+            $request['approvalStages'] ?? null
+        )
+            ? $request['approvalStages']
+            : [];
+        $managerApproved = false;
+        $rejectedStage = '';
+
+        foreach ($stages as $stage) {
+            $stageCode = (string) (
+                $stage['approval_stage'] ?? ''
+            );
+            $stageStatus = (string) (
+                $stage['approval_status'] ?? ''
+            );
+
+            if (
+                $stageCode === 'manager'
+                && $stageStatus === 'approved'
+            ) {
+                $managerApproved = true;
+            }
+
+            if ($stageStatus === 'rejected') {
+                $rejectedStage = (string) (
+                    $stage['stageLabel']
+                    ?? self::APPROVAL_STAGE_LABELS[
+                        $stageCode
+                    ]
+                    ?? ucfirst($stageCode)
+                );
+            }
+        }
+
+        if ($requestStatus === 'approved') {
+            $request['approvalProgressLabel'] =
+                'Fully approved';
+            $request['approvalProgressDetail'] =
+                $stages === []
+                    ? 'No approval was required.'
+                    : 'Every required approval stage is complete.';
+            $request['approvalProgressTone'] =
+                'success';
+
+            return;
+        }
+
+        if ($requestStatus === 'rejected') {
+            $request['approvalProgressLabel'] =
+                $rejectedStage !== ''
+                    ? 'Rejected by '
+                        . $rejectedStage
+                    : 'Rejected';
+            $request['approvalProgressDetail'] =
+                'The approval workflow has ended.';
+            $request['approvalProgressTone'] =
+                'danger';
+
+            return;
+        }
+
+        if ($requestStatus === 'cancelled') {
+            $request['approvalProgressLabel'] =
+                'Cancelled';
+            $request['approvalProgressDetail'] =
+                'This request is no longer active.';
+            $request['approvalProgressTone'] =
+                'muted';
+
+            return;
+        }
+
+        if ($currentStage === 'hr') {
+            $request['approvalProgressLabel'] =
+                $managerApproved
+                    ? 'Manager approved — waiting for HR'
+                    : 'Waiting for HR approval';
+            $request['approvalProgressDetail'] =
+                $currentApprover !== ''
+                    ? 'Current approver: '
+                        . $currentApprover
+                    : 'An HR approver must complete this stage.';
+            $request['approvalProgressTone'] =
+                'warning';
+
+            return;
+        }
+
+        if ($currentStage === 'manager') {
+            $request['approvalProgressLabel'] =
+                'Waiting for manager approval';
+            $request['approvalProgressDetail'] =
+                $currentApprover !== ''
+                    ? 'Current approver: '
+                        . $currentApprover
+                    : 'A reporting manager must complete this stage.';
+            $request['approvalProgressTone'] =
+                'warning';
+
+            return;
+        }
+
+        $request['approvalProgressLabel'] =
+            'Approval route needs attention';
+        $request['approvalProgressDetail'] =
+            'No active approver stage could be resolved.';
+        $request['approvalProgressTone'] =
+            'danger';
     }
 
     /**
