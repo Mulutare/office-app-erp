@@ -30,7 +30,7 @@ repository root.
 ## Hosting requirements
 
 - PHP 8.1 or newer with PHP-FPM enabled.
-- PDO, `pdo_mysql`, `mbstring`, OpenSSL, session and OPcache.
+- PDO, `pdo_mysql`, `curl`, `mbstring`, OpenSSL, session and OPcache.
 - MySQL 8 or MariaDB 10.6 or newer with InnoDB and `utf8mb4`.
 - HTTPS certificate for the ERP hostname.
 - cPanel Terminal or SSH is strongly recommended for reviewed migrations.
@@ -39,6 +39,16 @@ repository root.
 Use MultiPHP Manager to select PHP 8.1 or a newer supported version for
 the ERP hostname. Use Select PHP Version or PHP Extensions to verify the
 extensions above.
+
+The release package includes the locked Composer dependencies used for
+standards-based Web Push. Build it only after:
+
+```text
+composer install --no-dev --optimize-autoloader
+```
+
+The packaging tool refuses to create an incomplete release when
+`vendor/autoload.php` is missing.
 
 ## Production configuration
 
@@ -58,6 +68,27 @@ Set the correct production timezone and keep:
 'debug' => false,
 'session_cookie_secure' => true,
 ```
+
+### Background attendance notifications
+
+Generate one stable VAPID identity on the trusted workstation after Composer
+dependencies are installed:
+
+```text
+php bin/generate-web-push-keys.php
+```
+
+Copy the generated values into the ignored `config/app.local.php` under
+`web_push`, set the real administrator contact in `subject`, and change
+`enabled` to `true`. Never commit or paste the private key into screenshots.
+Do not rotate the VAPID keys during a routine release: browsers must register
+again after a key rotation.
+
+The default endpoint allowlist accepts the standard Google, Mozilla, Apple and
+Microsoft browser push services. If a supported browser uses another service,
+review and add its exact hostname rather than allowing arbitrary destinations.
+OfficeApp rejects IP endpoints and unapproved hosts to prevent the subscription
+API from becoming a server-side request-forgery path.
 
 Create a dedicated database and database user in cPanel MySQL Databases.
 Grant that user all privileges only on the OfficeApp database. Put those
@@ -145,6 +176,10 @@ In cPanel Cron Jobs, run every minute with the actual account path:
 
 Confirm the PHP path in cPanel Terminal with `command -v php`. Some hosts
 use `/usr/local/bin/php` instead.
+
+This single command creates the private in-application reminders and sends
+pending background Web Push deliveries. Delivery retries use a bounded
+backoff, and expired browser subscriptions are disabled automatically.
 
 ## Rollback
 

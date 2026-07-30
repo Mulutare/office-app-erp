@@ -37,12 +37,26 @@ $directories = @(
     'public',
     'resources',
     'routes',
-    'storage'
+    'storage',
+    'vendor'
 )
 $rootFiles = @(
     '.htaccess',
-    'README.md'
+    'README.md',
+    'composer.json',
+    'composer.lock'
 )
+
+$composerAutoloader = Join-Path `
+    $projectRoot 'vendor\autoload.php'
+
+if (-not (Test-Path -LiteralPath $composerAutoloader)) {
+    throw (
+        'Composer dependencies are missing. Run ' +
+        '"composer install --no-dev --optimize-autoloader" ' +
+        'before building the cPanel package.'
+    )
+}
 
 try {
     New-Item -ItemType Directory -Path $packageRoot |

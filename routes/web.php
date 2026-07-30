@@ -187,6 +187,20 @@ $router->post(
         'markNotificationRead',
     ]
 );
+$router->post(
+    '/attendance/me/push/subscribe',
+    [
+        $attendanceSelfServiceController,
+        'subscribePush',
+    ]
+);
+$router->post(
+    '/attendance/me/push/unsubscribe',
+    [
+        $attendanceSelfServiceController,
+        'unsubscribePush',
+    ]
+);
 $router->get(
     '/attendance/team',
     [$attendanceSelfServiceController, 'team']

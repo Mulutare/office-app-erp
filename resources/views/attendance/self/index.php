@@ -50,6 +50,11 @@ $serverNotifications = is_array(
 )
     ? $data['serverNotifications']
     : [];
+$pushStatus = is_array(
+    $data['pushStatus'] ?? null
+)
+    ? $data['pushStatus']
+    : [];
 $workdayOptions = is_array(
     $data['workdayOptions'] ?? null
 )
@@ -886,12 +891,83 @@ $formatDate = static function (
                     data-attendance-browser-status
                     aria-live="polite"
                 ></small>
+                <section
+                    class="attendance-push-control"
+                    data-attendance-push
+                    data-configured="<?= !empty(
+                        $pushStatus['configured']
+                    ) ? '1' : '0' ?>"
+                    data-public-key="<?= e(
+                        $pushStatus['publicKey'] ?? ''
+                    ) ?>"
+                    data-subscribe-url="<?= e(appUrl(
+                        '/attendance/me/push/subscribe'
+                    )) ?>"
+                    data-unsubscribe-url="<?= e(appUrl(
+                        '/attendance/me/push/unsubscribe'
+                    )) ?>"
+                    data-csrf-token="<?= e(csrfToken()) ?>"
+                >
+                    <div>
+                        <strong>
+                            Background notifications on this device
+                        </strong>
+                        <small>
+                            Receive attendance reminders even when
+                            OfficeApp is not open.
+                        </small>
+                        <small>
+                            <?= e(
+                                $pushStatus[
+                                    'activeDeviceCount'
+                                ] ?? 0
+                            ) ?>
+                            active device(s) are registered to your
+                            account in this company.
+                        </small>
+                    </div>
+                    <div class="attendance-push-actions">
+                        <button
+                            type="button"
+                            class="btn btn-primary btn-small"
+                            data-attendance-push-enable
+                            <?= empty(
+                                $pushStatus['configured']
+                            ) ? 'disabled' : '' ?>
+                        >
+                            Enable on this device
+                        </button>
+                        <button
+                            type="button"
+                            class="btn btn-secondary btn-small"
+                            data-attendance-push-disable
+                            disabled
+                        >
+                            Disable this device
+                        </button>
+                    </div>
+                    <small
+                        class="attendance-push-status"
+                        data-attendance-push-status
+                        aria-live="polite"
+                    >
+                        <?php if (empty(
+                            $pushStatus['configured']
+                        )): ?>
+                            Background delivery needs one-time server
+                            setup by the OfficeApp administrator. Your
+                            private inbox remains available.
+                        <?php else: ?>
+                            Checking this device…
+                        <?php endif; ?>
+                    </small>
+                </section>
                 <small class="attendance-delivery-note">
                     The private OfficeApp inbox works on phones and
-                    computers after sign-in. Live device alerts need
-                    notification permission, HTTPS, and an open
-                    OfficeApp page. Background push while the browser
-                    is fully closed is not enabled yet.
+                    computers after sign-in. Live and background
+                    device alerts require permission and HTTPS
+                    outside localhost. Each employee controls only
+                    their own registered devices.
                 </small>
             </div>
 

@@ -7215,7 +7215,8 @@ a {
 }
 
 .attendance-browser-status,
-.attendance-delivery-note {
+.attendance-delivery-note,
+.attendance-push-control {
     grid-column: 1 / -1;
 }
 
@@ -7229,6 +7230,40 @@ a {
     .attendance-delivery-note {
     margin-top: 0;
     line-height: 1.5;
+}
+
+.attendance-push-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 18px;
+    padding: 14px;
+    border: 1px solid #84adff;
+    border-radius: 9px;
+    background: #fff;
+}
+
+.attendance-push-control strong,
+.attendance-push-control small {
+    display: block;
+}
+
+.attendance-push-control small {
+    margin-top: 4px;
+}
+
+.attendance-push-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.attendance-push-status {
+    grid-column: 1 / -1;
+    min-height: 1em;
+    color: #175cd3;
+    font-weight: 700;
 }
 
 @media (max-width: 760px) {
@@ -7259,8 +7294,25 @@ a {
     }
 
     .attendance-browser-status,
-    .attendance-delivery-note {
+    .attendance-delivery-note,
+    .attendance-push-control {
         grid-column: auto;
+    }
+
+    .attendance-push-control {
+        grid-template-columns: 1fr;
+    }
+
+    .attendance-push-status {
+        grid-column: auto;
+    }
+
+    .attendance-push-actions {
+        justify-content: stretch;
+    }
+
+    .attendance-push-actions .btn {
+        flex: 1 1 180px;
     }
 }
 

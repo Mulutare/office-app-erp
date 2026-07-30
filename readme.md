@@ -6,6 +6,8 @@ OfficeApp ERP is a modular, multi-company enterprise application.
 
 PHP 8.1 or newer is required. The native cPanel baseline is PHP 8.1,
 while the container runtime and continuous tests use PHP 8.4.
+Composer dependencies are locked for PHP 8.1 compatibility and include the
+standards-based Web Push transport.
 
 Run:
 

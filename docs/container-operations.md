@@ -13,6 +13,16 @@ without Docker use the same application on native PHP 8.1+ as documented in
 Copy `.env.example` to `.env` and replace every placeholder secret before
 using shared or persistent environments. The `.env` file is ignored by Git.
 
+For background desktop/mobile attendance notifications, generate a stable
+VAPID key pair after the first build:
+
+```powershell
+docker compose run --rm app php bin/generate-web-push-keys.php
+```
+
+Copy the four `WEB_PUSH_*` values into the ignored `.env`, use a real contact
+email, then rebuild the application. Keep the private key secret and stable.
+
 Development startup creates the first platform administrator from the
 `DEV_ADMIN_*` values only when that username does not exist. The password is
 hashed and must be changed at first login. This bootstrap refuses to run
@@ -93,12 +103,14 @@ The dispatcher:
 - honors the effective company calendar, ISO workweek and full-day holidays;
 - carries overnight check-out reminders into the next local day;
 - ignores inactive companies, users, memberships and employee profiles;
-- writes only private, company-scoped in-application notifications;
+- writes private, company-scoped in-application notifications;
+- delivers VAPID-authenticated browser push when the employee registered that
+  device and the server has Web Push enabled;
+- retries temporary push-service failures and disables expired subscriptions;
 - never requires an open browser session.
 
-The current delivery channel is the authenticated in-application inbox. Email,
-mobile push and other channels can be added behind the notification repository
-without changing calendar or attendance business rules.
+The in-application inbox remains the durable source of truth when device
+permission is denied or a push service is temporarily unavailable.
 
 ## Disposable integration test
 

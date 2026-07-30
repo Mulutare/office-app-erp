@@ -88,6 +88,8 @@ The current Oracle versions are:
 190  HR job-title management required by position planning
 200  user-owned attendance reminder preferences
 210  international workforce calendars, holidays, effective schedules and durable attendance notifications
+220  attendance lunch, flexible-start and net work-policy snapshots
+230  tenant-scoped attendance Web Push subscriptions and delivery outbox
 ```
 
 ## Running the optional Oracle lab

@@ -48,6 +48,10 @@ use App\Repositories\MySql\AttendanceNotificationRepository
     as MySqlAttendanceNotificationRepository;
 use App\Repositories\Oracle\AttendanceNotificationRepository
     as OracleAttendanceNotificationRepository;
+use App\Repositories\MySql\AttendancePushSubscriptionRepository
+    as MySqlAttendancePushSubscriptionRepository;
+use App\Repositories\Oracle\AttendancePushSubscriptionRepository
+    as OracleAttendancePushSubscriptionRepository;
 use App\Repositories\MySql\LeaveRepository
     as MySqlLeaveRepository;
 use App\Repositories\Oracle\LeaveRepository
@@ -71,6 +75,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function attendancePushSubscriptions():
+        AttendancePushSubscriptionRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlAttendancePushSubscriptionRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleAttendancePushSubscriptionRepository();
+        }
+
+        throw new RuntimeException(
+            'No attendance Web Push repository is available for the configured database driver.'
+        );
+    }
+
     public static function attendanceNotifications():
         AttendanceNotificationRepository
     {

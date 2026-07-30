@@ -105,6 +105,20 @@ unset(
     $missingExtensions
 );
 
+$composerAutoloaders = [
+    __DIR__ . '/../../vendor/autoload.php',
+    '/opt/officeapp/vendor/autoload.php',
+];
+
+foreach ($composerAutoloaders as $composerAutoloader) {
+    if (is_file($composerAutoloader)) {
+        require_once $composerAutoloader;
+        break;
+    }
+}
+
+unset($composerAutoloaders, $composerAutoloader);
+
 require_once __DIR__ . '/autoload.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/database.php';

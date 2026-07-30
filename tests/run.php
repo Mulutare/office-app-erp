@@ -24,6 +24,8 @@ use App\Repositories\MySql\WorkforceCalendarRepository
     as MySqlWorkforceCalendarRepository;
 use App\Repositories\MySql\AttendanceNotificationRepository
     as MySqlAttendanceNotificationRepository;
+use App\Repositories\MySql\AttendancePushSubscriptionRepository
+    as MySqlAttendancePushSubscriptionRepository;
 use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
@@ -32,6 +34,8 @@ use App\Services\AttendanceManagementService;
 use App\Services\AttendanceReminderService;
 use App\Services\AttendanceSelfServiceService;
 use App\Services\AttendanceNotificationService;
+use App\Services\AttendancePushService;
+use App\Services\WebPushTransport;
 use App\Services\AttendanceWorkPolicyService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
@@ -270,8 +274,10 @@ try {
         RepositoryFactory::workforceCalendars()
             instanceof MySqlWorkforceCalendarRepository
         && RepositoryFactory::attendanceNotifications()
-            instanceof MySqlAttendanceNotificationRepository,
-        'Repository factory selects MySQL workforce-calendar and notification repositories'
+            instanceof MySqlAttendanceNotificationRepository
+        && RepositoryFactory::attendancePushSubscriptions()
+            instanceof MySqlAttendancePushSubscriptionRepository,
+        'Repository factory selects MySQL workforce-calendar, notification and Web Push repositories'
     );
 
     $oracleManager = ConnectionManager::fromConfig([
@@ -370,8 +376,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 22,
-        'Oracle migration catalog contains twenty-two valid definitions'
+        && count($oracleMigrationFiles) === 23,
+        'Oracle migration catalog contains twenty-three valid definitions'
     );
 
     $check(
@@ -405,6 +411,7 @@ try {
                 '200',
                 '210',
                 '220',
+                '230',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -423,8 +430,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 33
-        && $oracleIdentityCount === 26,
+        $oracleTableCount === 35
+        && $oracleIdentityCount === 27,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -510,6 +517,7 @@ try {
                 '020',
                 '021',
                 '022',
+                '023',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -526,13 +534,14 @@ try {
                 \'019\',
                 \'020\',
                 \'021\',
-                \'022\'
+                \'022\',
+                \'023\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 8,
+        $migrationLedgerCount === 9,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -713,8 +722,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 33,
-        'All 33 application tables were created'
+        $tableCount === 35,
+        'All 35 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -726,8 +735,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 98,
-        'All 98 foreign-key relationships were created'
+        $foreignKeyCount === 101,
+        'All 101 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -2571,6 +2580,85 @@ try {
         'Personal attendance reminder changes create a tenant-scoped audit event'
     );
 
+    $fakePushTransport = new class
+        implements WebPushTransport {
+        /** @var list<string> */
+        public array $payloads = [];
+
+        public function send(
+            array $subscription,
+            string $payload
+        ): array {
+            $this->payloads[] = $payload;
+
+            return [
+                'successful' => true,
+                'statusCode' => 201,
+                'expired' => false,
+                'reason' => 'Created',
+            ];
+        }
+    };
+    $pushConfiguration = [
+        'enabled' => true,
+        'subject' =>
+            'mailto:integration@example.test',
+        'public_key' => 'integration-public-key',
+        'private_key' => 'integration-private-key',
+        'allowed_hosts' => [
+            'push.example.test',
+        ],
+    ];
+    $attendancePush = new AttendancePushService(
+        null,
+        null,
+        null,
+        $fakePushTransport,
+        $pushConfiguration
+    );
+    $rejectedPushSubscription =
+        $attendancePush->subscribe(
+            910004,
+            [
+                'endpoint' =>
+                    'https://127.0.0.1/internal',
+                'p256dh' => str_repeat('A', 87),
+                'auth' => str_repeat('B', 22),
+                'content_encoding' =>
+                    'aes128gcm',
+            ]
+        );
+    $pushEndpoint =
+        'https://push.example.test/subscriptions/device-1';
+    $registeredPushSubscription =
+        $attendancePush->subscribe(
+            910004,
+            [
+                'endpoint' => $pushEndpoint,
+                'p256dh' => str_repeat('A', 87),
+                'auth' => str_repeat('B', 22),
+                'content_encoding' =>
+                    'aes128gcm',
+            ]
+        );
+    $pushStatus = $attendancePush->status(910004);
+
+    $check(
+        $rejectedPushSubscription['successful']
+            === false
+        && isset(
+            $rejectedPushSubscription['errors'][
+                'endpoint'
+            ]
+        )
+        && $registeredPushSubscription[
+            'successful'
+        ] === true
+        && $pushStatus['configured'] === true
+        && $pushStatus['activeDeviceCount'] === 1,
+        'Attendance Web Push validates the remote endpoint and registers only the signed-in tenant user device'
+    );
+
     $workforceCalendars =
         new WorkforceCalendarService();
     $createdCalendar = $workforceCalendars->create(
@@ -2775,6 +2863,8 @@ try {
             910002,
             $notificationId
         );
+    $pushDispatch =
+        $attendancePush->dispatchPending();
     $ownedRead =
         $attendanceNotifications->markRead(
             910004,
@@ -2796,6 +2886,44 @@ try {
         && $ownedRead === true,
         'Attendance notification inbox enforces company and user ownership'
     );
+    $pushDeliveryCount = (int) db()->query(
+        'SELECT COUNT(*)
+         FROM attendance_push_deliveries
+         WHERE delivery_status = \'delivered\'
+           AND last_status_code = 201'
+    )->fetchColumn();
+    $pushAuditLeakCount = (int) db()->query(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE action =
+                \'ATTENDANCE_PUSH_SUBSCRIBE\'
+           AND new_values LIKE
+                \'%push.example.test%\''
+    )->fetchColumn();
+    $check(
+        $pushDispatch['configured'] === true
+        && $pushDispatch['delivered'] >= 1
+        && count(
+            $fakePushTransport->payloads
+        ) >= 1
+        && $pushDeliveryCount >= 1
+        && $pushAuditLeakCount === 0,
+        'Web Push dispatch records delivery without leaking private subscription endpoints into audit logs'
+    );
+    $unsubscribedPush =
+        $attendancePush->unsubscribe(
+            910004,
+            $pushEndpoint
+        );
+    $pushStatusAfterUnsubscribe =
+        $attendancePush->status(910004);
+    $check(
+        $unsubscribedPush['successful'] === true
+        && $pushStatusAfterUnsubscribe[
+            'activeDeviceCount'
+        ] === 0,
+        'Employees can disable only their current company device subscription'
+    );
     $serviceWorkerSource = file_get_contents(
         __DIR__
         . '/../public/service-worker.js'
@@ -2808,9 +2936,13 @@ try {
         )
         && str_contains(
             $serviceWorkerSource,
+            "addEventListener('push'"
+        )
+        && str_contains(
+            $serviceWorkerSource,
             'attendance/me'
         ),
-        'Device notification service worker returns users to personal attendance'
+        'Device notification service worker displays background push and returns users to personal attendance'
     );
 
     $overnightSettings =

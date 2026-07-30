@@ -44,6 +44,28 @@ $stringEnvironment = static function (
         : $default;
 };
 
+$listEnvironment = static function (
+    string $name,
+    array $default
+): array {
+    $value = getenv($name);
+
+    if (!is_string($value) || trim($value) === '') {
+        return $default;
+    }
+
+    $items = array_filter(
+        array_map(
+            static fn (string $item): string =>
+                strtolower(trim($item)),
+            explode(',', $value)
+        ),
+        static fn (string $item): bool => $item !== ''
+    );
+
+    return array_values(array_unique($items));
+};
+
 $sameSite = ucfirst(strtolower(
     $stringEnvironment(
         'SESSION_COOKIE_SAMESITE',
@@ -92,4 +114,32 @@ return [
         'APP_BASE_PATH',
         '/office_app/public'
     ),
+    'web_push' => [
+        'enabled' => $booleanEnvironment(
+            'WEB_PUSH_ENABLED',
+            false
+        ),
+        'subject' => $stringEnvironment(
+            'WEB_PUSH_SUBJECT',
+            'mailto:admin@example.test'
+        ),
+        'public_key' => $stringEnvironment(
+            'WEB_PUSH_PUBLIC_KEY',
+            ''
+        ),
+        'private_key' => $stringEnvironment(
+            'WEB_PUSH_PRIVATE_KEY',
+            ''
+        ),
+        'allowed_hosts' => $listEnvironment(
+            'WEB_PUSH_ALLOWED_HOSTS',
+            [
+                'fcm.googleapis.com',
+                'updates.push.services.mozilla.com',
+                'push.services.mozilla.com',
+                'web.push.apple.com',
+                '*.notify.windows.com',
+            ]
+        ),
+    ],
 ];

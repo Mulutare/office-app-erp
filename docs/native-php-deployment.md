@@ -8,7 +8,7 @@ is unavailable. It is a first-class runtime path, not a PHP 8.0 fallback.
 - PHP 8.1 or newer.
 - Apache, Nginx, IIS or another supported PHP web server.
 - MySQL 8 or MariaDB 10.11.
-- PDO, PDO MySQL, mbstring, OpenSSL, session and OPcache.
+- PDO, PDO MySQL, curl, mbstring, OpenSSL, session and OPcache.
 - URL rewriting to the `public/index.php` front controller.
 - Write access for the web-server account only to `storage/`.
 
@@ -19,6 +19,18 @@ php bin/check-runtime.php
 ```
 
 The command must report `PASS`.
+
+Install the locked PHP dependencies before serving or packaging OfficeApp:
+
+```text
+composer install --no-dev --optimize-autoloader
+```
+
+Background attendance notifications remain optional. Generate a stable VAPID
+identity with `php bin/generate-web-push-keys.php`, enable `web_push` in the
+ignored local configuration, and schedule
+`bin/queue-attendance-notifications.php` every minute. The private
+in-application inbox continues to work when Web Push is disabled.
 
 ## Database configuration
 

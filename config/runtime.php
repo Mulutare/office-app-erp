@@ -7,6 +7,7 @@ return [
     'minimum_php_version_id' => 80100,
     'required_extensions' => [
         'PDO',
+        'curl',
         'mbstring',
         'openssl',
         'session',

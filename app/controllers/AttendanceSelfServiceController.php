@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Services\AttendanceSelfServiceService;
 use App\Services\AttendanceReminderService;
 use App\Services\AttendanceNotificationService;
+use App\Services\AttendancePushService;
 use App\Services\AuthorizationService;
 
 final class AttendanceSelfServiceController
@@ -15,6 +16,7 @@ final class AttendanceSelfServiceController
     private AttendanceSelfServiceService $attendance;
     private AttendanceReminderService $reminders;
     private AttendanceNotificationService $notifications;
+    private AttendancePushService $push;
 
     public function __construct()
     {
@@ -26,6 +28,8 @@ final class AttendanceSelfServiceController
             new AttendanceReminderService();
         $this->notifications =
             new AttendanceNotificationService();
+        $this->push =
+            new AttendancePushService();
     }
 
     public function index(): void
@@ -90,6 +94,9 @@ final class AttendanceSelfServiceController
                 $this->notifications->inbox(
                     $this->actorUserId()
                 ),
+            'pushStatus' => $this->push->status(
+                $this->actorUserId()
+            ),
             'workdayOptions' =>
                 $reminderWorkspace[
                     'workdayOptions'
@@ -266,6 +273,76 @@ final class AttendanceSelfServiceController
         \redirect('/attendance/me');
     }
 
+    public function subscribePush(): void
+    {
+        $this->requirePermission(
+            'attendance.self.view'
+        );
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            $this->jsonResponse([
+                'successful' => false,
+                'message' =>
+                    'The notification session expired. Refresh the page and try again.',
+                'errors' => [
+                    'csrf' => 'Invalid CSRF token.',
+                ],
+            ], 419);
+        }
+
+        $result = $this->push->subscribe(
+            $this->actorUserId(),
+            [
+                'endpoint' =>
+                    \postString('endpoint'),
+                'p256dh' =>
+                    \postString('p256dh'),
+                'auth' => \postString('auth'),
+                'content_encoding' =>
+                    \postString(
+                        'content_encoding'
+                    ),
+            ]
+        );
+
+        $this->jsonResponse(
+            $result,
+            $result['successful'] ? 200 : 422
+        );
+    }
+
+    public function unsubscribePush(): void
+    {
+        $this->requirePermission(
+            'attendance.self.view'
+        );
+
+        if (!\verifyCsrfToken(
+            \postString('_token')
+        )) {
+            $this->jsonResponse([
+                'successful' => false,
+                'message' =>
+                    'The notification session expired. Refresh the page and try again.',
+                'errors' => [
+                    'csrf' => 'Invalid CSRF token.',
+                ],
+            ], 419);
+        }
+
+        $result = $this->push->unsubscribe(
+            $this->actorUserId(),
+            \postString('endpoint')
+        );
+
+        $this->jsonResponse(
+            $result,
+            $result['successful'] ? 200 : 422
+        );
+    }
+
     private function recordAction(
         string $method
     ): void {
@@ -348,5 +425,26 @@ final class AttendanceSelfServiceController
             && ctype_digit($value)
                 ? (int) $value
                 : (is_int($value) ? $value : 0);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function jsonResponse(
+        array $payload,
+        int $statusCode = 200
+    ): never {
+        http_response_code($statusCode);
+        header(
+            'Content-Type: application/json; charset=UTF-8'
+        );
+        header('Cache-Control: no-store');
+        $json = json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES
+            | JSON_UNESCAPED_UNICODE
+        );
+        echo is_string($json)
+            ? $json
+            : '{"successful":false}';
+        exit;
     }
 }

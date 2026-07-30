@@ -371,6 +371,304 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const attendancePush =
+        document.querySelector(
+            '[data-attendance-push]'
+        );
+
+    if (attendancePush instanceof HTMLElement) {
+        const pushEnable = attendancePush
+            .querySelector(
+                '[data-attendance-push-enable]'
+            );
+        const pushDisable = attendancePush
+            .querySelector(
+                '[data-attendance-push-disable]'
+            );
+        const pushStatus = attendancePush
+            .querySelector(
+                '[data-attendance-push-status]'
+            );
+        const pushConfigured =
+            attendancePush.dataset.configured
+                === '1';
+
+        const setPushStatus = (message) => {
+            if (pushStatus instanceof HTMLElement) {
+                pushStatus.textContent = message;
+            }
+        };
+
+        const setPushButtons = (subscribed) => {
+            if (pushEnable instanceof HTMLButtonElement) {
+                pushEnable.disabled =
+                    !pushConfigured || subscribed;
+            }
+
+            if (pushDisable instanceof HTMLButtonElement) {
+                pushDisable.disabled = !subscribed;
+            }
+        };
+
+        const applicationServerKey = (value) => {
+            const padding = '='.repeat(
+                (4 - (value.length % 4)) % 4
+            );
+            const normalized = (value + padding)
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+            const raw = window.atob(normalized);
+            const bytes = new Uint8Array(raw.length);
+
+            for (
+                let index = 0;
+                index < raw.length;
+                index += 1
+            ) {
+                bytes[index] = raw.charCodeAt(index);
+            }
+
+            return bytes;
+        };
+
+        const postSubscription = async (
+            url,
+            fields
+        ) => {
+            const response = await window.fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type':
+                        'application/x-www-form-urlencoded;charset=UTF-8',
+                },
+                body: new URLSearchParams({
+                    _token:
+                        attendancePush.dataset
+                            .csrfToken ?? '',
+                    ...fields,
+                }),
+            });
+            let result = null;
+
+            try {
+                result = await response.json();
+            } catch (error) {
+                throw new Error(
+                    'OfficeApp returned an invalid notification response.'
+                );
+            }
+
+            if (
+                !response.ok
+                || result?.successful !== true
+            ) {
+                throw new Error(
+                    result?.message
+                    ?? 'The notification request failed.'
+                );
+            }
+
+            return result;
+        };
+
+        const currentPushSubscription =
+            async () => {
+                const registration =
+                    await registerAttendanceServiceWorker();
+
+                if (
+                    registration === null
+                    || !('pushManager' in registration)
+                ) {
+                    return null;
+                }
+
+                return registration.pushManager
+                    .getSubscription();
+            };
+
+        const initializePush = async () => {
+            if (!pushConfigured) {
+                setPushButtons(false);
+                return;
+            }
+
+            if (
+                !browserNotificationsSupported
+                || !serviceWorkerSupported
+                || !('PushManager' in window)
+            ) {
+                setPushButtons(false);
+                setPushStatus(
+                    'This browser cannot receive background notifications. The private inbox remains available.'
+                );
+                return;
+            }
+
+            try {
+                const subscription =
+                    await currentPushSubscription();
+                const subscribed =
+                    subscription !== null;
+
+                setPushButtons(subscribed);
+                setPushStatus(
+                    subscribed
+                        ? 'Background notifications are active on this device.'
+                        : 'Background notifications are available but not enabled on this device.'
+                );
+            } catch (error) {
+                setPushButtons(false);
+                setPushStatus(
+                    'OfficeApp could not check this device notification subscription.'
+                );
+            }
+        };
+
+        if (pushEnable instanceof HTMLButtonElement) {
+            pushEnable.addEventListener(
+                'click',
+                async () => {
+                    pushEnable.disabled = true;
+                    setPushStatus(
+                        'Enabling secure background notifications…'
+                    );
+
+                    try {
+                        const permission =
+                            Notification.permission
+                                === 'granted'
+                                ? 'granted'
+                                : await Notification
+                                    .requestPermission();
+
+                        if (permission !== 'granted') {
+                            throw new Error(
+                                'Notification permission was not granted.'
+                            );
+                        }
+
+                        const registration =
+                            await registerAttendanceServiceWorker();
+
+                        if (
+                            registration === null
+                            || !('pushManager' in registration)
+                        ) {
+                            throw new Error(
+                                'Background notifications are not supported on this device.'
+                            );
+                        }
+
+                        let subscription =
+                            await registration.pushManager
+                                .getSubscription();
+
+                        if (subscription === null) {
+                            subscription =
+                                await registration.pushManager
+                                    .subscribe({
+                                        userVisibleOnly: true,
+                                        applicationServerKey:
+                                            applicationServerKey(
+                                                attendancePush
+                                                    .dataset
+                                                    .publicKey
+                                                ?? ''
+                                            ),
+                                    });
+                        }
+
+                        const serialized =
+                            subscription.toJSON();
+                        const encoding =
+                            Array.isArray(
+                                PushManager
+                                    .supportedContentEncodings
+                            )
+                                ? PushManager
+                                    .supportedContentEncodings[0]
+                                : 'aes128gcm';
+
+                        await postSubscription(
+                            attendancePush.dataset
+                                .subscribeUrl ?? '',
+                            {
+                                endpoint:
+                                    subscription.endpoint,
+                                p256dh:
+                                    serialized.keys?.p256dh
+                                    ?? '',
+                                auth:
+                                    serialized.keys?.auth
+                                    ?? '',
+                                content_encoding:
+                                    encoding,
+                            }
+                        );
+
+                        setPushButtons(true);
+                        setPushStatus(
+                            'Background notifications are active on this device.'
+                        );
+                    } catch (error) {
+                        setPushButtons(false);
+                        setPushStatus(
+                            error instanceof Error
+                                ? error.message
+                                : 'Background notifications could not be enabled.'
+                        );
+                    }
+                }
+            );
+        }
+
+        if (pushDisable instanceof HTMLButtonElement) {
+            pushDisable.addEventListener(
+                'click',
+                async () => {
+                    pushDisable.disabled = true;
+                    setPushStatus(
+                        'Disabling this device…'
+                    );
+
+                    try {
+                        const subscription =
+                            await currentPushSubscription();
+
+                        if (subscription !== null) {
+                            await postSubscription(
+                                attendancePush.dataset
+                                    .unsubscribeUrl ?? '',
+                                {
+                                    endpoint:
+                                        subscription.endpoint,
+                                }
+                            );
+                            await subscription.unsubscribe();
+                        }
+
+                        setPushButtons(false);
+                        setPushStatus(
+                            'Background notifications are disabled on this device.'
+                        );
+                    } catch (error) {
+                        setPushButtons(true);
+                        setPushStatus(
+                            error instanceof Error
+                                ? error.message
+                                : 'This device could not be disabled.'
+                        );
+                    }
+                }
+            );
+        }
+
+        initializePush();
+    }
+
     if (
         attendanceBrowserButton
             instanceof HTMLButtonElement

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Services\AttendanceNotificationService;
+use App\Services\AttendancePushService;
 
 require_once __DIR__
     . '/../app/helpers/bootstrap.php';
@@ -15,14 +16,22 @@ if (PHP_SAPI !== 'cli') {
 try {
     $result = (new AttendanceNotificationService())
         ->queueDue();
+    $push = (new AttendancePushService())
+        ->dispatchPending();
 
     fwrite(
         STDOUT,
         sprintf(
-            "Attendance notifications: %d candidates, %d queued, %d skipped.%s",
+            "Attendance notifications: %d candidates, %d queued, %d skipped. Web Push: %s, %d delivered, %d retrying, %d failed.%s",
             $result['candidates'],
             $result['queued'],
             $result['skipped'],
+            $push['configured']
+                ? $push['candidates'] . ' candidates'
+                : 'not configured',
+            $push['delivered'],
+            $push['retrying'],
+            $push['failed'],
             PHP_EOL
         )
     );

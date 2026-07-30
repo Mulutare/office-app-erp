@@ -32,6 +32,11 @@ services:
       DEV_ADMIN_EMAIL: ${DEV_ADMIN_EMAIL:-admin@example.test}
       DEV_ADMIN_DISPLAY_NAME: ${DEV_ADMIN_DISPLAY_NAME:-Platform Administrator}
       DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-Change-This-Development-Admin-2026!}
+      WEB_PUSH_ENABLED: ${WEB_PUSH_ENABLED:-false}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-mailto:erp-admin@example.com}
+      WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
+      WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
+      WEB_PUSH_ALLOWED_HOSTS: ${WEB_PUSH_ALLOWED_HOSTS:-fcm.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,web.push.apple.com,*.notify.windows.com}
     ports:
       - "${APP_PORT:-8080}:8080"
     volumes:

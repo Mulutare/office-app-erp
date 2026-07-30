@@ -1,5 +1,18 @@
 # syntax=docker/dockerfile:1
 
+FROM composer:2 AS php-dependencies
+
+WORKDIR /app
+
+COPY composer.json composer.lock ./
+
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --no-progress \
+    --prefer-dist \
+    --optimize-autoloader
+
 FROM php:8.4-apache-bookworm AS runtime-base
 
 ENV APP_HOME=/var/www/html/office_app
@@ -7,8 +20,11 @@ ENV APP_HOME=/var/www/html/office_app
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
+        libcurl4-openssl-dev \
         libonig-dev; \
     docker-php-ext-install -j"$(nproc)" \
+        bcmath \
+        curl \
         mbstring \
         opcache \
         pdo_mysql; \
@@ -36,6 +52,9 @@ RUN set -eux; \
         /var/log/apache2
 
 WORKDIR ${APP_HOME}
+
+COPY --from=php-dependencies \
+    /app/vendor /opt/officeapp/vendor
 
 EXPOSE 8080
 
