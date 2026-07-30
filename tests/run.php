@@ -20,6 +20,10 @@ use App\Repositories\MySql\OrganizationReadinessRepository
     as MySqlOrganizationReadinessRepository;
 use App\Repositories\MySql\AttendanceReminderRepository
     as MySqlAttendanceReminderRepository;
+use App\Repositories\MySql\WorkforceCalendarRepository
+    as MySqlWorkforceCalendarRepository;
+use App\Repositories\MySql\AttendanceNotificationRepository
+    as MySqlAttendanceNotificationRepository;
 use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
@@ -27,6 +31,7 @@ use App\Services\AuthService;
 use App\Services\AttendanceManagementService;
 use App\Services\AttendanceReminderService;
 use App\Services\AttendanceSelfServiceService;
+use App\Services\AttendanceNotificationService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
 use App\Services\CompanyLifecycleService;
@@ -57,6 +62,7 @@ use App\Services\UserCreationService;
 use App\Services\UserDetailsService;
 use App\Services\UserPasswordResetService;
 use App\Services\UserUpdateService;
+use App\Services\WorkforceCalendarService;
 
 $results = [];
 $failures = 0;
@@ -197,6 +203,14 @@ try {
         'Repository factory selects the MySQL attendance-reminder repository'
     );
 
+    $check(
+        RepositoryFactory::workforceCalendars()
+            instanceof MySqlWorkforceCalendarRepository
+        && RepositoryFactory::attendanceNotifications()
+            instanceof MySqlAttendanceNotificationRepository,
+        'Repository factory selects MySQL workforce-calendar and notification repositories'
+    );
+
     $oracleManager = ConnectionManager::fromConfig([
         'driver' => 'oracle',
     ]);
@@ -293,8 +307,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 20,
-        'Oracle migration catalog contains twenty valid definitions'
+        && count($oracleMigrationFiles) === 21,
+        'Oracle migration catalog contains twenty-one valid definitions'
     );
 
     $check(
@@ -326,6 +340,7 @@ try {
                 '180',
                 '190',
                 '200',
+                '210',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -344,8 +359,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 28
-        && $oracleIdentityCount === 22,
+        $oracleTableCount === 33
+        && $oracleIdentityCount === 26,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -429,6 +444,7 @@ try {
                 '018',
                 '019',
                 '020',
+                '021',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -443,13 +459,14 @@ try {
                 \'017\',
                 \'018\',
                 \'019\',
-                \'020\'
+                \'020\',
+                \'021\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 6,
+        $migrationLedgerCount === 7,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -630,8 +647,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 28,
-        'All 28 application tables were created'
+        $tableCount === 33,
+        'All 33 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -643,8 +660,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 88,
-        'All 88 foreign-key relationships were created'
+        $foreignKeyCount === 98,
+        'All 98 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -2486,6 +2503,276 @@ try {
         (int) $attendanceReminderAudit
             ->fetchColumn() === 1,
         'Personal attendance reminder changes create a tenant-scoped audit event'
+    );
+
+    $workforceCalendars =
+        new WorkforceCalendarService();
+    $createdCalendar = $workforceCalendars->create(
+        [
+            'code' => 'KE_NAIROBI',
+            'name' => 'Kenya · Nairobi office',
+            'timezone' => 'Africa/Nairobi',
+            'country_code' => 'KE',
+            'subdivision_code' => 'KE-30',
+            'week_start' => '1',
+            'is_default' => false,
+        ],
+        $tenantAActorId
+    );
+    $calendarId = (int) (
+        $createdCalendar['calendarId'] ?? 0
+    );
+    $savedWeek = $workforceCalendars->saveWeek(
+        $calendarId,
+        [
+            1 => [
+                'working_day' => true,
+                'start_time' => '08:30',
+                'end_time' => '17:30',
+                'break_minutes' => '60',
+            ],
+            2 => [
+                'working_day' => true,
+                'start_time' => '08:30',
+                'end_time' => '17:30',
+                'break_minutes' => '60',
+            ],
+            3 => [
+                'working_day' => true,
+                'start_time' => '08:30',
+                'end_time' => '17:30',
+                'break_minutes' => '60',
+            ],
+            4 => [
+                'working_day' => true,
+                'start_time' => '08:30',
+                'end_time' => '17:30',
+                'break_minutes' => '60',
+            ],
+            5 => [
+                'working_day' => true,
+                'start_time' => '08:30',
+                'end_time' => '17:30',
+                'break_minutes' => '60',
+            ],
+            6 => [
+                'working_day' => false,
+                'start_time' => '',
+                'end_time' => '',
+                'break_minutes' => '0',
+            ],
+            7 => [
+                'working_day' => false,
+                'start_time' => '',
+                'end_time' => '',
+                'break_minutes' => '0',
+            ],
+        ],
+        $tenantAActorId
+    );
+    $addedHoliday = $workforceCalendars->addHoliday(
+        $calendarId,
+        [
+            'holiday_date' => '2026-07-30',
+            'name' => 'Integration Public Holiday',
+            'holiday_type' => 'public',
+            'day_portion' => 'full',
+            'observed' => true,
+            'description' =>
+                'International calendar integration fixture',
+        ],
+        $tenantAActorId
+    );
+    $assignedCalendar = $workforceCalendars->assign(
+        [
+            'employee_id' => '920001',
+            'calendar_id' => (string) $calendarId,
+            'effective_from' => '2026-01-01',
+            'effective_to' => '',
+        ],
+        $tenantAActorId
+    );
+    $overlappingCalendar =
+        $workforceCalendars->assign(
+            [
+                'employee_id' => '920001',
+                'calendar_id' =>
+                    (string) $calendarId,
+                'effective_from' => '2026-06-01',
+                'effective_to' => '2026-12-31',
+            ],
+            $tenantAActorId
+        );
+    $holidayContext =
+        $workforceCalendars->contextForUser(
+            910004,
+            '2026-07-30'
+        );
+    $calendarWorkspace =
+        $workforceCalendars->workspace(
+            999999,
+            2026
+        );
+    $holidayReminder =
+        $attendanceReminders->workspace(
+            910004,
+            [
+                'profileRequired' => false,
+                'today' => null,
+            ],
+            new \DateTimeImmutable(
+                '2026-07-30 08:20:00',
+                new \DateTimeZone(
+                    'Africa/Nairobi'
+                )
+            )
+        );
+
+    $check(
+        $createdCalendar['successful'] === true
+        && $calendarId > 0
+        && !empty(
+            $calendarWorkspace['selected'][
+                'is_default'
+            ]
+        )
+        && (int) (
+            $calendarWorkspace['selected'][
+                'calendar_id'
+            ] ?? 0
+        ) === $calendarId
+        && $savedWeek['successful'] === true
+        && $addedHoliday['successful'] === true
+        && $assignedCalendar['successful'] === true,
+        'Company administrator can configure a safe default international calendar, holiday and employee schedule'
+    );
+    $check(
+        $overlappingCalendar['successful'] === false
+        && isset(
+            $overlappingCalendar['errors'][
+                'effective_from'
+            ]
+        ),
+        'Effective-dated work schedules reject overlapping employee assignments'
+    );
+    $check(
+        ($holidayContext['calendarName'] ?? null)
+            === 'Kenya · Nairobi office'
+        && (
+            $holidayContext['holiday']['name']
+            ?? null
+        ) === 'Integration Public Holiday'
+        && (
+            $holidayReminder['notification'][
+                'status'
+            ] ?? null
+        ) === 'holiday',
+        'Assigned calendars suppress personal attendance reminders on full-day holidays'
+    );
+
+    $attendanceNotifications =
+        new AttendanceNotificationService();
+    $queueResult =
+        $attendanceNotifications->queueDue(
+            new \DateTimeImmutable(
+                '2026-07-31 05:20:00',
+                new \DateTimeZone('UTC')
+            )
+        );
+    $notificationInbox =
+        $attendanceNotifications->inbox(910004);
+    $notificationId = (int) (
+        $notificationInbox[0]['notification_id']
+        ?? 0
+    );
+    $foreignRead =
+        $attendanceNotifications->markRead(
+            910002,
+            $notificationId
+        );
+    $ownedRead =
+        $attendanceNotifications->markRead(
+            910004,
+            $notificationId
+        );
+
+    $check(
+        $queueResult['queued'] === 1
+        && $notificationId > 0
+        && (
+            $notificationInbox[0][
+                'notification_type'
+            ] ?? null
+        ) === 'check_in',
+        'Server dispatcher creates one durable deduplicated attendance notification'
+    );
+    $check(
+        $foreignRead === false
+        && $ownedRead === true,
+        'Attendance notification inbox enforces company and user ownership'
+    );
+
+    $overnightSettings =
+        $attendanceReminders->save(
+            [
+                'timezone' => 'Africa/Nairobi',
+                'workdays' => ['5'],
+                'check_in_enabled' => true,
+                'check_in_time' => '22:00',
+                'check_out_enabled' => true,
+                'check_out_time' => '01:00',
+                'reminder_lead_minutes' => '15',
+                'browser_enabled' => true,
+            ],
+            910004
+        );
+    RepositoryFactory::attendance()->save(
+        $tenantACompanyId,
+        920001,
+        '2026-07-31',
+        [
+            'check_in_at' =>
+                '2026-07-31 22:00:00',
+            'check_out_at' => null,
+            'attendance_status' => 'present',
+            'work_minutes' => 0,
+            'source' => 'system',
+            'notes' =>
+                'Overnight notification integration fixture',
+        ],
+        $tenantAActorId
+    );
+    $overnightQueue =
+        $attendanceNotifications->queueDue(
+            new \DateTimeImmutable(
+                '2026-07-31 21:50:00',
+                new \DateTimeZone('UTC')
+            )
+        );
+    $overnightInbox =
+        $attendanceNotifications->inbox(910004);
+    $overnightNotification =
+        $overnightInbox[0] ?? [];
+
+    $check(
+        $overnightSettings['successful'] === true
+        && $overnightQueue['queued'] === 1
+        && (
+            $overnightNotification[
+                'notification_type'
+            ] ?? null
+        ) === 'check_out'
+        && (
+            $overnightNotification[
+                'local_date'
+            ] ?? null
+        ) === '2026-07-31'
+        && (
+            $overnightNotification[
+                'scheduled_for'
+            ] ?? null
+        ) === '2026-07-31 22:00:00',
+        'Server dispatcher carries overnight check-out reminders into the next local day'
     );
 
     $leaveManagement = new LeaveManagementService();

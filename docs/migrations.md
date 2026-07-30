@@ -87,6 +87,7 @@ The current Oracle versions are:
 180  administrative-only company owner permission defaults
 190  HR job-title management required by position planning
 200  user-owned attendance reminder preferences
+210  international workforce calendars, holidays, effective schedules and durable attendance notifications
 ```
 
 ## Running the optional Oracle lab

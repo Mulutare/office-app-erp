@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Services\AttendanceSelfServiceService;
 use App\Services\AttendanceReminderService;
+use App\Services\AttendanceNotificationService;
 use App\Services\AuthorizationService;
 
 final class AttendanceSelfServiceController
@@ -13,6 +14,7 @@ final class AttendanceSelfServiceController
     private AuthorizationService $authorization;
     private AttendanceSelfServiceService $attendance;
     private AttendanceReminderService $reminders;
+    private AttendanceNotificationService $notifications;
 
     public function __construct()
     {
@@ -22,6 +24,8 @@ final class AttendanceSelfServiceController
             new AttendanceSelfServiceService();
         $this->reminders =
             new AttendanceReminderService();
+        $this->notifications =
+            new AttendanceNotificationService();
     }
 
     public function index(): void
@@ -79,6 +83,12 @@ final class AttendanceSelfServiceController
                 $reminderWorkspace[
                     'notification'
                 ],
+            'workSchedule' =>
+                $reminderWorkspace['schedule'],
+            'serverNotifications' =>
+                $this->notifications->inbox(
+                    $this->actorUserId()
+                ),
             'workdayOptions' =>
                 $reminderWorkspace[
                     'workdayOptions'
@@ -223,6 +233,38 @@ final class AttendanceSelfServiceController
         ]);
     }
 
+    public function markNotificationRead(): void
+    {
+        $this->requirePermission(
+            'attendance.self.view'
+        );
+
+        if (
+            !\verifyCsrfToken(
+                \postString('_token')
+            )
+        ) {
+            \flash('attendance_self_errors', [
+                'form' =>
+                    'The notification session expired. Please try again.',
+            ]);
+            \redirect('/attendance/me');
+        }
+
+        $notificationId = $this->postInteger(
+            'notification_id'
+        );
+
+        if ($notificationId > 0) {
+            $this->notifications->markRead(
+                $this->actorUserId(),
+                $notificationId
+            );
+        }
+
+        \redirect('/attendance/me');
+    }
+
     private function recordAction(
         string $method
     ): void {
@@ -295,5 +337,15 @@ final class AttendanceSelfServiceController
         return is_string($month)
             ? trim($month)
             : '';
+    }
+
+    private function postInteger(string $key): int
+    {
+        $value = $_POST[$key] ?? null;
+
+        return is_string($value)
+            && ctype_digit($value)
+                ? (int) $value
+                : (is_int($value) ? $value : 0);
     }
 }

@@ -40,6 +40,16 @@ $attendanceNotification = is_array(
 )
     ? $data['attendanceNotification']
     : [];
+$workSchedule = is_array(
+    $data['workSchedule'] ?? null
+)
+    ? $data['workSchedule']
+    : null;
+$serverNotifications = is_array(
+    $data['serverNotifications'] ?? null
+)
+    ? $data['serverNotifications']
+    : [];
 $workdayOptions = is_array(
     $data['workdayOptions'] ?? null
 )
@@ -298,6 +308,121 @@ $formatDate = static function (
             <?php endif; ?>
         </div>
     </section>
+
+    <?php if ($workSchedule !== null): ?>
+        <section class="attendance-schedule-strip">
+            <div>
+                <span>Assigned calendar</span>
+                <strong>
+                    <?= e(
+                        $workSchedule['calendarName']
+                        ?? 'Company calendar'
+                    ) ?>
+                </strong>
+            </div>
+            <div>
+                <span>Today</span>
+                <strong>
+                    <?php if (is_array(
+                        $workSchedule['holiday'] ?? null
+                    )): ?>
+                        <?= e(
+                            $workSchedule['holiday']['name']
+                            ?? 'Holiday'
+                        ) ?>
+                    <?php elseif (!empty(
+                        $workSchedule['workingDay']
+                    )): ?>
+                        <?= e(
+                            $workSchedule['startTime']
+                            ?? '—'
+                        ) ?>
+                        – <?= e(
+                            $workSchedule['endTime']
+                            ?? '—'
+                        ) ?>
+                    <?php else: ?>
+                        Non-working day
+                    <?php endif; ?>
+                </strong>
+            </div>
+            <div>
+                <span>Location time</span>
+                <strong>
+                    <?= e(
+                        $workSchedule['timezone']
+                        ?? $reminderTimezone
+                    ) ?>
+                </strong>
+            </div>
+        </section>
+    <?php endif; ?>
+
+    <?php if ($serverNotifications !== []): ?>
+        <section class="card attendance-inbox">
+            <div class="attendance-card-heading">
+                <div>
+                    <span class="section-kicker">
+                        Server notification inbox
+                    </span>
+                    <h2>Attendance alerts</h2>
+                </div>
+                <span class="badge badge-info">
+                    <?= e(count(array_filter(
+                        $serverNotifications,
+                        static fn (array $item): bool =>
+                            !empty($item['unread'])
+                    ))) ?> unread
+                </span>
+            </div>
+            <div class="attendance-inbox-list">
+                <?php foreach (
+                    $serverNotifications as $item
+                ): ?>
+                    <article class="<?= !empty(
+                        $item['unread']
+                    ) ? 'is-unread' : '' ?>">
+                        <div>
+                            <strong>
+                                <?= e($item['title'] ?? '') ?>
+                            </strong>
+                            <p><?= e($item['body'] ?? '') ?></p>
+                            <small>
+                                <?= e(
+                                    $item['scheduledLabel']
+                                    ?? ''
+                                ) ?>
+                                · Server generated
+                            </small>
+                        </div>
+                        <?php if (!empty($item['unread'])): ?>
+                            <form
+                                method="post"
+                                action="/office_app/public/attendance/me/notifications/read"
+                            >
+                                <?= csrfField() ?>
+                                <input
+                                    type="hidden"
+                                    name="notification_id"
+                                    value="<?= e(
+                                        $item[
+                                            'notification_id'
+                                        ] ?? 0
+                                    ) ?>"
+                                >
+                                <button
+                                    type="submit"
+                                    class="btn btn-secondary btn-small"
+                                >
+                                    Mark read
+                                </button>
+                            </form>
+                        <?php endif; ?>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </section>
+    <?php endif; ?>
 
     <section class="attendance-today-grid">
         <article class="card attendance-clock-card">

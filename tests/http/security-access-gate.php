@@ -652,6 +652,28 @@ $check(
     'Tenant A administrator authenticates'
 );
 
+$tenantAWorkforceCalendars = httpRequest(
+    $baseUrl,
+    '/attendance/calendars',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAWorkforceCalendars['status'] === 200
+    && str_contains(
+        $tenantAWorkforceCalendars['body'],
+        'Workforce calendars'
+    )
+    && str_contains(
+        $tenantAWorkforceCalendars['body'],
+        'Create calendar'
+    )
+    && !str_contains(
+        $tenantAWorkforceCalendars['body'],
+        'Tenant B Confidential'
+    ),
+    'Tenant attendance administrator can manage only the active company workforce calendars'
+);
+
 $tenantAOrganizationSetup = httpRequest(
     $baseUrl,
     '/organization/setup',
@@ -981,6 +1003,11 @@ $employeeAttendanceTeam = httpRequest(
     '/attendance/team?month=2026-07',
     $employeeCookies
 );
+$employeeWorkforceCalendars = httpRequest(
+    $baseUrl,
+    '/attendance/calendars',
+    $employeeCookies
+);
 $employeeDirectoryAttempt = httpRequest(
     $baseUrl,
     '/hr/employees/view?id=920002',
@@ -1046,6 +1073,14 @@ $check(
         'Bob TenantB'
     ),
     'Employee self service cannot open the company employee directory'
+);
+$check(
+    $employeeWorkforceCalendars['status'] === 403
+    && !str_contains(
+        $employeeWorkforceCalendars['body'],
+        'Create calendar'
+    ),
+    'Employee self service cannot open workforce-calendar administration'
 );
 $check(
     $employeeLeaveBalances['status'] === 403

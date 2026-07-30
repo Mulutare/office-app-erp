@@ -38,12 +38,14 @@ final class AttendanceReminderService
     private AttendanceRepository $attendance;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
+    private WorkforceCalendarService $workforceCalendars;
 
     public function __construct(
         ?AttendanceReminderRepository $reminders = null,
         ?AttendanceRepository $attendance = null,
         ?AuditLogWriter $auditLogs = null,
-        ?TenantContext $tenant = null
+        ?TenantContext $tenant = null,
+        ?WorkforceCalendarService $workforceCalendars = null
     ) {
         $this->reminders = $reminders
             ?? RepositoryFactory::attendanceReminders();
@@ -53,6 +55,9 @@ final class AttendanceReminderService
             ?? RepositoryFactory::auditLogs();
         $this->tenant = $tenant
             ?? new TenantContext();
+        $this->workforceCalendars =
+            $workforceCalendars
+            ?? new WorkforceCalendarService();
     }
 
     /**
@@ -70,8 +75,25 @@ final class AttendanceReminderService
             $companyId,
             $actorUserId
         );
+        $defaultSettings = $this->defaults();
+        $referenceSettings = $stored
+            ?? $defaultSettings;
+        $referenceTimezone = new DateTimeZone(
+            (string) $referenceSettings['timezone']
+        );
+        $referenceNow = $now === null
+            ? new DateTimeImmutable(
+                'now',
+                $referenceTimezone
+            )
+            : $now->setTimezone($referenceTimezone);
+        $schedule = $this->workforceCalendars
+            ->contextForUser(
+                $actorUserId,
+                $referenceNow->format('Y-m-d')
+            );
         $settings = $this->presentSettings(
-            $stored ?? $this->defaults()
+            $stored ?? $this->defaults($schedule)
         );
         $timezone = new DateTimeZone(
             (string) $settings['timezone']
@@ -86,8 +108,10 @@ final class AttendanceReminderService
                 $this->notification(
                     $settings,
                     $attendanceWorkspace,
-                    $now
+                    $now,
+                    $schedule
                 ),
+            'schedule' => $schedule,
             'workdayOptions' => self::WORKDAYS,
             'leadOptions' => self::LEAD_OPTIONS,
             'timezoneOptions' =>
@@ -184,7 +208,9 @@ final class AttendanceReminderService
     /**
      * @return array<string, mixed>
      */
-    private function defaults(): array
+    private function defaults(
+        ?array $schedule = null
+    ): array
     {
         $company = $this->tenant->company();
         $timezone = trim((string) (
@@ -200,13 +226,33 @@ final class AttendanceReminderService
             $timezone = 'UTC';
         }
 
+        $scheduleTimezone = trim((string) (
+            $schedule['timezone'] ?? ''
+        ));
+
+        if (in_array(
+            $scheduleTimezone,
+            DateTimeZone::listIdentifiers(),
+            true
+        )) {
+            $timezone = $scheduleTimezone;
+        }
+
         return [
             'timezone' => $timezone,
             'workday_mask' => 31,
             'check_in_enabled' => 0,
-            'check_in_time' => '08:30',
+            'check_in_time' => (
+                $schedule['startTime'] ?? ''
+            ) !== ''
+                ? $schedule['startTime']
+                : '08:30',
             'check_out_enabled' => 0,
-            'check_out_time' => '17:30',
+            'check_out_time' => (
+                $schedule['endTime'] ?? ''
+            ) !== ''
+                ? $schedule['endTime']
+                : '17:30',
             'reminder_lead_minutes' => 10,
             'browser_notifications_enabled' => 0,
         ];
@@ -398,7 +444,8 @@ final class AttendanceReminderService
     private function notification(
         array $settings,
         array $workspace,
-        DateTimeImmutable $now
+        DateTimeImmutable $now,
+        ?array $schedule = null
     ): array {
         $base = [
             'status' => 'inactive',
@@ -433,6 +480,41 @@ final class AttendanceReminderService
             && empty($settings['checkOutEnabled'])
         ) {
             return $base;
+        }
+
+        $holiday = is_array(
+            $schedule['holiday'] ?? null
+        )
+            ? $schedule['holiday']
+            : null;
+
+        if (
+            $holiday !== null
+            && ($holiday['portion'] ?? 'full')
+                === 'full'
+        ) {
+            return array_merge($base, [
+                'status' => 'holiday',
+                'tone' => 'info',
+                'title' => 'No reminder today',
+                'message' => (string) (
+                    $holiday['name']
+                    ?? 'Company holiday'
+                ) . ' is recorded on your work calendar.',
+            ]);
+        }
+
+        if (
+            $schedule !== null
+            && empty($schedule['workingDay'])
+        ) {
+            return array_merge($base, [
+                'status' => 'rest-day',
+                'tone' => 'info',
+                'title' => 'No reminder today',
+                'message' =>
+                    'Today is a non-working day on your assigned company calendar.',
+            ]);
         }
 
         $day = (int) $now->format('N');

@@ -40,6 +40,14 @@ use App\Repositories\MySql\AttendanceReminderRepository
     as MySqlAttendanceReminderRepository;
 use App\Repositories\Oracle\AttendanceReminderRepository
     as OracleAttendanceReminderRepository;
+use App\Repositories\MySql\WorkforceCalendarRepository
+    as MySqlWorkforceCalendarRepository;
+use App\Repositories\Oracle\WorkforceCalendarRepository
+    as OracleWorkforceCalendarRepository;
+use App\Repositories\MySql\AttendanceNotificationRepository
+    as MySqlAttendanceNotificationRepository;
+use App\Repositories\Oracle\AttendanceNotificationRepository
+    as OracleAttendanceNotificationRepository;
 use App\Repositories\MySql\LeaveRepository
     as MySqlLeaveRepository;
 use App\Repositories\Oracle\LeaveRepository
@@ -63,6 +71,38 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function attendanceNotifications():
+        AttendanceNotificationRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlAttendanceNotificationRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleAttendanceNotificationRepository();
+        }
+
+        throw new RuntimeException(
+            'No attendance-notification repository is available for the configured database driver.'
+        );
+    }
+
+    public static function workforceCalendars():
+        WorkforceCalendarRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlWorkforceCalendarRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleWorkforceCalendarRepository();
+        }
+
+        throw new RuntimeException(
+            'No workforce-calendar repository is available for the configured database driver.'
+        );
+    }
+
     public static function attendanceReminders():
         AttendanceReminderRepository
     {

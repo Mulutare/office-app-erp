@@ -27,6 +27,7 @@ use App\Controllers\OrganizationSetupController;
 use App\Controllers\PositionController;
 use App\Controllers\RoleAdministrationController;
 use App\Controllers\UserActivityController;
+use App\Controllers\WorkforceCalendarController;
 
 $userAdministrationController =
     new UserAdministrationController();
@@ -40,6 +41,8 @@ $attendanceController =
     new AttendanceController();
 $attendanceSelfServiceController =
     new AttendanceSelfServiceController();
+$workforceCalendarController =
+    new WorkforceCalendarController();
 $leaveController = new LeaveController();
 $leaveBalanceController =
     new LeaveBalanceController();
@@ -134,6 +137,26 @@ $router->get(
     '/attendance',
     [$attendanceController, 'index']
 );
+$router->get(
+    '/attendance/calendars',
+    [$workforceCalendarController, 'index']
+);
+$router->post(
+    '/attendance/calendars',
+    [$workforceCalendarController, 'storeCalendar']
+);
+$router->post(
+    '/attendance/calendars/week',
+    [$workforceCalendarController, 'saveWeek']
+);
+$router->post(
+    '/attendance/calendars/holidays',
+    [$workforceCalendarController, 'storeHoliday']
+);
+$router->post(
+    '/attendance/calendars/schedules',
+    [$workforceCalendarController, 'assignSchedule']
+);
 $router->post(
     '/attendance/records',
     [$attendanceController, 'store']
@@ -155,6 +178,13 @@ $router->post(
     [
         $attendanceSelfServiceController,
         'saveReminders',
+    ]
+);
+$router->post(
+    '/attendance/me/notifications/read',
+    [
+        $attendanceSelfServiceController,
+        'markNotificationRead',
     ]
 );
 $router->get(

@@ -62,6 +62,25 @@ $formatDate = static function (string $value): string {
     </div>
 <?php endif; ?>
 
+<?php if ($canManage): ?>
+    <section class="attendance-admin-actions">
+        <div>
+            <span class="section-kicker">
+                Workforce time foundation
+            </span>
+            <strong>
+                Workweeks, holidays and employee schedules
+            </strong>
+        </div>
+        <a
+            href="/office_app/public/attendance/calendars"
+            class="btn btn-secondary"
+        >
+            Manage workforce calendars
+        </a>
+    </section>
+<?php endif; ?>
+
 <section class="operations-summary-grid">
     <article class="operations-summary-card is-primary">
         <span>Workforce</span>

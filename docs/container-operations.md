@@ -66,6 +66,40 @@ an HR employee profile, Employee Self Service role, HR module and Attendance
 module. The command is development-only and refuses to overwrite an existing
 sample company.
 
+## Attendance notification dispatcher
+
+Personal attendance alerts are stored in the database so they remain available
+after the browser is closed. Run the dispatcher every minute from one trusted
+application worker:
+
+```powershell
+docker compose exec -T app php bin/queue-attendance-notifications.php
+```
+
+For a native installation, schedule the equivalent command with the deployed
+PHP executable:
+
+```powershell
+php bin/queue-attendance-notifications.php
+```
+
+Use Windows Task Scheduler, cron, or the production scheduler to run exactly
+one dispatcher instance each minute. The command is safe to repeat because
+each user, reminder type and work date has a unique deduplication key.
+
+The dispatcher:
+
+- uses each employee's IANA timezone and personal reminder lead time;
+- honors the effective company calendar, ISO workweek and full-day holidays;
+- carries overnight check-out reminders into the next local day;
+- ignores inactive companies, users, memberships and employee profiles;
+- writes only private, company-scoped in-application notifications;
+- never requires an open browser session.
+
+The current delivery channel is the authenticated in-application inbox. Email,
+mobile push and other channels can be added behind the notification repository
+without changing calendar or attendance business rules.
+
 ## Disposable integration test
 
 The test stack uses PHP 8.4 and a temporary MariaDB filesystem. It initializes
