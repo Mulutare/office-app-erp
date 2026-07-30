@@ -42,6 +42,26 @@ $modules = [
         'platformOnly' => true,
     ],
     [
+        'title' => 'Organization setup center',
+        'description' =>
+            'Measure company readiness and complete locations, departments, job architecture, headcount and reporting lines in sequence.',
+        'path' =>
+            '/office_app/public/organization/setup',
+        'permissions' => [
+            'organization.branches.view',
+            'organization.branches.manage',
+            'organization.job_titles.view',
+            'organization.job_titles.manage',
+            'organization.departments.view',
+            'organization.departments.manage',
+            'organization.positions.view',
+            'organization.positions.manage',
+            'hr.records.view',
+            'hr.records.manage',
+        ],
+        'tenantOnly' => true,
+    ],
+    [
         'title' => 'Company branches',
         'description' =>
             'Maintain company locations, head office details and operational availability.',
@@ -106,11 +126,16 @@ $isPlatformAdmin = !empty(
     <?php foreach ($modules as $module): ?>
         <?php
         if (
-            !in_array(
-                $module['permission'],
-                $permissions,
-                true
-            )
+            isset($module['permissions'])
+                ? array_intersect(
+                    $module['permissions'],
+                    $permissions
+                ) === []
+                : !in_array(
+                    $module['permission'],
+                    $permissions,
+                    true
+                )
         ) {
             continue;
         }

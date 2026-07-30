@@ -16,6 +16,8 @@ use App\Models\CompanyMembership;
 use App\Models\User;
 use App\Repositories\MySql\CompanyMembershipRepository;
 use App\Repositories\MySql\DashboardStatisticsRepository;
+use App\Repositories\MySql\OrganizationReadinessRepository
+    as MySqlOrganizationReadinessRepository;
 use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
@@ -41,6 +43,7 @@ use App\Services\LeaveManagementService;
 use App\Services\LeaveBalanceManagementService;
 use App\Services\LeavePolicyService;
 use App\Services\ManagerWorkspaceService;
+use App\Services\OrganizationSetupService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\PositionManagementService;
 use App\Services\RolePermissionUpdateService;
@@ -177,6 +180,12 @@ try {
         RepositoryFactory::dashboardStatistics()
             instanceof DashboardStatisticsRepository,
         'Repository factory selects the MySQL dashboard repository'
+    );
+
+    $check(
+        RepositoryFactory::organizationReadiness()
+            instanceof MySqlOrganizationReadinessRepository,
+        'Repository factory selects the MySQL organization-readiness repository'
     );
 
     $oracleManager = ConnectionManager::fromConfig([
@@ -1231,6 +1240,57 @@ try {
             'hr.leave.balance.manage'
         ),
         'Tenant A administrator has leave-policy and balance-management permissions'
+    );
+
+    $organizationSetup =
+        new OrganizationSetupService();
+    $organizationOverview =
+        $organizationSetup->overview();
+    $organizationMetrics = is_array(
+        $organizationOverview['metrics'] ?? null
+    )
+        ? $organizationOverview['metrics']
+        : [];
+    $organizationStages = is_array(
+        $organizationOverview['stages'] ?? null
+    )
+        ? $organizationOverview['stages']
+        : [];
+
+    $check(
+        ($organizationMetrics[
+            'branches_active'
+        ] ?? 0) === 1
+        && ($organizationMetrics[
+            'departments_active'
+        ] ?? 0) === 2
+        && ($organizationMetrics[
+            'job_titles_active'
+        ] ?? 0) === 1
+        && ($organizationMetrics[
+            'positions_total'
+        ] ?? 0) === 1
+        && ($organizationMetrics[
+            'active_employees'
+        ] ?? 0) === 1
+        && ($organizationMetrics[
+            'assigned_employees'
+        ] ?? 0) === 1,
+        'Organization readiness metrics are isolated to Tenant A'
+    );
+
+    $check(
+        count($organizationStages) === 7
+        && ($organizationOverview[
+            'progress'
+        ] ?? 0) === 100
+        && ($organizationOverview[
+            'readinessLabel'
+        ] ?? '') === 'Operationally ready'
+        && ($organizationOverview[
+            'nextAction'
+        ] ?? null) === null,
+        'Organization setup service evaluates the complete guided readiness sequence'
     );
 
     $tenantAModules = is_array(

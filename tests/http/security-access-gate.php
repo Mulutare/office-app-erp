@@ -314,6 +314,15 @@ $check(
     ),
     'Platform administrator authenticates'
 );
+$platformOrganizationSetup = httpRequest(
+    $baseUrl,
+    '/organization/setup',
+    $platformAdminCookies
+);
+$check(
+    $platformOrganizationSetup['status'] === 403,
+    'Platform administrator is denied the tenant organization setup center'
+);
 $platformBranches = httpRequest(
     $baseUrl,
     '/organization/branches',
@@ -641,6 +650,36 @@ $check(
         '/dashboard'
     ),
     'Tenant A administrator authenticates'
+);
+
+$tenantAOrganizationSetup = httpRequest(
+    $baseUrl,
+    '/organization/setup',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAOrganizationSetup['status'] === 200
+    && str_contains(
+        $tenantAOrganizationSetup['body'],
+        'Organization Setup Center'
+    )
+    && str_contains(
+        $tenantAOrganizationSetup['body'],
+        '100%'
+    )
+    && str_contains(
+        $tenantAOrganizationSetup['body'],
+        'Operationally ready'
+    )
+    && str_contains(
+        $tenantAOrganizationSetup['body'],
+        'Tenant A'
+    )
+    && !str_contains(
+        $tenantAOrganizationSetup['body'],
+        'Tenant B Confidential'
+    ),
+    'Tenant organization setup center is ready and isolated to Tenant A'
 );
 
 $tenantABranches = httpRequest(

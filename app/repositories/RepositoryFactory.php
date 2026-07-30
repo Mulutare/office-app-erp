@@ -48,6 +48,10 @@ use App\Repositories\MySql\ManagerTeamRepository
     as MySqlManagerTeamRepository;
 use App\Repositories\Oracle\ManagerTeamRepository
     as OracleManagerTeamRepository;
+use App\Repositories\MySql\OrganizationReadinessRepository
+    as MySqlOrganizationReadinessRepository;
+use App\Repositories\Oracle\OrganizationReadinessRepository
+    as OracleOrganizationReadinessRepository;
 use RuntimeException;
 
 /**
@@ -55,6 +59,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function organizationReadiness():
+        OrganizationReadinessRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlOrganizationReadinessRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleOrganizationReadinessRepository();
+        }
+
+        throw new RuntimeException(
+            'No organization-readiness repository is available for the configured database driver.'
+        );
+    }
+
     public static function leaveBalances():
         LeaveBalanceRepository
     {

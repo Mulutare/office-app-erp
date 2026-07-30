@@ -23,6 +23,7 @@ use App\Controllers\LeaveBalanceController;
 use App\Controllers\LeavePolicyController;
 use App\Controllers\ManagerWorkspaceController;
 use App\Controllers\ModuleAdministrationController;
+use App\Controllers\OrganizationSetupController;
 use App\Controllers\PositionController;
 use App\Controllers\RoleAdministrationController;
 use App\Controllers\UserActivityController;
@@ -62,6 +63,8 @@ $branchController = new BranchController();
 $jobTitleController = new JobTitleController();
 $departmentController = new DepartmentController();
 $positionController = new PositionController();
+$organizationSetupController =
+    new OrganizationSetupController();
 
 $router = new Router();
 
@@ -154,6 +157,10 @@ $router->get(
 $router->get(
     '/finance',
     [$financeController, 'index']
+);
+$router->get(
+    '/organization/setup',
+    [$organizationSetupController, 'index']
 );
 $router->get(
     '/organization/branches',

@@ -341,10 +341,10 @@ $totalEmployees = array_sum(array_map(
         </div>
         <?php if ($canViewOrganization): ?>
             <a
-                href="/office_app/public/organization/departments"
+                href="/office_app/public/organization/setup"
                 class="workspace-link"
             >
-                Open organization
+                Open setup center
             </a>
         <?php else: ?>
             <span class="workspace-link is-disabled">

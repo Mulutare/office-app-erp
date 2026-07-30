@@ -81,6 +81,21 @@ final class AuthorizationService
         }
     }
 
+    /**
+     * @param list<string> $permissionCodes
+     */
+    public function requireAnyTenantPermission(
+        array $permissionCodes
+    ): void {
+        $this->requireAnyPermission(
+            $permissionCodes
+        );
+
+        if ($this->auth->isPlatformAdministrator()) {
+            $this->deny();
+        }
+    }
+
     public function requirePlatformAdministrator(): void
     {
         $this->requireAuthentication();
