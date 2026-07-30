@@ -59,6 +59,8 @@ final class LeavePolicyController
             $old = [
                 'annual_entitlement' => '0.00',
                 'requires_approval' => true,
+                'approval_workflow' => 'manager',
+                'hr_approver_user_id' => null,
                 'active' => true,
             ];
         }
@@ -253,6 +255,10 @@ final class LeavePolicyController
             'leaveTypeId' => $leaveTypeId,
             'old' => $old,
             'errors' => $errors,
+            'workflowOptions' =>
+                $this->policies->workflowOptions(),
+            'hrApprovers' =>
+                $this->policies->hrApprovers(),
         ]);
     }
 
@@ -275,8 +281,10 @@ final class LeavePolicyController
             'name' => \postString('name'),
             'annual_entitlement' =>
                 \postString('annual_entitlement'),
-            'requires_approval' =>
-                isset($_POST['requires_approval']),
+            'approval_workflow' =>
+                \postString('approval_workflow'),
+            'hr_approver_user_id' =>
+                \postString('hr_approver_user_id'),
             'active' => isset($_POST['active']),
         ];
     }

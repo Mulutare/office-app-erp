@@ -784,6 +784,36 @@ $check(
     'HR leave workspace exposes only Tenant A people and policy types'
 );
 
+$tenantALeaveBalances = httpRequest(
+    $baseUrl,
+    '/hr/leave/balances?employee=920001&year=2026&policy=970001',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantALeaveBalances['status'] === 200
+    && str_contains(
+        $tenantALeaveBalances['body'],
+        'Allocate, reconcile and audit leave days.'
+    )
+    && str_contains(
+        $tenantALeaveBalances['body'],
+        'Alice TenantA'
+    )
+    && str_contains(
+        $tenantALeaveBalances['body'],
+        '/hr/leave/balances/allocation'
+    )
+    && str_contains(
+        $tenantALeaveBalances['body'],
+        '/hr/leave/balances/adjustment'
+    )
+    && !str_contains(
+        $tenantALeaveBalances['body'],
+        'Bob TenantB'
+    ),
+    'Leave-balance workspace is tenant-scoped and exposes controlled management forms'
+);
+
 $tenantAManagerWorkspace = httpRequest(
     $baseUrl,
     '/hr/team',
@@ -821,6 +851,11 @@ $employeeHr = httpRequest(
 $employeeLeave = httpRequest(
     $baseUrl,
     '/hr/leave',
+    $employeeCookies
+);
+$employeeLeaveBalances = httpRequest(
+    $baseUrl,
+    '/hr/leave/balances?employee=920001&year=2026',
     $employeeCookies
 );
 $employeeTeam = httpRequest(
@@ -908,6 +943,14 @@ $check(
         'Bob TenantB'
     ),
     'Employee self service cannot open the company employee directory'
+);
+$check(
+    $employeeLeaveBalances['status'] === 403
+    && !str_contains(
+        $employeeLeaveBalances['body'],
+        'Alice TenantA'
+    ),
+    'Employee self service cannot open leave-balance management'
 );
 $check(
     $employeeAttendanceEntry['status'] === 302

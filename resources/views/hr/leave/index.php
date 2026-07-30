@@ -30,6 +30,9 @@ $canApprove = !empty($data['canApprove']);
 $canManagePolicies = !empty(
     $data['canManagePolicies']
 );
+$canManageBalances = !empty(
+    $data['canManageBalances']
+);
 $profileRequired = !empty(
     $data['profileRequired']
 );
@@ -73,13 +76,28 @@ $formatDate = static function (mixed $value): string {
     <a href="/office_app/public/hr">HR</a>
     <span aria-hidden="true">/</span>
     <strong>Leave management</strong>
-    <?php if ($canManagePolicies): ?>
+    <?php if (
+        $canManagePolicies
+        || $canManageBalances
+    ): ?>
+        <span class="breadcrumb-actions">
+        <?php if ($canManageBalances): ?>
+            <a
+                href="/office_app/public/hr/leave/balances"
+                class="breadcrumb-action"
+            >
+                Manage balances
+            </a>
+        <?php endif; ?>
+        <?php if ($canManagePolicies): ?>
         <a
             href="/office_app/public/hr/leave/policies"
             class="breadcrumb-action"
         >
             Configure policies
         </a>
+        <?php endif; ?>
+        </span>
     <?php endif; ?>
 </nav>
 
@@ -97,6 +115,12 @@ $formatDate = static function (mixed $value): string {
 <?php if (!empty($errors['form'])): ?>
     <div class="alert alert-danger" role="alert">
         <?= e($errors['form']) ?>
+    </div>
+<?php endif; ?>
+
+<?php if (!empty($errors['approval_route'])): ?>
+    <div class="alert alert-danger" role="alert">
+        <?= e($errors['approval_route']) ?>
     </div>
 <?php endif; ?>
 
@@ -172,30 +196,40 @@ $formatDate = static function (mixed $value): string {
                     <select
                         id="leave-employee"
                         name="employee_id"
+                        data-leave-employee-select
                         required
                     >
                         <option value="">Select employee</option>
                         <?php foreach (
-                            $employees as $employee
+                            $employees as $employeeOption
                         ): ?>
                             <?php
                             $employeeId = (int) (
-                                $employee['employee_id'] ?? 0
+                                $employeeOption[
+                                    'employee_id'
+                                ] ?? 0
                             );
                             ?>
                             <option
                                 value="<?= e($employeeId) ?>"
+                                data-manager-name="<?= e(
+                                    $employeeOption['manager_name']
+                                    ?? ''
+                                ) ?>"
                                 <?= $selectedEmployeeId
                                     === $employeeId
                                         ? 'selected'
                                         : '' ?>
                             >
                                 <?= e(
-                                    $employee['displayName'] ?? ''
+                                    $employeeOption['displayName']
+                                    ?? ''
                                 ) ?>
                                 ·
                                 <?= e(
-                                    $employee['employee_number']
+                                    $employeeOption[
+                                        'employee_number'
+                                    ]
                                     ?? ''
                                 ) ?>
                             </option>
@@ -239,6 +273,7 @@ $formatDate = static function (mixed $value): string {
                     <select
                         id="leave-type"
                         name="leave_type_id"
+                        data-leave-type-select
                         required
                     >
                         <option value="">Select leave type</option>
@@ -252,6 +287,14 @@ $formatDate = static function (mixed $value): string {
                             ?>
                             <option
                                 value="<?= e($typeId) ?>"
+                                data-approval-workflow="<?= e(
+                                    $type['approval_workflow']
+                                    ?? 'manager'
+                                ) ?>"
+                                data-hr-approver-name="<?= e(
+                                    $type['hr_approver_name']
+                                    ?? ''
+                                ) ?>"
                                 <?= $selectedLeaveTypeId
                                     === $typeId
                                         ? 'selected'
@@ -276,6 +319,33 @@ $formatDate = static function (mixed $value): string {
                             ) ?>
                         </small>
                     <?php endif; ?>
+                </div>
+
+                <div
+                    class="leave-approval-preview"
+                    data-leave-approval-preview
+                    data-self-manager-name="<?= e(
+                        $employee['manager_name'] ?? ''
+                    ) ?>"
+                >
+                    <span class="section-kicker">
+                        Approval route
+                    </span>
+                    <strong data-leave-route-label>
+                        Select a leave type
+                    </strong>
+                    <div class="leave-approver-route">
+                        <span data-leave-manager-approver>
+                            Manager: not selected
+                        </span>
+                        <span data-leave-hr-approver>
+                            HR: not required
+                        </span>
+                    </div>
+                    <small data-leave-route-help>
+                        The named approvers are confirmed before
+                        the request is submitted.
+                    </small>
                 </div>
 
                 <div class="operations-time-grid">
@@ -479,6 +549,39 @@ $formatDate = static function (mixed $value): string {
                                         $request['leave_type_name']
                                         ?? ''
                                     ) ?>
+                                    <small>
+                                        <?= e(
+                                            $request[
+                                                'approvalWorkflowLabel'
+                                            ] ?? 'Manager only'
+                                        ) ?>
+                                    </small>
+                                    <?php if (!empty(
+                                        $request[
+                                            'managerApproverName'
+                                        ]
+                                    )): ?>
+                                        <small>
+                                            Manager:
+                                            <?= e(
+                                                $request[
+                                                    'managerApproverName'
+                                                ]
+                                            ) ?>
+                                        </small>
+                                    <?php endif; ?>
+                                    <?php if (!empty(
+                                        $request['hrApproverName']
+                                    )): ?>
+                                        <small>
+                                            HR:
+                                            <?= e(
+                                                $request[
+                                                    'hrApproverName'
+                                                ]
+                                            ) ?>
+                                        </small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <strong>
@@ -600,7 +703,30 @@ $formatDate = static function (mixed $value): string {
                                             </span>
                                         <?php else: ?>
                                             <span class="text-muted">
-                                                Manager decision
+                                                <?php if (!empty(
+                                                    $request[
+                                                        'currentApproverName'
+                                                    ]
+                                                )): ?>
+                                                    Waiting for
+                                                    <?= e(
+                                                        $request[
+                                                            'currentApproverName'
+                                                        ]
+                                                    ) ?>
+                                                    (
+                                                    <?= e(ucfirst(
+                                                        (string) (
+                                                            $request[
+                                                                'currentApprovalStage'
+                                                            ] ?? ''
+                                                        )
+                                                    )) ?>
+                                                    )
+                                                <?php else: ?>
+                                                    Approval route
+                                                    requires attention
+                                                <?php endif; ?>
                                             </span>
                                         <?php endif; ?>
                                     </td>

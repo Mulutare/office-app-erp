@@ -150,15 +150,33 @@ $formatDate = static function (mixed $value): string {
                         </td>
                         <td>
                             <?php if (
-                                !empty(
+                                (
                                     $policy[
-                                        'requires_approval'
-                                    ]
-                                )
+                                        'approval_workflow'
+                                    ] ?? 'manager'
+                                ) !== 'none'
                             ): ?>
                                 <span class="badge badge-warning">
-                                    Manager decision
+                                    <?= e(
+                                        $policy[
+                                            'approvalWorkflowLabel'
+                                        ] ?? 'Manager only'
+                                    ) ?>
                                 </span>
+                                <?php if (!empty(
+                                    $policy[
+                                        'hr_approver_name'
+                                    ]
+                                )): ?>
+                                    <small>
+                                        HR:
+                                        <?= e(
+                                            $policy[
+                                                'hr_approver_name'
+                                            ]
+                                        ) ?>
+                                    </small>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <span class="badge badge-info">
                                     Automatic

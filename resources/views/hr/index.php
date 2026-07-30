@@ -40,6 +40,9 @@ $canViewLeave = !empty(
 $canManageLeavePolicies = !empty(
     $data['canManageLeavePolicies']
 );
+$canManageLeaveBalances = !empty(
+    $data['canManageLeaveBalances']
+);
 $canViewTeam = !empty(
     $data['canViewTeam']
 );
@@ -268,6 +271,14 @@ $totalEmployees = array_sum(array_map(
                         class="workspace-link is-secondary"
                     >
                         Configure policies
+                    </a>
+                <?php endif; ?>
+                <?php if ($canManageLeaveBalances): ?>
+                    <a
+                        href="/office_app/public/hr/leave/balances"
+                        class="workspace-link is-secondary"
+                    >
+                        Manage balances
                     </a>
                 <?php endif; ?>
             </div>

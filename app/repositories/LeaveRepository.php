@@ -30,6 +30,23 @@ interface LeaveRepository
     ): array;
 
     /**
+     * Return active company users who can perform HR leave approval.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function hrApproverOptions(
+        int $companyId
+    ): array;
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function employeeApprovalContext(
+        int $companyId,
+        int $employeeId
+    ): ?array;
+
+    /**
      * @return array<string, mixed>|null
      */
     public function leaveType(
@@ -162,6 +179,56 @@ interface LeaveRepository
         array $values,
         int $createdBy
     ): int;
+
+    /**
+     * @param list<int> $leaveRequestIds
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function approvalStagesForRequests(
+        int $companyId,
+        array $leaveRequestIds
+    ): array;
+
+    public function createApprovalStage(
+        int $companyId,
+        int $leaveRequestId,
+        string $stage,
+        int $sequence,
+        int $approverUserId,
+        string $status
+    ): int;
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function pendingApprovalForActor(
+        int $companyId,
+        int $leaveRequestId,
+        int $approverUserId,
+        bool $lock = false
+    ): ?array;
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function nextWaitingApproval(
+        int $companyId,
+        int $leaveRequestId,
+        bool $lock = false
+    ): ?array;
+
+    public function decideApprovalStage(
+        int $companyId,
+        int $approvalId,
+        string $status,
+        ?string $decisionNote
+    ): bool;
+
+    public function activateApprovalStage(
+        int $companyId,
+        int $approvalId
+    ): bool;
 
     public function decide(
         int $companyId,

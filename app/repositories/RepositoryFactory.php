@@ -40,6 +40,10 @@ use App\Repositories\MySql\LeaveRepository
     as MySqlLeaveRepository;
 use App\Repositories\Oracle\LeaveRepository
     as OracleLeaveRepository;
+use App\Repositories\MySql\LeaveBalanceRepository
+    as MySqlLeaveBalanceRepository;
+use App\Repositories\Oracle\LeaveBalanceRepository
+    as OracleLeaveBalanceRepository;
 use App\Repositories\MySql\ManagerTeamRepository
     as MySqlManagerTeamRepository;
 use App\Repositories\Oracle\ManagerTeamRepository
@@ -51,6 +55,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function leaveBalances():
+        LeaveBalanceRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlLeaveBalanceRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleLeaveBalanceRepository();
+        }
+
+        throw new RuntimeException(
+            'No leave-balance repository is available for the configured database driver.'
+        );
+    }
+
     public static function managerTeams():
         ManagerTeamRepository
     {

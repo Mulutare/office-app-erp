@@ -32,6 +32,13 @@ final class LeaveManagementService
         ],
     ];
 
+    private const WORKFLOWS = [
+        'none' => 'No approval',
+        'manager' => 'Manager only',
+        'hr' => 'HR only',
+        'manager_then_hr' => 'Manager, then HR',
+    ];
+
     private LeaveRepository $leave;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
@@ -74,6 +81,10 @@ final class LeaveManagementService
                     ($request['request_status']
                         ?? '') === $status
             ));
+        $this->attachApprovals(
+            $companyId,
+            $requests
+        );
 
         foreach ($requests as &$request) {
             $this->present($request);
@@ -130,6 +141,20 @@ final class LeaveManagementService
             $companyId,
             $actorUserId
         );
+        if ($employee !== null) {
+            $approvalContext = $this->leave
+                ->employeeApprovalContext(
+                    $companyId,
+                    (int) $employee['employee_id']
+                );
+
+            if ($approvalContext !== null) {
+                $employee = array_merge(
+                    $employee,
+                    $approvalContext
+                );
+            }
+        }
         $selfRequests = [];
         $teamRequests = [];
 
@@ -171,6 +196,10 @@ final class LeaveManagementService
                 $selfRequests,
                 $teamRequests
             );
+        $this->attachApprovals(
+            $companyId,
+            $requests
+        );
         $selfEmployeeId = (int) (
             $employee['employee_id'] ?? 0
         );
@@ -188,6 +217,14 @@ final class LeaveManagementService
             $isTeam = isset(
                 $teamRequestIds[$requestId]
             );
+            $currentApproverId = (int) (
+                $request['currentApproverUserId']
+                    ?? 0
+            );
+            $currentStage = (string) (
+                $request['currentApprovalStage']
+                    ?? ''
+            );
 
             $request['scopeLabel'] = $isSelf
                 ? 'My request'
@@ -195,8 +232,17 @@ final class LeaveManagementService
                     ? 'Direct report'
                     : 'Company');
             $request['canDecide'] =
-                $canApproveCompany
-                || ($canApproveTeam && $isTeam);
+                $currentApproverId === $actorUserId
+                && (
+                    (
+                        $currentStage === 'manager'
+                        && $canApproveTeam
+                    )
+                    || (
+                        $currentStage === 'hr'
+                        && $canApproveCompany
+                    )
+                );
             $this->present($request);
         }
 
@@ -250,6 +296,225 @@ final class LeaveManagementService
                 !$canViewCompany
                 && $employee === null,
         ];
+    }
+
+    /**
+     * Resolve and validate the immutable approval route used by a request.
+     *
+     * @param array<string, mixed> $leaveType
+     *
+     * @return array{
+     *     errors: array<string, string>,
+     *     stages: list<array<string, mixed>>,
+     *     audit: list<array<string, mixed>>
+     * }
+     */
+    private function approvalRoute(
+        int $companyId,
+        int $employeeId,
+        array $leaveType
+    ): array {
+        $workflow = (string) (
+            $leaveType['approval_workflow']
+                ?? (!empty(
+                    $leaveType['requires_approval']
+                )
+                    ? 'manager'
+                    : 'none')
+        );
+        $needsManager = in_array(
+            $workflow,
+            ['manager', 'manager_then_hr'],
+            true
+        );
+        $needsHr = in_array(
+            $workflow,
+            ['hr', 'manager_then_hr'],
+            true
+        );
+        $errors = [];
+        $stages = [];
+        $audit = [];
+        $employee = $this->leave
+            ->employeeApprovalContext(
+                $companyId,
+                $employeeId
+            );
+
+        if ($needsManager) {
+            $managerUserId = (int) (
+                $employee['manager_user_id'] ?? 0
+            );
+            $managerName = trim((string) (
+                $employee['manager_name'] ?? ''
+            ));
+
+            if (
+                $managerUserId < 1
+                || $managerName === ''
+            ) {
+                $errors['approval_route'] =
+                    'This employee has no active reporting manager. Assign a company manager before submitting this leave request.';
+            } else {
+                $stages[] = [
+                    'stage' => 'manager',
+                    'sequence' => 1,
+                    'approverUserId' =>
+                        $managerUserId,
+                    'approverName' => $managerName,
+                    'status' => 'pending',
+                ];
+                $audit[] = [
+                    'stage' => 'manager',
+                    'approver_user_id' =>
+                        $managerUserId,
+                    'approver_name' =>
+                        $managerName,
+                ];
+            }
+        }
+
+        if ($needsHr) {
+            $hrApproverId = (int) (
+                $leaveType['hr_approver_user_id']
+                    ?? 0
+            );
+            $allowedApprovers =
+                $this->leave->hrApproverOptions(
+                    $companyId
+                );
+            $hrApprover = null;
+
+            foreach ($allowedApprovers as $candidate) {
+                if (
+                    (int) (
+                        $candidate['user_id'] ?? 0
+                    ) === $hrApproverId
+                ) {
+                    $hrApprover = $candidate;
+                    break;
+                }
+            }
+
+            if ($hrApprover === null) {
+                $errors['approval_route'] =
+                    'The selected leave policy has no active HR approver. Ask HR to update the policy before submitting.';
+            } else {
+                $hrName = (string) (
+                    $hrApprover['display_name'] ?? ''
+                );
+                $sequence = $needsManager ? 2 : 1;
+                $stages[] = [
+                    'stage' => 'hr',
+                    'sequence' => $sequence,
+                    'approverUserId' =>
+                        $hrApproverId,
+                    'approverName' => $hrName,
+                    'status' => $sequence === 1
+                        ? 'pending'
+                        : 'waiting',
+                ];
+                $audit[] = [
+                    'stage' => 'hr',
+                    'approver_user_id' =>
+                        $hrApproverId,
+                    'approver_name' => $hrName,
+                ];
+            }
+        }
+
+        return [
+            'errors' => $errors,
+            'stages' => $errors === []
+                ? $stages
+                : [],
+            'audit' => $errors === []
+                ? $audit
+                : [],
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $requests
+     */
+    private function attachApprovals(
+        int $companyId,
+        array &$requests
+    ): void {
+        $requestIds = array_map(
+            static fn (array $request): int =>
+                (int) (
+                    $request['leave_request_id'] ?? 0
+                ),
+            $requests
+        );
+        $rows = $this->leave
+            ->approvalStagesForRequests(
+                $companyId,
+                $requestIds
+            );
+        $byRequest = [];
+
+        foreach ($rows as $row) {
+            $requestId = (int) (
+                $row['leave_request_id'] ?? 0
+            );
+            $byRequest[$requestId][] = $row;
+        }
+
+        foreach ($requests as &$request) {
+            $requestId = (int) (
+                $request['leave_request_id'] ?? 0
+            );
+            $workflow = (string) (
+                $request['approval_workflow']
+                    ?? 'manager'
+            );
+            $stages = $byRequest[$requestId] ?? [];
+            $request['approvalStages'] = $stages;
+            $request['approvalWorkflowLabel'] =
+                self::WORKFLOWS[$workflow]
+                    ?? 'Manager only';
+            $request['managerApproverName'] = null;
+            $request['hrApproverName'] = null;
+            $request['currentApprovalStage'] = null;
+            $request['currentApproverUserId'] = null;
+            $request['currentApproverName'] = null;
+
+            foreach ($stages as $stage) {
+                $stageCode = (string) (
+                    $stage['approval_stage'] ?? ''
+                );
+                $approverName = (string) (
+                    $stage['approver_name'] ?? ''
+                );
+
+                if ($stageCode === 'manager') {
+                    $request['managerApproverName'] =
+                        $approverName;
+                } elseif ($stageCode === 'hr') {
+                    $request['hrApproverName'] =
+                        $approverName;
+                }
+
+                if (
+                    ($stage['approval_status'] ?? '')
+                    === 'pending'
+                ) {
+                    $request['currentApprovalStage'] =
+                        $stageCode;
+                    $request['currentApproverUserId'] =
+                        (int) (
+                            $stage['approver_user_id']
+                            ?? 0
+                        );
+                    $request['currentApproverName'] =
+                        $approverName;
+                }
+            }
+        }
+
+        unset($request);
     }
 
     /**
@@ -312,21 +577,13 @@ final class LeaveManagementService
         bool $canApproveCompany,
         bool $canApproveTeam
     ): array {
-        if (
-            !$canApproveCompany
-            && (
-                !$canApproveTeam
-                || !$this->leave->managerCanDecide(
-                    $this->tenant->companyId(),
-                    $actorUserId,
-                    $leaveRequestId
-                )
-            )
-        ) {
+        if (!$canApproveCompany && !$canApproveTeam) {
             return [
                 'successful' => false,
-                'notFound' => true,
-                'errors' => [],
+                'errors' => [
+                    'decision' =>
+                        'You are not permitted to decide leave requests.',
+                ],
             ];
         }
 
@@ -334,7 +591,9 @@ final class LeaveManagementService
             $leaveRequestId,
             $status,
             $decisionNote,
-            $actorUserId
+            $actorUserId,
+            $canApproveCompany,
+            $canApproveTeam
         );
     }
 
@@ -407,11 +666,32 @@ final class LeaveManagementService
             $companyId,
             (int) $values['leave_type_id']
         );
-        $requiresApproval =
-            !empty($leaveType['requires_approval']);
+        $workflow = (string) (
+            $leaveType['approval_workflow']
+                ?? (!empty(
+                    $leaveType['requires_approval']
+                )
+                    ? 'manager'
+                    : 'none')
+        );
+        $approvalRoute = $this->approvalRoute(
+            $companyId,
+            (int) $values['employee_id'],
+            is_array($leaveType) ? $leaveType : []
+        );
+
+        if ($approvalRoute['errors'] !== []) {
+            return [
+                'successful' => false,
+                'errors' => $approvalRoute['errors'],
+            ];
+        }
+
+        $requiresApproval = $workflow !== 'none';
         $requestStatus = $requiresApproval
             ? 'pending'
             : 'approved';
+        $values['approval_workflow'] = $workflow;
         $values['request_status'] = $requestStatus;
         $values['decision_note'] = $requiresApproval
             ? null
@@ -438,6 +718,21 @@ final class LeaveManagementService
                     $values,
                     $createdBy
                 );
+
+            foreach (
+                $approvalRoute['stages']
+                as $stage
+            ) {
+                $this->leave->createApprovalStage(
+                    $companyId,
+                    $requestId,
+                    (string) $stage['stage'],
+                    (int) $stage['sequence'],
+                    (int) $stage['approverUserId'],
+                    (string) $stage['status']
+                );
+            }
+
             $this->auditLogs->record(
                 $createdBy,
                 $requiresApproval
@@ -453,6 +748,10 @@ final class LeaveManagementService
                             $requestStatus,
                         'decision_note' =>
                             $values['decision_note'],
+                        'approval_workflow' =>
+                            $workflow,
+                        'approval_route' =>
+                            $approvalRoute['audit'],
                     ],
                 $companyId
             );
@@ -476,17 +775,24 @@ final class LeaveManagementService
             'errors' => [],
             'leaveRequestId' => $requestId,
             'status' => $requestStatus,
+            'approvalWorkflow' => $workflow,
+            'approvalRouteLabel' =>
+                self::WORKFLOWS[$workflow]
+                    ?? 'Manager only',
+            'approvers' => $approvalRoute['audit'],
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function decide(
+    private function decide(
         int $leaveRequestId,
         string $status,
         string $decisionNote,
-        int $decidedBy
+        int $decidedBy,
+        bool $canApproveCompany,
+        bool $canApproveTeam
     ): array {
         $companyId = $this->tenant->companyId();
         $status = strtolower(trim($status));
@@ -565,15 +871,112 @@ final class LeaveManagementService
                 ];
             }
 
-            $changed = $this->leave->decide(
-                $companyId,
-                $leaveRequestId,
-                $status,
-                $decisionNote === ''
-                    ? null
-                    : $decisionNote,
-                $decidedBy
+            $approval = $this->leave
+                ->pendingApprovalForActor(
+                    $companyId,
+                    $leaveRequestId,
+                    $decidedBy,
+                    true
+                );
+
+            if ($approval === null) {
+                if ($ownsTransaction) {
+                    $connection->rollBack();
+                }
+
+                return [
+                    'successful' => false,
+                    'notFound' => true,
+                    'errors' => [],
+                ];
+            }
+
+            $approvalStage = (string) (
+                $approval['approval_stage'] ?? ''
             );
+            $hasStagePermission =
+                (
+                    $approvalStage === 'manager'
+                    && $canApproveTeam
+                )
+                || (
+                    $approvalStage === 'hr'
+                    && $canApproveCompany
+                );
+
+            if (!$hasStagePermission) {
+                if ($ownsTransaction) {
+                    $connection->rollBack();
+                }
+
+                return [
+                    'successful' => false,
+                    'notFound' => true,
+                    'errors' => [],
+                ];
+            }
+
+            $note = $decisionNote === ''
+                ? null
+                : $decisionNote;
+            $stageChanged = $this->leave
+                ->decideApprovalStage(
+                    $companyId,
+                    (int) $approval['approval_id'],
+                    $status,
+                    $note
+                );
+
+            if (!$stageChanged) {
+                throw new \RuntimeException(
+                    'The approval-stage decision could not be saved.'
+                );
+            }
+
+            $nextApproval = null;
+            $finalStatus = $status;
+            $finalized = $status === 'rejected';
+
+            if ($status === 'approved') {
+                $nextApproval = $this->leave
+                    ->nextWaitingApproval(
+                        $companyId,
+                        $leaveRequestId,
+                        true
+                    );
+                $finalized = $nextApproval === null;
+                $finalStatus = $finalized
+                    ? 'approved'
+                    : 'pending';
+            }
+
+            if ($nextApproval !== null) {
+                $activated = $this->leave
+                    ->activateApprovalStage(
+                        $companyId,
+                        (int) $nextApproval[
+                            'approval_id'
+                        ]
+                    );
+
+                if (!$activated) {
+                    throw new \RuntimeException(
+                        'The next leave approval stage could not be activated.'
+                    );
+                }
+            }
+
+            $changed = true;
+
+            if ($finalized) {
+                $changed = $this->leave->decide(
+                    $companyId,
+                    $leaveRequestId,
+                    $finalStatus,
+                    $note,
+                    $decidedBy
+                );
+            }
 
             if (!$changed) {
                 throw new \RuntimeException(
@@ -583,23 +986,48 @@ final class LeaveManagementService
 
             $this->auditLogs->record(
                 $decidedBy,
-                strtoupper($status) . '_LEAVE',
+                strtoupper($status)
+                    . '_LEAVE_'
+                    . strtoupper($approvalStage)
+                    . '_STAGE',
                 'hr',
-                'hr_leave_requests',
-                (string) $leaveRequestId,
+                'hr_leave_request_approvals',
+                (string) $approval['approval_id'],
                 [
-                    'request_status' => 'pending',
+                    'approval_status' => 'pending',
                     'decision_note' => null,
                 ],
                 [
-                    'request_status' => $status,
-                    'decision_note' =>
-                        $decisionNote === ''
-                            ? null
-                            : $decisionNote,
+                    'approval_status' => $status,
+                    'decision_note' => $note,
+                    'leave_request_id' =>
+                        $leaveRequestId,
                 ],
                 $companyId
             );
+
+            if ($finalized) {
+                $this->auditLogs->record(
+                    $decidedBy,
+                    strtoupper($finalStatus)
+                        . '_LEAVE',
+                    'hr',
+                    'hr_leave_requests',
+                    (string) $leaveRequestId,
+                    [
+                        'request_status' => 'pending',
+                        'decision_note' => null,
+                    ],
+                    [
+                        'request_status' =>
+                            $finalStatus,
+                        'decision_note' => $note,
+                        'final_approval_stage' =>
+                            $approvalStage,
+                    ],
+                    $companyId
+                );
+            }
 
             if ($ownsTransaction) {
                 $connection->commit();
@@ -619,7 +1047,16 @@ final class LeaveManagementService
             'successful' => true,
             'errors' => [],
             'changed' => true,
-            'status' => $status,
+            'status' => $finalStatus,
+            'stageStatus' => $status,
+            'stage' => $approvalStage,
+            'finalized' => $finalized,
+            'nextStage' => is_array($nextApproval)
+                ? (string) (
+                    $nextApproval['approval_stage']
+                        ?? ''
+                )
+                : null,
         ];
     }
 

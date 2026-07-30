@@ -37,6 +37,7 @@ use App\Services\EmployeeUpdateService;
 use App\Services\FinanceDashboardService;
 use App\Services\JobTitleManagementService;
 use App\Services\LeaveManagementService;
+use App\Services\LeaveBalanceManagementService;
 use App\Services\LeavePolicyService;
 use App\Services\ManagerWorkspaceService;
 use App\Services\PlatformAdministratorProtectionService;
@@ -273,8 +274,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 15,
-        'Oracle migration catalog contains fifteen valid definitions'
+        && count($oracleMigrationFiles) === 17,
+        'Oracle migration catalog contains seventeen valid definitions'
     );
 
     $check(
@@ -301,6 +302,8 @@ try {
                 '130',
                 '140',
                 '150',
+                '160',
+                '170',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -319,8 +322,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 24
-        && $oracleIdentityCount === 18,
+        $oracleTableCount === 27
+        && $oracleIdentityCount === 21,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -397,7 +400,13 @@ try {
     $check(
         $mysqlMigrationDefinitionsValid
         && $mysqlMigrationVersions
-            === ['015', '016', '017'],
+            === [
+                '015',
+                '016',
+                '017',
+                '018',
+                '019',
+            ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
 
@@ -408,13 +417,15 @@ try {
              WHERE version IN (
                 \'015\',
                 \'016\',
-                \'017\'
+                \'017\',
+                \'018\',
+                \'019\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 3,
+        $migrationLedgerCount === 5,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -525,8 +536,8 @@ try {
     )->fetch(\PDO::FETCH_ASSOC);
 
     $check(
-        count($synchronization['files']) === 14
-        && $synchronization['statementCount'] > 14
+        count($synchronization['files']) === 15
+        && $synchronization['statementCount'] > 15
         && $referenceCountsBefore
             === $referenceCountsAfter,
         'MySQL reference-data synchronization is repeatable without duplicate grants'
@@ -575,8 +586,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 24,
-        'All 24 application tables were created'
+        $tableCount === 27,
+        'All 27 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -588,8 +599,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 75,
-        'All 75 foreign-key relationships were created'
+        $foreignKeyCount === 87,
+        'All 87 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -1022,8 +1033,11 @@ try {
     $check(
         $tenantAAuthentication->can(
             'hr.leave.policy.manage'
+        )
+        && $tenantAAuthentication->can(
+            'hr.leave.balance.manage'
         ),
-        'Tenant A administrator has leave-policy management permission'
+        'Tenant A administrator has leave-policy and balance-management permissions'
     );
 
     $tenantAModules = is_array(
@@ -2121,11 +2135,14 @@ try {
     $leaveRequestId = (int) (
         $leaveResult['leaveRequestId'] ?? 0
     );
-    $leaveDecision = $leaveManagement->decide(
+    $leaveDecision = $leaveManagement
+        ->decideForActor(
         $leaveRequestId,
         'approved',
         'Approved by integration workflow',
-        $tenantAActorId
+        $tenantAActorId,
+        false,
+        true
     );
     $approvedLeaveDashboard =
         $leaveManagement->dashboard('approved');
@@ -2448,6 +2465,340 @@ try {
         (int) $policyAuditStatement
             ->fetchColumn() === 2,
         'Leave policy changes create tenant-scoped audit events'
+    );
+
+    $twoStagePolicy = $leavePolicies->create(
+        [
+            'code' => 'DUAL_APPROVAL',
+            'name' => 'Dual Approval Leave',
+            'annual_entitlement' => '2.00',
+            'approval_workflow' =>
+                'manager_then_hr',
+            'hr_approver_user_id' =>
+                (string) $tenantAActorId,
+            'active' => true,
+        ],
+        $tenantAActorId
+    );
+    $twoStagePolicyId = (int) (
+        $twoStagePolicy['leaveTypeId'] ?? 0
+    );
+    $twoStageRequest = $leaveManagement
+        ->createForActor(
+            [
+                'leave_type_id' =>
+                    (string) $twoStagePolicyId,
+                'start_date' => '2026-11-09',
+                'end_date' => '2026-11-10',
+                'reason' =>
+                    'Sequential approval integration request',
+            ],
+            910004,
+            false,
+            true
+        );
+    $twoStageRequestId = (int) (
+        $twoStageRequest['leaveRequestId'] ?? 0
+    );
+    $managerStageDecision = $leaveManagement
+        ->decideForActor(
+            $twoStageRequestId,
+            'approved',
+            'Manager stage approved',
+            $tenantAActorId,
+            false,
+            true
+        );
+    $pendingTwoStageWorkspace =
+        $leaveManagement->workspace(
+            $tenantAActorId,
+            'pending',
+            true,
+            false,
+            true,
+            false,
+            true
+        );
+    $pendingTwoStage = null;
+
+    foreach (
+        $pendingTwoStageWorkspace['requests'] ?? []
+        as $pendingRequest
+    ) {
+        if (
+            (int) (
+                $pendingRequest['leave_request_id']
+                ?? 0
+            ) === $twoStageRequestId
+        ) {
+            $pendingTwoStage = $pendingRequest;
+            break;
+        }
+    }
+
+    $check(
+        $twoStagePolicy['successful'] === true
+        && $twoStageRequest['successful'] === true
+        && count(
+            $twoStageRequest['approvers'] ?? []
+        ) === 2
+        && $managerStageDecision['successful']
+            === true
+        && empty(
+            $managerStageDecision['finalized']
+        )
+        && (
+            $managerStageDecision['nextStage']
+            ?? null
+        ) === 'hr'
+        && is_array($pendingTwoStage)
+        && (
+            $pendingTwoStage[
+                'currentApprovalStage'
+            ] ?? null
+        ) === 'hr'
+        && (
+            $pendingTwoStage[
+                'currentApproverUserId'
+            ] ?? null
+        ) === $tenantAActorId,
+        'Two-stage leave waits for named HR approval after manager approval'
+    );
+
+    $hrStageDecision = $leaveManagement
+        ->decideForActor(
+            $twoStageRequestId,
+            'approved',
+            'HR stage approved',
+            $tenantAActorId,
+            true,
+            false
+        );
+    $twoStageRecordStatement = db()->prepare(
+        'SELECT request_status
+         FROM hr_leave_requests
+         WHERE company_id = :company_id
+           AND leave_request_id =
+                :leave_request_id'
+    );
+    $twoStageRecordStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'leave_request_id' => $twoStageRequestId,
+    ]);
+    $twoStageStageStatement = db()->prepare(
+        'SELECT
+            approval_stage,
+            approval_status
+         FROM hr_leave_request_approvals
+         WHERE company_id = :company_id
+           AND leave_request_id =
+                :leave_request_id
+         ORDER BY approval_sequence'
+    );
+    $twoStageStageStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'leave_request_id' => $twoStageRequestId,
+    ]);
+    $twoStageStages = $twoStageStageStatement
+        ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $check(
+        $hrStageDecision['successful'] === true
+        && !empty($hrStageDecision['finalized'])
+        && $hrStageDecision['status']
+            === 'approved'
+        && $twoStageRecordStatement
+            ->fetchColumn() === 'approved'
+        && count($twoStageStages) === 2
+        && ($twoStageStages[0][
+            'approval_status'
+        ] ?? null) === 'approved'
+        && ($twoStageStages[1][
+            'approval_status'
+        ] ?? null) === 'approved',
+        'HR approval finalizes the request after every required stage'
+    );
+
+    $leaveBalances =
+        new LeaveBalanceManagementService();
+    $foreignBalanceWorkspace =
+        $leaveBalances->workspace(
+            920002,
+            2026,
+            970001
+        );
+    $foreignAllocation =
+        $leaveBalances->saveAllocation(
+            [
+                'employee_id' => '920002',
+                'leave_type_id' => '970001',
+                'year' => '2026',
+                'entitlement_days' => '25',
+                'carry_over_days' => '3',
+                'notes' =>
+                    'Cross-company allocation attempt',
+            ],
+            $tenantAActorId
+        );
+    $allocationResult =
+        $leaveBalances->saveAllocation(
+            [
+                'employee_id' => '920001',
+                'leave_type_id' => '970001',
+                'year' => '2026',
+                'entitlement_days' => '25',
+                'carry_over_days' => '3',
+                'notes' =>
+                    'Approved annual carry-over',
+            ],
+            $tenantAActorId
+        );
+    $unchangedAllocation =
+        $leaveBalances->saveAllocation(
+            [
+                'employee_id' => '920001',
+                'leave_type_id' => '970001',
+                'year' => '2026',
+                'entitlement_days' => '25.00',
+                'carry_over_days' => '3.00',
+                'notes' =>
+                    'Approved annual carry-over',
+            ],
+            $tenantAActorId
+        );
+    $creditResult =
+        $leaveBalances->addAdjustment(
+            [
+                'employee_id' => '920001',
+                'leave_type_id' => '970001',
+                'year' => '2026',
+                'adjustment_type' => 'credit',
+                'days' => '2',
+                'effective_date' => '2026-06-30',
+                'reason' =>
+                    'Approved service award credit',
+            ],
+            $tenantAActorId
+        );
+    $debitResult =
+        $leaveBalances->addAdjustment(
+            [
+                'employee_id' => '920001',
+                'leave_type_id' => '970001',
+                'year' => '2026',
+                'adjustment_type' => 'debit',
+                'days' => '1',
+                'effective_date' => '2026-07-01',
+                'reason' =>
+                    'Correction of duplicate allocation',
+            ],
+            $tenantAActorId
+        );
+    $balanceWorkspace =
+        $leaveBalances->workspace(
+            920001,
+            2026,
+            970001
+        );
+    $annualBalance = null;
+
+    foreach (
+        $balanceWorkspace['balances'] ?? []
+        as $balanceRecord
+    ) {
+        if (
+            (int) (
+                $balanceRecord['leave_type_id'] ?? 0
+            ) === 970001
+        ) {
+            $annualBalance = $balanceRecord;
+
+            break;
+        }
+    }
+
+    $allocationCountStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM hr_leave_allocations
+         WHERE company_id = :company_id
+           AND employee_id = :employee_id
+           AND leave_type_id = :leave_type_id
+           AND allocation_year = :allocation_year'
+    );
+    $allocationCountStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'employee_id' => 920001,
+        'leave_type_id' => 970001,
+        'allocation_year' => 2026,
+    ]);
+    $balanceAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND module = :module
+           AND (
+                (
+                    table_name =
+                        \'hr_leave_allocations\'
+                    AND action =
+                        \'CREATE_LEAVE_ALLOCATION\'
+                )
+                OR (
+                    table_name =
+                        \'hr_leave_balance_adjustments\'
+                    AND action =
+                        \'ADJUST_LEAVE_BALANCE\'
+                )
+           )'
+    );
+    $balanceAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'module' => 'hr',
+    ]);
+
+    $check(
+        !empty($foreignBalanceWorkspace['notFound'])
+        && $foreignAllocation['successful'] === false
+        && isset(
+            $foreignAllocation['errors']['employee_id']
+        ),
+        'Leave-balance management rejects foreign-company employees'
+    );
+    $check(
+        $allocationResult['successful'] === true
+        && !empty($allocationResult['changed'])
+        && $unchangedAllocation['successful']
+            === true
+        && empty($unchangedAllocation['changed'])
+        && (int) $allocationCountStatement
+            ->fetchColumn() === 1,
+        'Annual allocation upserts once and detects unchanged records'
+    );
+    $check(
+        $creditResult['successful'] === true
+        && $debitResult['successful'] === true
+        && is_array($annualBalance)
+        && (
+            $annualBalance['availableDays'] ?? null
+        ) === '29.00'
+        && (
+            $annualBalance['adjustmentDays'] ?? null
+        ) === '1.00'
+        && (
+            $annualBalance['usedDays'] ?? null
+        ) === '5.00'
+        && (
+            $annualBalance['remainingDays'] ?? null
+        ) === '24.00',
+        'Credits, debits and approved leave produce the calculated annual balance'
+    );
+    $check(
+        count(
+            $balanceWorkspace['adjustments'] ?? []
+        ) === 2
+        && (int) $balanceAuditStatement
+            ->fetchColumn() === 3,
+        'Balance ledger and audit events are tenant-scoped and complete'
     );
 
     $employeeRoleStatement = db()->prepare(

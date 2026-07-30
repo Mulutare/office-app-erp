@@ -15,6 +15,22 @@ $old = is_array($data['old'] ?? null)
 $errors = is_array($data['errors'] ?? null)
     ? $data['errors']
     : [];
+$workflowOptions = is_array(
+    $data['workflowOptions'] ?? null
+)
+    ? $data['workflowOptions']
+    : [];
+$hrApprovers = is_array(
+    $data['hrApprovers'] ?? null
+)
+    ? $data['hrApprovers']
+    : [];
+$selectedWorkflow = (string) (
+    $old['approval_workflow'] ?? 'manager'
+);
+$selectedHrApproverId = (int) (
+    $old['hr_approver_user_id'] ?? 0
+);
 $action = $isEdit
     ? '/office_app/public/hr/leave/policies/update'
     : '/office_app/public/hr/leave/policies';
@@ -164,24 +180,111 @@ $action = $isEdit
                 Availability and approval
             </h2>
 
-            <div class="policy-control-grid">
-                <label class="role-option">
-                    <input
-                        type="checkbox"
-                        name="requires_approval"
-                        value="1"
-                        <?= !empty(
-                            $old['requires_approval']
-                        ) ? 'checked' : '' ?>
+            <div
+                class="policy-control-grid"
+                data-leave-workflow-form
+            >
+                <div class="form-field">
+                    <label for="policy-workflow">
+                        Approval workflow
+                    </label>
+                    <select
+                        id="policy-workflow"
+                        name="approval_workflow"
+                        data-leave-workflow-select
+                        required
                     >
-                    <span>
-                        <strong>Require approval</strong>
-                        <small>
-                            New requests remain pending until
-                            an authorized manager decides.
+                        <?php foreach (
+                            $workflowOptions
+                            as $value => $label
+                        ): ?>
+                            <option
+                                value="<?= e($value) ?>"
+                                <?= $selectedWorkflow
+                                    === $value
+                                        ? 'selected'
+                                        : '' ?>
+                            >
+                                <?= e($label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php if (!empty(
+                        $errors['approval_workflow']
+                    )): ?>
+                        <small class="field-error">
+                            <?= e(
+                                $errors[
+                                    'approval_workflow'
+                                ]
+                            ) ?>
                         </small>
-                    </span>
-                </label>
+                    <?php else: ?>
+                        <small class="field-hint">
+                            Choose automatic, manager, HR, or
+                            sequential manager and HR approval.
+                        </small>
+                    <?php endif; ?>
+                </div>
+
+                <div
+                    class="form-field"
+                    data-leave-hr-approver-field
+                >
+                    <label for="policy-hr-approver">
+                        HR approver
+                    </label>
+                    <select
+                        id="policy-hr-approver"
+                        name="hr_approver_user_id"
+                        data-leave-hr-approver-select
+                    >
+                        <option value="">
+                            Select HR approver
+                        </option>
+                        <?php foreach (
+                            $hrApprovers as $approver
+                        ): ?>
+                            <?php
+                            $approverId = (int) (
+                                $approver['user_id'] ?? 0
+                            );
+                            ?>
+                            <option
+                                value="<?= e($approverId) ?>"
+                                <?= $selectedHrApproverId
+                                    === $approverId
+                                        ? 'selected'
+                                        : '' ?>
+                            >
+                                <?= e(
+                                    $approver['display_name']
+                                    ?? ''
+                                ) ?>
+                                ·
+                                <?= e(
+                                    $approver['email'] ?? ''
+                                ) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php if (!empty(
+                        $errors['hr_approver_user_id']
+                    )): ?>
+                        <small class="field-error">
+                            <?= e(
+                                $errors[
+                                    'hr_approver_user_id'
+                                ]
+                            ) ?>
+                        </small>
+                    <?php else: ?>
+                        <small class="field-hint">
+                            Required for workflows that include
+                            HR approval.
+                        </small>
+                    <?php endif; ?>
+                </div>
 
                 <label class="role-option">
                     <input

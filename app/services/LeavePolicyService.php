@@ -12,6 +12,13 @@ use Throwable;
 
 final class LeavePolicyService
 {
+    private const WORKFLOWS = [
+        'none' => 'No approval',
+        'manager' => 'Manager only',
+        'hr' => 'HR only',
+        'manager_then_hr' => 'Manager, then HR',
+    ];
+
     private LeaveRepository $leave;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
@@ -58,6 +65,16 @@ final class LeavePolicyService
                 !empty($policy['active']);
             $policy['requires_approval'] =
                 !empty($policy['requires_approval']);
+            $workflow = (string) (
+                $policy['approval_workflow']
+                    ?? ($policy['requires_approval']
+                        ? 'manager'
+                        : 'none')
+            );
+            $policy['approval_workflow'] = $workflow;
+            $policy['approvalWorkflowLabel'] =
+                self::WORKFLOWS[$workflow]
+                    ?? 'Manager only';
             $policy['annual_entitlement'] =
                 $this->entitlement(
                     $policy['annual_entitlement']
@@ -115,6 +132,24 @@ final class LeavePolicyService
                     $policy['leave_type_id'] ?? 0
                 ),
             ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function workflowOptions(): array
+    {
+        return self::WORKFLOWS;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function hrApprovers(): array
+    {
+        return $this->leave->hrApproverOptions(
+            $this->tenant->companyId()
+        );
     }
 
     /**
@@ -360,6 +395,15 @@ final class LeavePolicyService
         $entitlement = trim((string) (
             $input['annual_entitlement'] ?? ''
         ));
+        $workflow = strtolower(trim((string) (
+            $input['approval_workflow']
+                ?? (!empty($input['requires_approval'])
+                    ? 'manager'
+                    : 'none')
+        )));
+        $hrApproverUserId = $this->integer(
+            $input['hr_approver_user_id'] ?? null
+        );
 
         return [
             'code' => strtoupper(trim((string) (
@@ -375,7 +419,12 @@ final class LeavePolicyService
                     )
                     : $entitlement,
             'requires_approval' =>
-                !empty($input['requires_approval']),
+                $workflow !== 'none',
+            'approval_workflow' => $workflow,
+            'hr_approver_user_id' =>
+                $hrApproverUserId > 0
+                    ? $hrApproverUserId
+                    : null,
             'active' => !empty($input['active']),
         ];
     }
@@ -395,6 +444,9 @@ final class LeavePolicyService
         $name = (string) $values['name'];
         $entitlement = (string) (
             $values['annual_entitlement'] ?? ''
+        );
+        $workflow = (string) (
+            $values['approval_workflow'] ?? ''
         );
 
         if (
@@ -444,6 +496,38 @@ final class LeavePolicyService
                 'Annual entitlement must be between 0 and 366 days with no more than two decimal places.';
         }
 
+        if (!isset(self::WORKFLOWS[$workflow])) {
+            $errors['approval_workflow'] =
+                'Select a valid approval workflow.';
+        } elseif (in_array(
+            $workflow,
+            ['hr', 'manager_then_hr'],
+            true
+        )) {
+            $hrApproverId = (int) (
+                $values['hr_approver_user_id'] ?? 0
+            );
+            $allowedApprovers = array_map(
+                static fn (array $approver): int =>
+                    (int) ($approver['user_id'] ?? 0),
+                $this->leave->hrApproverOptions(
+                    $companyId
+                )
+            );
+
+            if (
+                $hrApproverId < 1
+                || !in_array(
+                    $hrApproverId,
+                    $allowedApprovers,
+                    true
+                )
+            ) {
+                $errors['hr_approver_user_id'] =
+                    'Select an active HR approver with leave-approval permission in this company.';
+            }
+        }
+
         return $errors;
     }
 
@@ -468,8 +552,38 @@ final class LeavePolicyService
                 ),
             'requires_approval' =>
                 !empty($record['requires_approval']),
+            'approval_workflow' => (string) (
+                $record['approval_workflow']
+                    ?? (!empty(
+                        $record['requires_approval']
+                    )
+                        ? 'manager'
+                        : 'none')
+            ),
+            'hr_approver_user_id' => (
+                (int) (
+                    $record['hr_approver_user_id']
+                        ?? 0
+                )
+            ) > 0
+                ? (int) $record[
+                    'hr_approver_user_id'
+                ]
+                : null,
             'active' => !empty($record['active']),
         ];
+    }
+
+    private function integer(mixed $value): int
+    {
+        if (is_int($value)) {
+            return max(0, $value);
+        }
+
+        return is_string($value)
+            && ctype_digit($value)
+                ? (int) $value
+                : 0;
     }
 
     private function entitlement(mixed $value): string

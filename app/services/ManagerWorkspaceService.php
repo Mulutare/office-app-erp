@@ -243,10 +243,41 @@ final class ManagerWorkspaceService
             $used = (float) (
                 $balance['used_days'] ?? 0
             );
+            $carryOver = (float) (
+                $balance['carry_over_days'] ?? 0
+            );
+            $adjustments = (float) (
+                $balance['adjustment_days'] ?? 0
+            );
+            $available =
+                $entitlement
+                + $carryOver
+                + $adjustments;
 
-            $balance['entitlementDays'] =
+            $balance['baseEntitlementDays'] =
                 number_format(
                     $entitlement,
+                    2,
+                    '.',
+                    ''
+                );
+            $balance['carryOverDays'] =
+                number_format(
+                    $carryOver,
+                    2,
+                    '.',
+                    ''
+                );
+            $balance['adjustmentDays'] =
+                number_format(
+                    $adjustments,
+                    2,
+                    '.',
+                    ''
+                );
+            $balance['entitlementDays'] =
+                number_format(
+                    $available,
                     2,
                     '.',
                     ''
@@ -259,17 +290,17 @@ final class ManagerWorkspaceService
             );
             $balance['remainingDays'] =
                 number_format(
-                    max(0, $entitlement - $used),
+                    max(0, $available - $used),
                     2,
                     '.',
                     ''
                 );
             $balance['utilization'] =
-                $entitlement > 0
+                $available > 0
                     ? min(
                         100,
                         (int) round(
-                            ($used / $entitlement)
+                            ($used / $available)
                             * 100
                         )
                     )

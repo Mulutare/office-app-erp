@@ -84,6 +84,9 @@ final class LeaveController
             'canManagePolicies' => $this->can(
                 'hr.leave.policy.manage'
             ),
+            'canManageBalances' => $this->can(
+                'hr.leave.balance.manage'
+            ),
             'profileRequired' =>
                 $dashboard['profileRequired'],
             'notice' => \getFlash('leave_notice'),
@@ -148,13 +151,33 @@ final class LeaveController
             \redirect('/hr/leave');
         }
 
+        $approvers = is_array(
+            $result['approvers'] ?? null
+        )
+            ? $result['approvers']
+            : [];
+        $approverNames = array_values(
+            array_filter(array_map(
+                static fn (array $approver): string =>
+                    trim((string) (
+                        $approver['approver_name']
+                            ?? ''
+                    )),
+                $approvers
+            ))
+        );
         \flash('leave_notice', [
             'type' => 'success',
             'message' =>
                 ($result['status'] ?? '') ===
                     'approved'
                 ? 'Leave request was approved automatically under the selected policy.'
-                : 'Leave request was submitted for approval.',
+                : 'Leave request was submitted to '
+                    . implode(
+                        ', then ',
+                        $approverNames
+                    )
+                    . ' for approval.',
         ]);
         \redirect('/hr/leave');
     }
@@ -215,11 +238,16 @@ final class LeaveController
 
         \flash('leave_notice', [
             'type' => 'success',
-            'message' => (
-                $result['status'] ?? ''
-            ) === 'approved'
-                ? 'Leave request was approved.'
-                : 'Leave request was rejected.',
+            'message' => !empty(
+                $result['finalized']
+            )
+                ? (
+                    ($result['status'] ?? '')
+                    === 'approved'
+                        ? 'Leave request completed every required approval and was approved.'
+                        : 'Leave request was rejected.'
+                )
+                : 'Manager approval was recorded. The request is now waiting for HR approval.',
         ]);
         \redirect('/hr/leave');
     }
@@ -236,6 +264,7 @@ final class LeaveController
                 'hr.leave.self.request',
                 'hr.leave.team.approve',
                 'hr.leave.policy.manage',
+                'hr.leave.balance.manage',
             ]);
     }
 

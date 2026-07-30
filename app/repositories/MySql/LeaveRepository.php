@@ -15,16 +15,23 @@ final class LeaveRepository extends MySqlRepository
     ): array {
         $statement = $this->connection()->prepare(
             'SELECT
-                leave_type_id,
-                code,
-                name,
-                annual_entitlement,
-                requires_approval
-             FROM hr_leave_types
-             WHERE company_id = :company_id
-               AND active = TRUE
-               AND deleted_at IS NULL
-             ORDER BY name'
+                types.leave_type_id,
+                types.code,
+                types.name,
+                types.annual_entitlement,
+                types.requires_approval,
+                types.approval_workflow,
+                types.hr_approver_user_id,
+                approver.display_name
+                    AS hr_approver_name
+             FROM hr_leave_types types
+             LEFT JOIN users approver
+               ON approver.user_id =
+                    types.hr_approver_user_id
+             WHERE types.company_id = :company_id
+               AND types.active = TRUE
+               AND types.deleted_at IS NULL
+             ORDER BY types.name'
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -46,6 +53,10 @@ final class LeaveRepository extends MySqlRepository
                 types.name,
                 types.annual_entitlement,
                 types.requires_approval,
+                types.approval_workflow,
+                types.hr_approver_user_id,
+                approver.display_name
+                    AS hr_approver_name,
                 types.active,
                 types.created_at,
                 types.updated_at,
@@ -68,6 +79,9 @@ final class LeaveRepository extends MySqlRepository
                             \'pending\'
                 ) AS pending_request_count
              FROM hr_leave_types types
+             LEFT JOIN users approver
+               ON approver.user_id =
+                    types.hr_approver_user_id
              WHERE types.company_id = :company_id
                AND types.deleted_at IS NULL
              ORDER BY
@@ -90,17 +104,40 @@ final class LeaveRepository extends MySqlRepository
     ): array {
         $statement = $this->connection()->prepare(
             'SELECT
-                employee_id,
-                employee_number,
-                first_name,
-                last_name,
-                preferred_name
-             FROM hr_employees
-             WHERE company_id = :company_id
-               AND employment_status
+                employees.employee_id,
+                employees.employee_number,
+                employees.first_name,
+                employees.last_name,
+                employees.preferred_name,
+                manager_membership.user_id
+                    AS manager_user_id,
+                manager.display_name
+                    AS manager_name
+             FROM hr_employees employees
+             LEFT JOIN company_users memberships
+               ON memberships.company_id =
+                    employees.company_id
+              AND memberships.user_id =
+                    employees.user_id
+              AND memberships.active = TRUE
+             LEFT JOIN company_users manager_membership
+               ON manager_membership.company_id =
+                    employees.company_id
+              AND manager_membership.user_id =
+                    memberships.manager_user_id
+              AND manager_membership.active = TRUE
+             LEFT JOIN users manager
+               ON manager.user_id =
+                    manager_membership.user_id
+              AND manager.active = TRUE
+              AND manager.deleted_at IS NULL
+             WHERE employees.company_id = :company_id
+               AND employees.employment_status
                     IN (\'active\', \'on_leave\')
-               AND deleted_at IS NULL
-             ORDER BY last_name, first_name'
+               AND employees.deleted_at IS NULL
+             ORDER BY
+                employees.last_name,
+                employees.first_name'
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -114,22 +151,127 @@ final class LeaveRepository extends MySqlRepository
             : [];
     }
 
+    public function hrApproverOptions(
+        int $companyId
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT DISTINCT
+                users.user_id,
+                users.display_name,
+                users.email
+             FROM company_users memberships
+             INNER JOIN users
+               ON users.user_id = memberships.user_id
+              AND users.active = TRUE
+              AND users.deleted_at IS NULL
+             INNER JOIN company_user_roles assignments
+               ON assignments.company_id =
+                    memberships.company_id
+              AND assignments.user_id =
+                    memberships.user_id
+             INNER JOIN company_role_permissions grants
+               ON grants.company_id =
+                    assignments.company_id
+              AND grants.role_id =
+                    assignments.role_id
+             INNER JOIN permissions
+               ON permissions.permission_id =
+                    grants.permission_id
+              AND permissions.code =
+                    \'hr.leave.approve\'
+              AND permissions.active = TRUE
+             WHERE memberships.company_id =
+                    :company_id
+               AND memberships.active = TRUE
+             ORDER BY users.display_name'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+        $approvers = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($approvers)
+            ? $approvers
+            : [];
+    }
+
+    public function employeeApprovalContext(
+        int $companyId,
+        int $employeeId
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                employees.employee_id,
+                employees.user_id,
+                manager_membership.user_id
+                    AS manager_user_id,
+                manager.display_name
+                    AS manager_name
+             FROM hr_employees employees
+             LEFT JOIN company_users memberships
+               ON memberships.company_id =
+                    employees.company_id
+              AND memberships.user_id =
+                    employees.user_id
+              AND memberships.active = TRUE
+             LEFT JOIN company_users manager_membership
+               ON manager_membership.company_id =
+                    employees.company_id
+              AND manager_membership.user_id =
+                    memberships.manager_user_id
+              AND manager_membership.active = TRUE
+             LEFT JOIN users manager
+               ON manager.user_id =
+                    manager_membership.user_id
+              AND manager.active = TRUE
+              AND manager.deleted_at IS NULL
+             WHERE employees.company_id =
+                    :company_id
+               AND employees.employee_id =
+                    :employee_id
+               AND employees.employment_status
+                    IN (\'active\', \'on_leave\')
+               AND employees.deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+        ]);
+        $employee = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($employee)
+            ? $employee
+            : null;
+    }
+
     public function leaveType(
         int $companyId,
         int $leaveTypeId
     ): ?array {
         $statement = $this->connection()->prepare(
             'SELECT
-                leave_type_id,
-                code,
-                name,
-                annual_entitlement,
-                requires_approval
-             FROM hr_leave_types
-             WHERE company_id = :company_id
-               AND leave_type_id = :leave_type_id
-               AND active = TRUE
-               AND deleted_at IS NULL
+                types.leave_type_id,
+                types.code,
+                types.name,
+                types.annual_entitlement,
+                types.requires_approval,
+                types.approval_workflow,
+                types.hr_approver_user_id,
+                approver.display_name
+                    AS hr_approver_name
+             FROM hr_leave_types types
+             LEFT JOIN users approver
+               ON approver.user_id =
+                    types.hr_approver_user_id
+             WHERE types.company_id = :company_id
+               AND types.leave_type_id = :leave_type_id
+               AND types.active = TRUE
+               AND types.deleted_at IS NULL
              LIMIT 1'
         );
         $statement->execute([
@@ -149,20 +291,27 @@ final class LeaveRepository extends MySqlRepository
     ): ?array {
         $statement = $this->connection()->prepare(
             'SELECT
-                leave_type_id,
-                code,
-                name,
-                annual_entitlement,
-                requires_approval,
-                active,
-                created_by,
-                updated_by,
-                created_at,
-                updated_at
-             FROM hr_leave_types
-             WHERE company_id = :company_id
-               AND leave_type_id = :leave_type_id
-               AND deleted_at IS NULL
+                types.leave_type_id,
+                types.code,
+                types.name,
+                types.annual_entitlement,
+                types.requires_approval,
+                types.approval_workflow,
+                types.hr_approver_user_id,
+                approver.display_name
+                    AS hr_approver_name,
+                types.active,
+                types.created_by,
+                types.updated_by,
+                types.created_at,
+                types.updated_at
+             FROM hr_leave_types types
+             LEFT JOIN users approver
+               ON approver.user_id =
+                    types.hr_approver_user_id
+             WHERE types.company_id = :company_id
+               AND types.leave_type_id = :leave_type_id
+               AND types.deleted_at IS NULL
              LIMIT 1'
         );
         $statement->execute([
@@ -215,6 +364,8 @@ final class LeaveRepository extends MySqlRepository
                     name,
                     annual_entitlement,
                     requires_approval,
+                    approval_workflow,
+                    hr_approver_user_id,
                     active,
                     created_by,
                     updated_by
@@ -226,6 +377,8 @@ final class LeaveRepository extends MySqlRepository
                     :name,
                     :annual_entitlement,
                     :requires_approval,
+                    :approval_workflow,
+                    :hr_approver_user_id,
                     :active,
                     :created_by,
                     :updated_by
@@ -257,6 +410,10 @@ final class LeaveRepository extends MySqlRepository
                     :annual_entitlement,
                  requires_approval =
                     :requires_approval,
+                 approval_workflow =
+                    :approval_workflow,
+                 hr_approver_user_id =
+                    :hr_approver_user_id,
                  active = :active,
                  updated_by = :updated_by
              WHERE company_id = :company_id
@@ -454,40 +611,77 @@ final class LeaveRepository extends MySqlRepository
                 types.leave_type_id,
                 types.code,
                 types.name,
-                types.annual_entitlement,
-                COALESCE(SUM(
-                    CASE
-                        WHEN requests.request_status =
-                                \'approved\'
-                         AND requests.start_date >=
-                                :year_start
-                         AND requests.start_date <=
-                                :year_end
-                        THEN requests.requested_days
-                        ELSE 0
-                    END
-                ), 0) AS used_days
+                COALESCE(
+                    allocations.entitlement_days,
+                    types.annual_entitlement
+                ) AS annual_entitlement,
+                COALESCE(
+                    allocations.carry_over_days,
+                    0
+                ) AS carry_over_days,
+                COALESCE(
+                    adjustments.adjustment_days,
+                    0
+                ) AS adjustment_days,
+                COALESCE(
+                    usage_totals.used_days,
+                    0
+                ) AS used_days
              FROM hr_leave_types types
-             LEFT JOIN hr_leave_requests requests
-               ON requests.company_id =
+             LEFT JOIN hr_leave_allocations allocations
+               ON allocations.company_id =
                     types.company_id
-              AND requests.leave_type_id =
+              AND allocations.leave_type_id =
                     types.leave_type_id
-              AND requests.employee_id =
+              AND allocations.employee_id =
                     :employee_id
+              AND allocations.allocation_year =
+                    :allocation_year
+             LEFT JOIN (
+                SELECT
+                    company_id,
+                    allocation_id,
+                    SUM(adjustment_days)
+                        AS adjustment_days
+                FROM hr_leave_balance_adjustments
+                GROUP BY company_id, allocation_id
+             ) adjustments
+               ON adjustments.company_id =
+                    allocations.company_id
+              AND adjustments.allocation_id =
+                    allocations.allocation_id
+             LEFT JOIN (
+                SELECT
+                    company_id,
+                    employee_id,
+                    leave_type_id,
+                    SUM(requested_days) AS used_days
+                FROM hr_leave_requests
+                WHERE request_status = \'approved\'
+                  AND start_date >= :year_start
+                  AND start_date <= :year_end
+                GROUP BY
+                    company_id,
+                    employee_id,
+                    leave_type_id
+             ) usage_totals
+               ON usage_totals.company_id =
+                    types.company_id
+              AND usage_totals.leave_type_id =
+                    types.leave_type_id
+              AND usage_totals.employee_id =
+                    :usage_employee_id
              WHERE types.company_id = :company_id
                AND types.active = TRUE
                AND types.deleted_at IS NULL
-             GROUP BY
-                types.leave_type_id,
-                types.code,
-                types.name,
-                types.annual_entitlement
              ORDER BY types.name'
         );
         $statement->execute([
             'company_id' => $companyId,
             'employee_id' => $employeeId,
+            'usage_employee_id' => $employeeId,
+            'allocation_year' =>
+                (int) substr($yearStart, 0, 4),
             'year_start' => $yearStart,
             'year_end' => $yearEnd,
         ]);
@@ -555,6 +749,7 @@ final class LeaveRepository extends MySqlRepository
                     requests.requested_days,
                     requests.reason,
                     requests.request_status,
+                    requests.approval_workflow,
                     requests.decision_note,
                     requests.decided_at,
                     requests.created_at,
@@ -660,6 +855,7 @@ final class LeaveRepository extends MySqlRepository
                 requested_days,
                 reason,
                 request_status,
+                approval_workflow,
                 decision_note,
                 decided_by,
                 decided_at
@@ -698,6 +894,7 @@ final class LeaveRepository extends MySqlRepository
                     requested_days,
                     reason,
                     request_status,
+                    approval_workflow,
                     decision_note,
                     decided_by,
                     decided_at,
@@ -714,6 +911,7 @@ final class LeaveRepository extends MySqlRepository
                     :requested_days,
                     :reason,
                     :request_status,
+                    :approval_workflow,
                     :decision_note,
                     :decided_by,
                     :decided_at,
@@ -733,6 +931,8 @@ final class LeaveRepository extends MySqlRepository
             'reason' => $values['reason'],
             'request_status' =>
                 $values['request_status'],
+            'approval_workflow' =>
+                $values['approval_workflow'],
             'decision_note' =>
                 $values['decision_note'],
             'decided_by' => $values['decided_by'],
@@ -743,6 +943,223 @@ final class LeaveRepository extends MySqlRepository
 
         return (int) $this->connection()
             ->lastInsertId();
+    }
+
+    public function approvalStagesForRequests(
+        int $companyId,
+        array $leaveRequestIds
+    ): array {
+        $leaveRequestIds = array_values(
+            array_unique(array_filter(
+                array_map('intval', $leaveRequestIds),
+                static fn (int $id): bool => $id > 0
+            ))
+        );
+
+        if ($leaveRequestIds === []) {
+            return [];
+        }
+
+        $placeholders = [];
+        $parameters = [
+            'company_id' => $companyId,
+        ];
+
+        foreach ($leaveRequestIds as $index => $requestId) {
+            $key = 'request_' . $index;
+            $placeholders[] = ':' . $key;
+            $parameters[$key] = $requestId;
+        }
+
+        $statement = $this->connection()->prepare(
+            'SELECT
+                approvals.approval_id,
+                approvals.leave_request_id,
+                approvals.approval_stage,
+                approvals.approval_sequence,
+                approvals.approver_user_id,
+                approvals.approval_status,
+                approvals.decision_note,
+                approvals.decided_at,
+                approver.display_name
+                    AS approver_name
+             FROM hr_leave_request_approvals approvals
+             INNER JOIN users approver
+               ON approver.user_id =
+                    approvals.approver_user_id
+             WHERE approvals.company_id =
+                    :company_id
+               AND approvals.leave_request_id IN ('
+                . implode(', ', $placeholders)
+                . ')
+             ORDER BY
+                approvals.leave_request_id,
+                approvals.approval_sequence'
+        );
+        $statement->execute($parameters);
+        $approvals = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($approvals)
+            ? $approvals
+            : [];
+    }
+
+    public function createApprovalStage(
+        int $companyId,
+        int $leaveRequestId,
+        string $stage,
+        int $sequence,
+        int $approverUserId,
+        string $status
+    ): int {
+        $statement = $this->connection()->prepare(
+            'INSERT INTO hr_leave_request_approvals
+                (
+                    company_id,
+                    leave_request_id,
+                    approval_stage,
+                    approval_sequence,
+                    approver_user_id,
+                    approval_status
+                )
+             VALUES
+                (
+                    :company_id,
+                    :leave_request_id,
+                    :approval_stage,
+                    :approval_sequence,
+                    :approver_user_id,
+                    :approval_status
+                )'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'leave_request_id' => $leaveRequestId,
+            'approval_stage' => $stage,
+            'approval_sequence' => $sequence,
+            'approver_user_id' => $approverUserId,
+            'approval_status' => $status,
+        ]);
+
+        return (int) $this->connection()
+            ->lastInsertId();
+    }
+
+    public function pendingApprovalForActor(
+        int $companyId,
+        int $leaveRequestId,
+        int $approverUserId,
+        bool $lock = false
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                approval_id,
+                approval_stage,
+                approval_sequence,
+                approver_user_id,
+                approval_status
+             FROM hr_leave_request_approvals
+             WHERE company_id = :company_id
+               AND leave_request_id =
+                    :leave_request_id
+               AND approver_user_id =
+                    :approver_user_id
+               AND approval_status = \'pending\'
+             LIMIT 1'
+            . ($lock ? ' FOR UPDATE' : '')
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'leave_request_id' => $leaveRequestId,
+            'approver_user_id' => $approverUserId,
+        ]);
+        $approval = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($approval)
+            ? $approval
+            : null;
+    }
+
+    public function nextWaitingApproval(
+        int $companyId,
+        int $leaveRequestId,
+        bool $lock = false
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                approval_id,
+                approval_stage,
+                approval_sequence,
+                approver_user_id,
+                approval_status
+             FROM hr_leave_request_approvals
+             WHERE company_id = :company_id
+               AND leave_request_id =
+                    :leave_request_id
+               AND approval_status = \'waiting\'
+             ORDER BY approval_sequence
+             LIMIT 1'
+            . ($lock ? ' FOR UPDATE' : '')
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'leave_request_id' => $leaveRequestId,
+        ]);
+        $approval = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($approval)
+            ? $approval
+            : null;
+    }
+
+    public function decideApprovalStage(
+        int $companyId,
+        int $approvalId,
+        string $status,
+        ?string $decisionNote
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE hr_leave_request_approvals
+             SET approval_status = :approval_status,
+                 decision_note = :decision_note,
+                 decided_at = NOW()
+             WHERE company_id = :company_id
+               AND approval_id = :approval_id
+               AND approval_status = \'pending\''
+        );
+        $statement->execute([
+            'approval_status' => $status,
+            'decision_note' => $decisionNote,
+            'company_id' => $companyId,
+            'approval_id' => $approvalId,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function activateApprovalStage(
+        int $companyId,
+        int $approvalId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE hr_leave_request_approvals
+             SET approval_status = \'pending\'
+             WHERE company_id = :company_id
+               AND approval_id = :approval_id
+               AND approval_status = \'waiting\''
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'approval_id' => $approvalId,
+        ]);
+
+        return $statement->rowCount() === 1;
     }
 
     public function decide(
@@ -889,6 +1306,10 @@ final class LeaveRepository extends MySqlRepository
                 !empty($values['requires_approval'])
                     ? 1
                     : 0,
+            'approval_workflow' =>
+                $values['approval_workflow'],
+            'hr_approver_user_id' =>
+                $values['hr_approver_user_id'],
             'active' => !empty($values['active'])
                 ? 1
                 : 0,
