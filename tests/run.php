@@ -19,6 +19,7 @@ use App\Repositories\Oracle\DashboardStatisticsRepository
 use App\Repositories\RepositoryFactory;
 use App\Services\AuthService;
 use App\Services\AttendanceManagementService;
+use App\Services\AttendanceSelfServiceService;
 use App\Services\BranchManagementService;
 use App\Services\CompanyModuleService;
 use App\Services\CompanyLifecycleService;
@@ -268,8 +269,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 13,
-        'Oracle migration catalog contains thirteen valid definitions'
+        && count($oracleMigrationFiles) === 14,
+        'Oracle migration catalog contains fourteen valid definitions'
     );
 
     $check(
@@ -294,6 +295,7 @@ try {
                 '110',
                 '120',
                 '130',
+                '140',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -1775,6 +1777,104 @@ try {
         (int) $attendanceAuditStatement
             ->fetchColumn() === 1,
         'Attendance entry records a company-scoped audit event'
+    );
+
+    $attendanceSelfService =
+        new AttendanceSelfServiceService();
+    $personalAttendance =
+        $attendanceSelfService->workspace(
+            910004,
+            '2026-07'
+        );
+    $personalCheckIn =
+        $attendanceSelfService->checkIn(
+            910004
+        );
+    $duplicateCheckIn =
+        $attendanceSelfService->checkIn(
+            910004
+        );
+    $personalCheckOut =
+        $attendanceSelfService->checkOut(
+            910004
+        );
+    $managerAttendance =
+        $attendanceSelfService->teamWorkspace(
+            $tenantAActorId,
+            '2026-07'
+        );
+    $employeeManagerAttendance =
+        $attendanceSelfService->teamWorkspace(
+            910004,
+            '2026-07'
+        );
+    $managerAttendanceNames = array_map(
+        static fn (array $person): string =>
+            (string) (
+                $person['displayName'] ?? ''
+            ),
+        $managerAttendance['people'] ?? []
+    );
+
+    $check(
+        (
+            $personalAttendance['employee'][
+                'employee_id'
+            ] ?? null
+        ) === 920001
+        && (
+            $personalAttendance['summary'][
+                'recorded'
+            ] ?? 0
+        ) >= 1,
+        'Personal attendance resolves only the signed-in linked employee'
+    );
+    $check(
+        $personalCheckIn['successful'] === true
+        && $duplicateCheckIn['successful']
+            === false
+        && $personalCheckOut['successful']
+            === true,
+        'Employee self-service check-in and check-out enforce one daily sequence'
+    );
+    $check(
+        in_array(
+            'Alice TenantA',
+            $managerAttendanceNames,
+            true
+        )
+        && !in_array(
+            'Bob TenantB',
+            $managerAttendanceNames,
+            true
+        )
+        && (
+            $employeeManagerAttendance['people']
+            ?? null
+        ) === [],
+        'Manager attendance exposes direct reports without cross-company or company-directory leakage'
+    );
+
+    $selfAttendanceAudit = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND module = :module
+           AND table_name = :table_name
+           AND action IN (
+               \'SELF_CHECK_IN\',
+               \'SELF_CHECK_OUT\'
+           )'
+    );
+    $selfAttendanceAudit->execute([
+        'company_id' => $tenantACompanyId,
+        'module' => 'attendance',
+        'table_name' => 'attendance_records',
+    ]);
+    $check(
+        (int) $selfAttendanceAudit
+            ->fetchColumn() === 2,
+        'Personal attendance actions create tenant-scoped audit events'
     );
 
     $leaveManagement = new LeaveManagementService();

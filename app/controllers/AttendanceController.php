@@ -22,6 +22,16 @@ final class AttendanceController
 
     public function index(): void
     {
+        if (!$this->canViewCompany()) {
+            if ($this->can('attendance.self.view')) {
+                \redirect('/attendance/me');
+            }
+
+            if ($this->can('attendance.team.view')) {
+                \redirect('/attendance/team');
+            }
+        }
+
         $this->requireView();
         $dashboard = $this->attendance->dashboard(
             $this->queryDate()
@@ -141,8 +151,22 @@ final class AttendanceController
 
     private function canManage(): bool
     {
+        return $this->can(
+            'attendance.records.manage'
+        );
+    }
+
+    private function canViewCompany(): bool
+    {
+        return $this->can(
+            'attendance.records.view'
+        ) || $this->canManage();
+    }
+
+    private function can(string $permission): bool
+    {
         return in_array(
-            'attendance.records.manage',
+            $permission,
             $_SESSION['auth']['permissions'] ?? [],
             true
         );

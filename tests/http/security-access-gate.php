@@ -828,6 +828,21 @@ $employeeTeam = httpRequest(
     '/hr/team',
     $employeeCookies
 );
+$employeeAttendanceEntry = httpRequest(
+    $baseUrl,
+    '/attendance',
+    $employeeCookies
+);
+$employeeAttendance = httpRequest(
+    $baseUrl,
+    '/attendance/me?month=2026-07',
+    $employeeCookies
+);
+$employeeAttendanceTeam = httpRequest(
+    $baseUrl,
+    '/attendance/team?month=2026-07',
+    $employeeCookies
+);
 $employeeDirectoryAttempt = httpRequest(
     $baseUrl,
     '/hr/employees/view?id=920002',
@@ -839,6 +854,10 @@ $check(
     && str_contains(
         $employeeHr['body'],
         'Leave management'
+    )
+    && str_contains(
+        $employeeHr['body'],
+        'Attendance self service'
     )
     && !str_contains(
         $employeeHr['body'],
@@ -889,6 +908,57 @@ $check(
         'Bob TenantB'
     ),
     'Employee self service cannot open the company employee directory'
+);
+$check(
+    $employeeAttendanceEntry['status'] === 302
+    && str_ends_with(
+        $employeeAttendanceEntry['location'],
+        '/attendance/me'
+    )
+    && $employeeAttendance['status'] === 200
+    && str_contains(
+        $employeeAttendance['body'],
+        'Employee self service'
+    )
+    && str_contains(
+        $employeeAttendance['body'],
+        'Alice TenantA'
+    )
+    && !str_contains(
+        $employeeAttendance['body'],
+        'Bob TenantB'
+    ),
+    'Normal employee attendance entry redirects to tenant-scoped personal history'
+);
+$check(
+    $employeeAttendanceTeam['status'] === 200
+    && str_contains(
+        $employeeAttendanceTeam['body'],
+        'No direct reports assigned'
+    )
+    && !str_contains(
+        $employeeAttendanceTeam['body'],
+        'Bob TenantB'
+    ),
+    'Normal employee team attendance has no company-wide visibility'
+);
+
+$tenantAManagerAttendance = httpRequest(
+    $baseUrl,
+    '/attendance/team?month=2026-07',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAManagerAttendance['status'] === 200
+    && str_contains(
+        $tenantAManagerAttendance['body'],
+        'Alice TenantA'
+    )
+    && !str_contains(
+        $tenantAManagerAttendance['body'],
+        'Bob TenantB'
+    ),
+    'Manager attendance includes only same-company direct reports'
 );
 
 $tenantAEmployeeProfile = httpRequest(

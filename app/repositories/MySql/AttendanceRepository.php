@@ -10,6 +10,185 @@ use App\Repositories\AttendanceRepository
 final class AttendanceRepository extends MySqlRepository
     implements AttendanceRepositoryContract
 {
+    public function employeeForUser(
+        int $companyId,
+        int $userId
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                memberships.user_id,
+                memberships.manager_user_id,
+                users.display_name,
+                users.email,
+                employees.employee_id,
+                employees.employee_number,
+                employees.first_name,
+                employees.last_name,
+                employees.preferred_name,
+                employees.job_title,
+                employees.employment_status,
+                departments.name AS department_name,
+                manager.display_name
+                    AS manager_display_name,
+                manager.email AS manager_email
+             FROM company_users memberships
+             INNER JOIN users
+               ON users.user_id = memberships.user_id
+             LEFT JOIN hr_employees employees
+               ON employees.company_id =
+                    memberships.company_id
+              AND employees.user_id =
+                    memberships.user_id
+              AND employees.employment_status
+                    IN (\'active\', \'on_leave\')
+              AND employees.deleted_at IS NULL
+             LEFT JOIN hr_departments departments
+               ON departments.company_id =
+                    employees.company_id
+              AND departments.department_id =
+                    employees.department_id
+              AND departments.deleted_at IS NULL
+             LEFT JOIN users manager
+               ON manager.user_id =
+                    memberships.manager_user_id
+              AND manager.deleted_at IS NULL
+             WHERE memberships.company_id =
+                    :company_id
+               AND memberships.user_id = :user_id
+               AND memberships.active = TRUE
+               AND users.active = TRUE
+               AND users.deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'user_id' => $userId,
+        ]);
+        $employee = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($employee)
+            ? $employee
+            : null;
+    }
+
+    public function historyForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $fromDate,
+        string $toDate
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                attendance.attendance_id,
+                attendance.employee_id,
+                attendance.attendance_date,
+                attendance.check_in_at,
+                attendance.check_out_at,
+                attendance.attendance_status,
+                attendance.work_minutes,
+                attendance.source,
+                attendance.notes,
+                attendance.updated_at
+             FROM attendance_records attendance
+             WHERE attendance.company_id =
+                    :company_id
+               AND attendance.employee_id =
+                    :employee_id
+               AND attendance.attendance_date
+                    BETWEEN :from_date AND :to_date
+             ORDER BY attendance.attendance_date DESC'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'from_date' => $fromDate,
+            'to_date' => $toDate,
+        ]);
+        $records = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($records)
+            ? $records
+            : [];
+    }
+
+    public function historyForManager(
+        int $companyId,
+        int $managerUserId,
+        string $fromDate,
+        string $toDate
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                memberships.user_id,
+                users.display_name,
+                users.email,
+                employees.employee_id,
+                employees.employee_number,
+                employees.first_name,
+                employees.last_name,
+                employees.preferred_name,
+                employees.job_title,
+                departments.name AS department_name,
+                attendance.attendance_id,
+                attendance.attendance_date,
+                attendance.check_in_at,
+                attendance.check_out_at,
+                attendance.attendance_status,
+                attendance.work_minutes,
+                attendance.source,
+                attendance.notes
+             FROM company_users memberships
+             INNER JOIN users
+               ON users.user_id = memberships.user_id
+             LEFT JOIN hr_employees employees
+               ON employees.company_id =
+                    memberships.company_id
+              AND employees.user_id =
+                    memberships.user_id
+              AND employees.deleted_at IS NULL
+             LEFT JOIN hr_departments departments
+               ON departments.company_id =
+                    employees.company_id
+              AND departments.department_id =
+                    employees.department_id
+              AND departments.deleted_at IS NULL
+             LEFT JOIN attendance_records attendance
+               ON attendance.company_id =
+                    memberships.company_id
+              AND attendance.employee_id =
+                    employees.employee_id
+              AND attendance.attendance_date
+                    BETWEEN :from_date AND :to_date
+             WHERE memberships.company_id =
+                    :company_id
+               AND memberships.manager_user_id =
+                    :manager_user_id
+               AND memberships.active = TRUE
+               AND users.active = TRUE
+               AND users.deleted_at IS NULL
+             ORDER BY
+                users.display_name,
+                attendance.attendance_date DESC'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'manager_user_id' => $managerUserId,
+            'from_date' => $fromDate,
+            'to_date' => $toDate,
+        ]);
+        $records = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($records)
+            ? $records
+            : [];
+    }
+
     public function dailyRoster(
         int $companyId,
         string $attendanceDate

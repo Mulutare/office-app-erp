@@ -3,6 +3,7 @@
 declare(strict_types=1);
 use App\Controllers\AuditLogController;
 use App\Controllers\AttendanceController;
+use App\Controllers\AttendanceSelfServiceController;
 use App\Controllers\UserAdministrationController;
 use App\Controllers\AdministrationController;
 use App\Controllers\AuthController;
@@ -34,6 +35,8 @@ $auditLogController =
     new AuditLogController();
 $attendanceController =
     new AttendanceController();
+$attendanceSelfServiceController =
+    new AttendanceSelfServiceController();
 $leaveController = new LeaveController();
 $managerWorkspaceController =
     new ManagerWorkspaceController();
@@ -93,6 +96,22 @@ $router->get(
 $router->post(
     '/attendance/records',
     [$attendanceController, 'store']
+);
+$router->get(
+    '/attendance/me',
+    [$attendanceSelfServiceController, 'index']
+);
+$router->post(
+    '/attendance/me/check-in',
+    [$attendanceSelfServiceController, 'checkIn']
+);
+$router->post(
+    '/attendance/me/check-out',
+    [$attendanceSelfServiceController, 'checkOut']
+);
+$router->get(
+    '/attendance/team',
+    [$attendanceSelfServiceController, 'team']
 );
 $router->get(
     '/finance',

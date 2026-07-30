@@ -46,6 +46,9 @@ $attendanceEnabled = !empty(
 $canViewAttendance = !empty(
     $data['canViewAttendance']
 );
+$canViewCompanyAttendance = !empty(
+    $data['canViewCompanyAttendance']
+);
 $canViewOrganization = !empty(
     $data['canViewOrganization']
 );
@@ -147,21 +150,37 @@ $totalEmployees = array_sum(array_map(
             </strong>
         </article>
         <article>
-            <span>Attendance recorded today</span>
-            <strong>
-                <?= e(
-                    $attendanceSummary[
-                        'recorded'
-                    ] ?? 0
-                ) ?>
-                <small>
-                    / <?= e(
+            <?php if (
+                $canViewCompanyAttendance
+            ): ?>
+                <span>Attendance recorded today</span>
+                <strong>
+                    <?= e(
                         $attendanceSummary[
-                            'total'
+                            'recorded'
                         ] ?? 0
                     ) ?>
-                </small>
-            </strong>
+                    <small>
+                        / <?= e(
+                            $attendanceSummary[
+                                'total'
+                            ] ?? 0
+                        ) ?>
+                    </small>
+                </strong>
+            <?php elseif ($canViewAttendance): ?>
+                <span>Attendance self service</span>
+                <strong>
+                    Available
+                </strong>
+            <?php else: ?>
+                <span>Attendance module</span>
+                <strong>
+                    <?= $attendanceEnabled
+                        ? 'Restricted'
+                        : 'Off' ?>
+                </strong>
+            <?php endif; ?>
         </article>
     </div>
 </section>

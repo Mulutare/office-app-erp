@@ -105,12 +105,21 @@ final class HrController
             $this->modules->isEnabled(
                 'attendance'
             );
-        $canViewAttendance =
-            $attendanceEnabled
-            && $this->hasAnyPermission([
+        $canViewCompanyAttendance =
+            $this->hasAnyPermission([
                 'attendance.records.view',
                 'attendance.records.manage',
             ]);
+        $canViewAttendance =
+            $attendanceEnabled
+            && (
+                $canViewCompanyAttendance
+                || $this->hasAnyPermission([
+                    'attendance.self.view',
+                    'attendance.self.record',
+                    'attendance.team.view',
+                ])
+            );
         $leaveSummary = $canViewLeave
             ? $this->leave->summaryForActor(
                 (int) (
@@ -125,7 +134,9 @@ final class HrController
                 'onLeaveToday' => 0,
                 'upcoming' => 0,
             ];
-        $attendanceSummary = $canViewAttendance
+        $attendanceSummary =
+            $attendanceEnabled
+            && $canViewCompanyAttendance
             ? $this->attendance->summary(
                 date('Y-m-d')
             )
@@ -172,6 +183,8 @@ final class HrController
                 $attendanceEnabled,
             'canViewAttendance' =>
                 $canViewAttendance,
+            'canViewCompanyAttendance' =>
+                $canViewCompanyAttendance,
             'canViewOrganization' =>
                 $this->hasAnyPermission([
                     'organization.branches.view',
