@@ -309,6 +309,306 @@ final class AttendanceRepository extends OracleRepository
         int $employeeId,
         string $attendanceDate
     ): ?array {
+        return $this->findRecord(
+            $companyId,
+            $employeeId,
+            $attendanceDate,
+            false
+        );
+    }
+
+    public function findForUpdate(
+        int $companyId,
+        int $employeeId,
+        string $attendanceDate
+    ): ?array {
+        return $this->findRecord(
+            $companyId,
+            $employeeId,
+            $attendanceDate,
+            true
+        );
+    }
+
+    public function sessionsForRecord(
+        int $companyId,
+        int $attendanceId
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                session_id,
+                attendance_id,
+                company_id,
+                employee_id,
+                sequence_no,
+                TO_CHAR(
+                    check_in_at,
+                    \'YYYY-MM-DD HH24:MI:SS\'
+                ) AS check_in_at,
+                TO_CHAR(
+                    check_out_at,
+                    \'YYYY-MM-DD HH24:MI:SS\'
+                ) AS check_out_at,
+                source,
+                created_by,
+                updated_by,
+                created_at,
+                updated_at
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = 1
+             ORDER BY sequence_no'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+        $sessions = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($sessions)
+            ? $sessions
+            : [];
+    }
+
+    public function openSession(
+        int $companyId,
+        int $attendanceId
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                session_id,
+                attendance_id,
+                company_id,
+                employee_id,
+                sequence_no,
+                TO_CHAR(
+                    check_in_at,
+                    \'YYYY-MM-DD HH24:MI:SS\'
+                ) AS check_in_at,
+                TO_CHAR(
+                    check_out_at,
+                    \'YYYY-MM-DD HH24:MI:SS\'
+                ) AS check_out_at,
+                source
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = 1
+               AND check_out_at IS NULL
+             FETCH FIRST 1 ROWS ONLY'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+        $session = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($session)
+            ? $session
+            : null;
+    }
+
+    public function startSession(
+        int $companyId,
+        int $attendanceId,
+        int $employeeId,
+        string $checkInAt,
+        string $source,
+        int $actorUserId
+    ): int {
+        $sequence = $this->nextSessionSequence(
+            $companyId,
+            $attendanceId
+        );
+        $statement = $this->connection()->prepare(
+            'INSERT INTO attendance_sessions
+                (
+                    attendance_id,
+                    company_id,
+                    employee_id,
+                    sequence_no,
+                    check_in_at,
+                    check_out_at,
+                    active,
+                    source,
+                    created_by,
+                    updated_by
+                )
+             VALUES
+                (
+                    :attendance_id,
+                    :company_id,
+                    :employee_id,
+                    :sequence_no,
+                    TO_TIMESTAMP(
+                        :check_in_at,
+                        \'YYYY-MM-DD HH24:MI:SS\'
+                    ),
+                    NULL,
+                    1,
+                    :source,
+                    :created_by,
+                    :updated_by
+                )'
+        );
+        $statement->execute([
+            'attendance_id' => $attendanceId,
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'sequence_no' => $sequence,
+            'check_in_at' => $checkInAt,
+            'source' => $source,
+            'created_by' => $actorUserId,
+            'updated_by' => $actorUserId,
+        ]);
+        $lookup = $this->connection()->prepare(
+            'SELECT session_id
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND sequence_no = :sequence_no
+             FETCH FIRST 1 ROWS ONLY'
+        );
+        $lookup->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+            'sequence_no' => $sequence,
+        ]);
+
+        return (int) $lookup->fetchColumn();
+    }
+
+    public function finishSession(
+        int $companyId,
+        int $attendanceId,
+        int $sessionId,
+        string $checkOutAt,
+        int $actorUserId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE attendance_sessions
+             SET check_out_at = TO_TIMESTAMP(
+                    :check_out_at,
+                    \'YYYY-MM-DD HH24:MI:SS\'
+                 ),
+                 updated_by = :updated_by,
+                 updated_at = SYSTIMESTAMP
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND session_id = :session_id
+               AND active = 1
+               AND check_out_at IS NULL
+               AND check_in_at <= TO_TIMESTAMP(
+                    :check_out_limit,
+                    \'YYYY-MM-DD HH24:MI:SS\'
+               )'
+        );
+        $statement->execute([
+            'check_out_at' => $checkOutAt,
+            'check_out_limit' => $checkOutAt,
+            'updated_by' => $actorUserId,
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+            'session_id' => $sessionId,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function replaceSessionsForManualRecord(
+        int $companyId,
+        int $attendanceId,
+        int $employeeId,
+        ?string $checkInAt,
+        ?string $checkOutAt,
+        int $actorUserId
+    ): void {
+        $invalidate = $this->connection()->prepare(
+            'UPDATE attendance_sessions
+             SET active = 0,
+                 invalidated_at = SYSTIMESTAMP,
+                 invalidated_by = :invalidated_by,
+                 updated_by = :updated_by,
+                 updated_at = SYSTIMESTAMP
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = 1'
+        );
+        $invalidate->execute([
+            'invalidated_by' => $actorUserId,
+            'updated_by' => $actorUserId,
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+
+        if ($checkInAt === null) {
+            return;
+        }
+
+        $sequence = $this->nextSessionSequence(
+            $companyId,
+            $attendanceId
+        );
+        $statement = $this->connection()->prepare(
+            'INSERT INTO attendance_sessions
+                (
+                    attendance_id,
+                    company_id,
+                    employee_id,
+                    sequence_no,
+                    check_in_at,
+                    check_out_at,
+                    active,
+                    source,
+                    created_by,
+                    updated_by
+                )
+             VALUES
+                (
+                    :attendance_id,
+                    :company_id,
+                    :employee_id,
+                    :sequence_no,
+                    TO_TIMESTAMP(
+                        :check_in_at,
+                        \'YYYY-MM-DD HH24:MI:SS\'
+                    ),
+                    TO_TIMESTAMP(
+                        :check_out_at,
+                        \'YYYY-MM-DD HH24:MI:SS\'
+                    ),
+                    1,
+                    \'manual\',
+                    :created_by,
+                    :updated_by
+                )'
+        );
+        $statement->execute([
+            'attendance_id' => $attendanceId,
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'sequence_no' => $sequence,
+            'check_in_at' => $checkInAt,
+            'check_out_at' => $checkOutAt,
+            'created_by' => $actorUserId,
+            'updated_by' => $actorUserId,
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function findRecord(
+        int $companyId,
+        int $employeeId,
+        string $attendanceDate,
+        bool $lock
+    ): ?array {
         $statement = $this->connection()->prepare(
             'SELECT
                 attendance_id,
@@ -340,8 +640,8 @@ final class AttendanceRepository extends OracleRepository
                AND attendance_date = TO_DATE(
                     :attendance_date,
                     \'YYYY-MM-DD\'
-               )
-             FETCH FIRST 1 ROWS ONLY'
+               )'
+            . ($lock ? ' FOR UPDATE' : '')
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -355,6 +655,24 @@ final class AttendanceRepository extends OracleRepository
         return is_array($record)
             ? $record
             : null;
+    }
+
+    private function nextSessionSequence(
+        int $companyId,
+        int $attendanceId
+    ): int {
+        $statement = $this->connection()->prepare(
+            'SELECT COALESCE(MAX(sequence_no), 0) + 1
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+
+        return (int) $statement->fetchColumn();
     }
 
     public function employeeExists(

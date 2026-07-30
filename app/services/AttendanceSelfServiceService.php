@@ -87,6 +87,20 @@ final class AttendanceSelfServiceService
                 $todayDate
             )
             : null;
+        $todaySessions = is_array($today)
+            ? $this->attendance
+                ->sessionsForRecord(
+                    $companyId,
+                    (int) (
+                        $today['attendance_id'] ?? 0
+                    )
+                )
+            : [];
+        $todaySessions =
+            $this->presentSessions($todaySessions);
+        $openSession = $this->openSessionFrom(
+            $todaySessions
+        );
 
         if ($employee !== null) {
             $employee['displayName'] =
@@ -97,6 +111,14 @@ final class AttendanceSelfServiceService
         $today = is_array($today)
             ? $this->presentRecord($today)
             : null;
+
+        if (is_array($today)) {
+            $today['sessions'] = $todaySessions;
+            $today['sessionCount'] =
+                count($todaySessions);
+            $today['isWorking'] =
+                $openSession !== null;
+        }
 
         if (
             is_array($today)
@@ -121,8 +143,6 @@ final class AttendanceSelfServiceService
         );
         $hasCheckIn = is_array($today)
             && !empty($today['check_in_at']);
-        $hasCheckOut = is_array($today)
-            && !empty($today['check_out_at']);
         $blockedStatus = is_array($today)
             && in_array(
                 $today['attendance_status'] ?? '',
@@ -137,19 +157,21 @@ final class AttendanceSelfServiceService
             'today' => $today,
             'todayDate' => $todayDate,
             'workSchedule' => $schedule,
+            'isWorking' => $openSession !== null,
+            'sessionCount' => count($todaySessions),
             'summary' =>
                 $this->summarize($records),
             'range' => $range,
             'canCheckIn' =>
                 $employeeId > 0
                 && $employmentStatus === 'active'
-                && !$hasCheckIn
+                && $openSession === null
                 && !$blockedStatus,
             'canCheckOut' =>
                 $employeeId > 0
                 && $employmentStatus === 'active'
                 && $hasCheckIn
-                && !$hasCheckOut,
+                && $openSession !== null,
         ];
     }
 
@@ -270,72 +292,156 @@ final class AttendanceSelfServiceService
             ];
         }
 
-        $old = $context['record'];
-
-        if (
-            is_array($old)
-            && in_array(
-                $old['attendance_status'] ?? '',
-                ['absent', 'on_leave', 'holiday'],
-                true
-            )
-        ) {
-            return $this->error(
-                'Today is already marked as unavailable. Ask HR to review the attendance record.'
-            );
-        }
-
-        if (
-            is_array($old)
-            && !empty($old['check_in_at'])
-        ) {
-            return $this->error(
-                'Check-in has already been recorded for today.'
-            );
-        }
-
         $now = $this->now(
             (string) (
                 $context['schedule']['timezone']
                     ?? \config('timezone', 'UTC')
             )
         );
-        $metrics = $this->workPolicy->evaluate(
-            $context['schedule'],
-            (string) $context['date'],
-            $now
-        );
-        $values = [
-            'attendance_status' => is_array($old)
-                && ($old['attendance_status'] ?? '')
-                    === 'remote'
-                    ? 'remote'
-                    : (!empty($metrics['late'])
-                        ? 'late'
-                        : 'present'),
-            'check_in_at' => $now,
-            'check_out_at' => null,
-            'work_minutes' =>
-                $metrics['work_minutes'],
-            'gross_minutes' =>
-                $metrics['gross_minutes'],
-            'break_minutes' =>
-                $metrics['break_minutes'],
-            'target_work_minutes' =>
-                $metrics['target_work_minutes'],
-            'work_variance_minutes' =>
-                $metrics['work_variance_minutes'],
-            'source' => 'self_service',
-            'notes' => $old['notes'] ?? null,
-        ];
+        $connection = \db();
+        $ownsTransaction =
+            !$connection->inTransaction();
 
-        return $this->saveAction(
-            $context,
-            $values,
-            'SELF_CHECK_IN',
-            $old,
-            $actorUserId
-        );
+        try {
+            if ($ownsTransaction) {
+                $connection->beginTransaction();
+            }
+
+            $old = $this->attendance
+                ->findForUpdate(
+                    (int) $context['companyId'],
+                    (int) $context['employeeId'],
+                    (string) $context['date']
+                );
+
+            if (
+                is_array($old)
+                && in_array(
+                    $old['attendance_status'] ?? '',
+                    ['absent', 'on_leave', 'holiday'],
+                    true
+                )
+            ) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'Today is already marked as unavailable. Ask HR to review the attendance record.'
+                );
+            }
+
+            $attendanceId = (int) (
+                $old['attendance_id'] ?? 0
+            );
+
+            if (
+                $attendanceId > 0
+                && $this->attendance->openSession(
+                    (int) $context['companyId'],
+                    $attendanceId
+                ) !== null
+            ) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'You are already clocked in. Clock out before starting another work session.'
+                );
+            }
+
+            if ($attendanceId < 1) {
+                $metrics = $this->workPolicy->evaluate(
+                    $context['schedule'],
+                    (string) $context['date'],
+                    $now
+                );
+                $attendanceId = $this->attendance
+                    ->save(
+                        (int) $context['companyId'],
+                        (int) $context['employeeId'],
+                        (string) $context['date'],
+                        [
+                            'attendance_status' =>
+                                !empty($metrics['late'])
+                                    ? 'late'
+                                    : 'present',
+                            'check_in_at' => $now,
+                            'check_out_at' => null,
+                            'work_minutes' => 0,
+                            'gross_minutes' => 0,
+                            'break_minutes' => 0,
+                            'target_work_minutes' =>
+                                $metrics[
+                                    'target_work_minutes'
+                                ],
+                            'work_variance_minutes' =>
+                                $metrics[
+                                    'work_variance_minutes'
+                                ],
+                            'source' => 'self_service',
+                            'notes' => null,
+                        ],
+                        $actorUserId
+                    );
+            }
+
+            $sessionId = $this->attendance
+                ->startSession(
+                    (int) $context['companyId'],
+                    $attendanceId,
+                    (int) $context['employeeId'],
+                    $now,
+                    'self_service',
+                    $actorUserId
+                );
+            $sessions = $this->attendance
+                ->sessionsForRecord(
+                    (int) $context['companyId'],
+                    $attendanceId
+                );
+            $values = $this->summaryValues(
+                $context,
+                $old,
+                $sessions
+            );
+            $this->attendance->save(
+                (int) $context['companyId'],
+                (int) $context['employeeId'],
+                (string) $context['date'],
+                $values,
+                $actorUserId
+            );
+            $this->auditLogs->record(
+                $actorUserId,
+                'SELF_CHECK_IN',
+                'attendance',
+                'attendance_records',
+                (string) $attendanceId,
+                $old,
+                array_merge($values, [
+                    'session_id' => $sessionId,
+                ]),
+                (int) $context['companyId']
+            );
+
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
+
+            return [
+                'successful' => true,
+                'errors' => [],
+                'attendanceId' => $attendanceId,
+                'sessionId' => $sessionId,
+            ];
+        } catch (Throwable $exception) {
+            if (
+                $ownsTransaction
+                && $connection->inTransaction()
+            ) {
+                $connection->rollBack();
+            }
+
+            throw $exception;
+        }
     }
 
     /**
@@ -355,80 +461,146 @@ final class AttendanceSelfServiceService
             ];
         }
 
-        $old = $context['record'];
-
-        if (
-            !is_array($old)
-            || empty($old['check_in_at'])
-        ) {
-            return $this->error(
-                'Record check-in before checking out.'
-            );
-        }
-
-        if (!empty($old['check_out_at'])) {
-            return $this->error(
-                'Check-out has already been recorded for today.'
-            );
-        }
-
         $now = $this->now(
             (string) (
                 $context['schedule']['timezone']
                     ?? \config('timezone', 'UTC')
             )
         );
-        $checkIn = strtotime(
-            (string) $old['check_in_at']
-        );
-        $checkOut = strtotime($now);
+        $connection = \db();
+        $ownsTransaction =
+            !$connection->inTransaction();
 
-        if (
-            $checkIn === false
-            || $checkOut === false
-            || $checkOut < $checkIn
-        ) {
-            return $this->error(
-                'The current time is earlier than the recorded check-in. Ask HR to review the record.'
+        try {
+            if ($ownsTransaction) {
+                $connection->beginTransaction();
+            }
+
+            $old = $this->attendance
+                ->findForUpdate(
+                    (int) $context['companyId'],
+                    (int) $context['employeeId'],
+                    (string) $context['date']
+                );
+
+            if (
+                !is_array($old)
+                || empty($old['check_in_at'])
+            ) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'Clock in before clocking out.'
+                );
+            }
+
+            $attendanceId = (int) (
+                $old['attendance_id'] ?? 0
             );
+            $openSession = $this->attendance
+                ->openSession(
+                    (int) $context['companyId'],
+                    $attendanceId
+                );
+
+            if (!is_array($openSession)) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'No work session is currently open. Clock in again when work resumes.'
+                );
+            }
+
+            $checkIn = strtotime((string) (
+                $openSession['check_in_at'] ?? ''
+            ));
+            $checkOut = strtotime($now);
+
+            if (
+                $checkIn === false
+                || $checkOut === false
+                || $checkOut < $checkIn
+            ) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'The current time is earlier than the open clock-in. Ask HR to review the record.'
+                );
+            }
+
+            $finished = $this->attendance
+                ->finishSession(
+                    (int) $context['companyId'],
+                    $attendanceId,
+                    (int) (
+                        $openSession['session_id'] ?? 0
+                    ),
+                    $now,
+                    $actorUserId
+                );
+
+            if (!$finished) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'The work session changed before clock-out completed. Refresh and try again.'
+                );
+            }
+
+            $sessions = $this->attendance
+                ->sessionsForRecord(
+                    (int) $context['companyId'],
+                    $attendanceId
+                );
+            $values = $this->summaryValues(
+                $context,
+                $old,
+                $sessions
+            );
+            $this->attendance->save(
+                (int) $context['companyId'],
+                (int) $context['employeeId'],
+                (string) $context['date'],
+                $values,
+                $actorUserId
+            );
+            $this->auditLogs->record(
+                $actorUserId,
+                'SELF_CHECK_OUT',
+                'attendance',
+                'attendance_records',
+                (string) $attendanceId,
+                $old,
+                array_merge($values, [
+                    'session_id' => (int) (
+                        $openSession['session_id'] ?? 0
+                    ),
+                ]),
+                (int) $context['companyId']
+            );
+
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
+
+            return [
+                'successful' => true,
+                'errors' => [],
+                'attendanceId' => $attendanceId,
+                'sessionId' => (int) (
+                    $openSession['session_id'] ?? 0
+                ),
+            ];
+        } catch (Throwable $exception) {
+            if (
+                $ownsTransaction
+                && $connection->inTransaction()
+            ) {
+                $connection->rollBack();
+            }
+
+            throw $exception;
         }
-
-        $metrics = $this->workPolicy->evaluate(
-            $context['schedule'],
-            (string) $context['date'],
-            (string) $old['check_in_at'],
-            $now
-        );
-        $values = [
-            'attendance_status' => (string) (
-                $old['attendance_status']
-                ?? 'present'
-            ),
-            'check_in_at' => (string) (
-                $old['check_in_at']
-            ),
-            'check_out_at' => $now,
-            'work_minutes' =>
-                $metrics['work_minutes'],
-            'gross_minutes' =>
-                $metrics['gross_minutes'],
-            'break_minutes' =>
-                $metrics['break_minutes'],
-            'target_work_minutes' =>
-                $metrics['target_work_minutes'],
-            'work_variance_minutes' =>
-                $metrics['work_variance_minutes'],
-            'source' => 'self_service',
-            'notes' => $old['notes'] ?? null,
-        ];
-
-        return $this->saveAction(
-            $context,
-            $values,
-            'SELF_CHECK_OUT',
-            $old,
-            $actorUserId
-        );
     }
 
     /**
@@ -484,73 +656,127 @@ final class AttendanceSelfServiceService
     }
 
     /**
-     * @param array<string, mixed> $context
-     * @param array<string, mixed> $values
-     * @param array<string, mixed>|null $old
+     * Recalculate the daily reporting row from effective work sessions.
      *
+     * Open sessions do not add time until they are clocked out. This prevents
+     * a page refresh from storing a moving and unaudited duration.
+     *
+     * @param array<string, mixed> $context
+     * @param array<string, mixed>|null $old
+     * @param list<array<string, mixed>> $sessions
      * @return array<string, mixed>
      */
-    private function saveAction(
+    private function summaryValues(
         array $context,
-        array $values,
-        string $action,
         ?array $old,
-        int $actorUserId
+        array $sessions
     ): array {
-        $connection = \db();
-        $ownsTransaction =
-            !$connection->inTransaction();
-
-        try {
-            if ($ownsTransaction) {
-                $connection->beginTransaction();
-            }
-
-            $attendanceId = $this->attendance
-                ->save(
-                    (int) $context['companyId'],
-                    (int) $context['employeeId'],
-                    (string) $context['date'],
-                    $values,
-                    $actorUserId
-                );
-            $this->auditLogs->record(
-                $actorUserId,
-                $action,
-                'attendance',
-                'attendance_records',
-                (string) $attendanceId,
-                $old,
-                $values,
-                (int) $context['companyId']
+        if ($sessions === []) {
+            throw new \RuntimeException(
+                'An attendance summary requires at least one work session.'
             );
-
-            if ($ownsTransaction) {
-                $connection->commit();
-            }
-        } catch (Throwable $exception) {
-            if (
-                $ownsTransaction
-                && $connection->inTransaction()
-            ) {
-                $connection->rollBack();
-            }
-
-            throw $exception;
         }
 
+        $firstCheckIn = (string) (
+            $sessions[0]['check_in_at'] ?? ''
+        );
+        $baseMetrics = $this->workPolicy->evaluate(
+            $context['schedule'],
+            (string) $context['date'],
+            $firstCheckIn
+        );
+        $latestCheckOut = null;
+        $grossMinutes = 0;
+        $breakMinutes = 0;
+        $workMinutes = 0;
+
+        foreach ($sessions as $session) {
+            $sessionCheckIn = (string) (
+                $session['check_in_at'] ?? ''
+            );
+            $sessionCheckOut = $session[
+                'check_out_at'
+            ] ?? null;
+
+            if (
+                $sessionCheckIn === ''
+                || !is_string($sessionCheckOut)
+                || trim($sessionCheckOut) === ''
+            ) {
+                continue;
+            }
+
+            $metrics = $this->workPolicy->evaluate(
+                $context['schedule'],
+                (string) $context['date'],
+                $sessionCheckIn,
+                $sessionCheckOut
+            );
+            $grossMinutes += (int) (
+                $metrics['gross_minutes'] ?? 0
+            );
+            $breakMinutes += (int) (
+                $metrics['break_minutes'] ?? 0
+            );
+            $workMinutes += (int) (
+                $metrics['work_minutes'] ?? 0
+            );
+
+            if (
+                $latestCheckOut === null
+                || strcmp(
+                    $sessionCheckOut,
+                    $latestCheckOut
+                ) > 0
+            ) {
+                $latestCheckOut = $sessionCheckOut;
+            }
+        }
+
+        $target = (int) (
+            $baseMetrics['target_work_minutes'] ?? 0
+        );
+        $oldStatus = (string) (
+            $old['attendance_status'] ?? ''
+        );
+
         return [
-            'successful' => true,
-            'errors' => [],
-            'attendanceId' => $attendanceId,
+            'attendance_status' =>
+                $oldStatus === 'remote'
+                    ? 'remote'
+                    : (!empty($baseMetrics['late'])
+                        ? 'late'
+                        : 'present'),
+            'check_in_at' => $firstCheckIn,
+            'check_out_at' => $latestCheckOut,
+            'work_minutes' => $workMinutes,
+            'gross_minutes' => $grossMinutes,
+            'break_minutes' => $breakMinutes,
+            'target_work_minutes' => $target,
+            'work_variance_minutes' =>
+                $target > 0
+                    ? $workMinutes - $target
+                    : 0,
+            'source' => 'self_service',
+            'notes' => $old['notes'] ?? null,
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function error(string $message): array
-    {
+    private function transactionError(
+        \PDO $connection,
+        bool $ownsTransaction,
+        string $message
+    ): array {
+        if (
+            $ownsTransaction
+            && $connection->inTransaction()
+        ) {
+            $connection->rollBack();
+        }
+
         return [
             'successful' => false,
             'errors' => ['form' => $message],
@@ -610,6 +836,56 @@ final class AttendanceSelfServiceService
     }
 
     /**
+     * @param list<array<string, mixed>> $sessions
+     * @return list<array<string, mixed>>
+     */
+    private function presentSessions(
+        array $sessions
+    ): array {
+        foreach ($sessions as &$session) {
+            $checkIn = (string) (
+                $session['check_in_at'] ?? ''
+            );
+            $checkOut = $session['check_out_at']
+                ?? null;
+            $session['checkInTime'] =
+                $this->timeOnly($checkIn);
+            $session['checkOutTime'] =
+                $this->timeOnly($checkOut);
+            $session['isOpen'] =
+                !is_string($checkOut)
+                || trim($checkOut) === '';
+            $session['duration'] =
+                $this->sessionDuration(
+                    $checkIn,
+                    is_string($checkOut)
+                        ? $checkOut
+                        : null
+                );
+        }
+
+        unset($session);
+
+        return $sessions;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $sessions
+     * @return array<string, mixed>|null
+     */
+    private function openSessionFrom(
+        array $sessions
+    ): ?array {
+        foreach ($sessions as $session) {
+            if (!empty($session['isOpen'])) {
+                return $session;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param array<string, mixed> $record
      *
      * @return array<string, mixed>
@@ -657,6 +933,34 @@ final class AttendanceSelfServiceService
             . $this->durationLabel(abs($variance));
 
         return $record;
+    }
+
+    private function sessionDuration(
+        string $checkInAt,
+        ?string $checkOutAt
+    ): string {
+        if (
+            $checkInAt === ''
+            || $checkOutAt === null
+            || trim($checkOutAt) === ''
+        ) {
+            return 'In progress';
+        }
+
+        $start = strtotime($checkInAt);
+        $end = strtotime($checkOutAt);
+
+        if (
+            $start === false
+            || $end === false
+            || $end < $start
+        ) {
+            return '—';
+        }
+
+        return $this->durationLabel(
+            (int) floor(($end - $start) / 60)
+        );
     }
 
     /**

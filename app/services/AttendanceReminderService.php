@@ -562,6 +562,12 @@ final class AttendanceReminderService
             && !empty($today['check_in_at']);
         $hasCheckOut = is_array($today)
             && !empty($today['check_out_at']);
+        $isWorking = array_key_exists(
+            'isWorking',
+            $workspace
+        )
+            ? !empty($workspace['isWorking'])
+            : ($hasCheckIn && !$hasCheckOut);
 
         if (
             !$hasCheckIn
@@ -578,7 +584,7 @@ final class AttendanceReminderService
 
         if (
             $hasCheckIn
-            && !$hasCheckOut
+            && $isWorking
             && !empty($settings['checkOutEnabled'])
         ) {
             return $this->scheduledNotification(
@@ -595,7 +601,7 @@ final class AttendanceReminderService
             'tone' => 'success',
             'title' => 'Attendance is up to date',
             'message' => $hasCheckOut
-                ? 'Check-in and check-out are complete for today.'
+                ? 'Your latest work session is clocked out. Clock in again if work resumes.'
                 : 'No further configured reminder is required today.',
         ]);
     }

@@ -376,8 +376,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 23,
-        'Oracle migration catalog contains twenty-three valid definitions'
+        && count($oracleMigrationFiles) === 24,
+        'Oracle migration catalog contains twenty-four valid definitions'
     );
 
     $check(
@@ -412,6 +412,7 @@ try {
                 '210',
                 '220',
                 '230',
+                '240',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -430,8 +431,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 35
-        && $oracleIdentityCount === 27,
+        $oracleTableCount === 36
+        && $oracleIdentityCount === 28,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -518,6 +519,7 @@ try {
                 '021',
                 '022',
                 '023',
+                '024',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -535,13 +537,14 @@ try {
                 \'020\',
                 \'021\',
                 \'022\',
-                \'023\'
+                \'023\',
+                \'024\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 9,
+        $migrationLedgerCount === 10,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -722,8 +725,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 35,
-        'All 35 application tables were created'
+        $tableCount === 36,
+        'All 36 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -735,8 +738,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 101,
-        'All 101 foreign-key relationships were created'
+        $foreignKeyCount === 105,
+        'All 105 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -2321,6 +2324,25 @@ try {
         'Tenant attendance entry is saved and summarized'
     );
 
+    $manualAttendanceSession = db()->prepare(
+        'SELECT COUNT(*)
+         FROM attendance_sessions
+         WHERE attendance_id = :attendance_id
+           AND company_id = :company_id
+           AND active = TRUE
+           AND source = \'manual\''
+    );
+    $manualAttendanceSession->execute([
+        'attendance_id' =>
+            $attendanceResult['attendanceId'],
+        'company_id' => $tenantACompanyId,
+    ]);
+    $check(
+        (int) $manualAttendanceSession
+            ->fetchColumn() === 1,
+        'Manual attendance keeps one effective session without deleting audit evidence'
+    );
+
     $attendanceAuditStatement = db()->prepare(
         'SELECT COUNT(*)
          FROM audit_logs
@@ -2360,6 +2382,23 @@ try {
         $attendanceSelfService->checkOut(
             910004
         );
+    $resumedCheckIn =
+        $attendanceSelfService->checkIn(
+            910004
+        );
+    $duplicateResumedCheckIn =
+        $attendanceSelfService->checkIn(
+            910004
+        );
+    $secondCheckOut =
+        $attendanceSelfService->checkOut(
+            910004
+        );
+    $multiSessionAttendance =
+        $attendanceSelfService->workspace(
+            910004,
+            '2026-07'
+        );
     $managerAttendance =
         $attendanceSelfService->teamWorkspace(
             $tenantAActorId,
@@ -2396,8 +2435,60 @@ try {
         && $duplicateCheckIn['successful']
             === false
         && $personalCheckOut['successful']
-            === true,
-        'Employee self-service check-in and check-out enforce one daily sequence'
+            === true
+        && $resumedCheckIn['successful'] === true
+        && $duplicateResumedCheckIn['successful']
+            === false
+        && $secondCheckOut['successful'] === true
+        && (
+            $multiSessionAttendance['sessionCount']
+            ?? 0
+        ) === 2
+        && (
+            $multiSessionAttendance['canCheckIn']
+            ?? false
+        ) === true
+        && (
+            $multiSessionAttendance['canCheckOut']
+            ?? true
+        ) === false,
+        'Employee self-service supports repeated work sessions while preventing concurrent open sessions'
+    );
+
+    $activeSessionStatement = db()->prepare(
+        'SELECT
+            COUNT(*) AS session_count,
+            SUM(
+                CASE
+                    WHEN check_out_at IS NULL
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS open_count
+         FROM attendance_sessions
+         WHERE company_id = :company_id
+           AND attendance_id = :attendance_id
+           AND active = TRUE'
+    );
+    $activeSessionStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'attendance_id' =>
+            $personalCheckIn['attendanceId'],
+    ]);
+    $activeSessionSummary =
+        $activeSessionStatement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+    $check(
+        (int) (
+            $activeSessionSummary['session_count']
+            ?? 0
+        ) === 2
+        && (int) (
+            $activeSessionSummary['open_count']
+            ?? 0
+        ) === 0,
+        'Attendance sessions retain every completed work interval and no stale open session'
     );
     $check(
         in_array(
@@ -2435,7 +2526,7 @@ try {
     ]);
     $check(
         (int) $selfAttendanceAudit
-            ->fetchColumn() === 2,
+            ->fetchColumn() === 4,
         'Personal attendance actions create tenant-scoped audit events'
     );
 

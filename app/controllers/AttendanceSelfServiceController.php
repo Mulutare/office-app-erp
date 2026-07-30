@@ -75,6 +75,10 @@ final class AttendanceSelfServiceController
                 $workspace['canCheckIn'],
             'canCheckOut' =>
                 $workspace['canCheckOut'],
+            'isWorking' =>
+                $workspace['isWorking'],
+            'sessionCount' =>
+                $workspace['sessionCount'],
             'canRecord' => $this->can(
                 'attendance.self.record'
             ),
@@ -377,8 +381,8 @@ final class AttendanceSelfServiceController
         \flash('attendance_self_notice', [
             'type' => 'success',
             'message' => $method === 'checkIn'
-                ? 'Your check-in was recorded.'
-                : 'Your check-out was recorded.',
+                ? 'Your work session started. The first clock-in remains your arrival time.'
+                : 'Your work session ended. You can clock in again when work resumes.',
         ]);
         \redirect('/attendance/me');
     }

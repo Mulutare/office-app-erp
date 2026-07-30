@@ -256,6 +256,19 @@ final class AttendanceManagementService
                     $new,
                     $updatedBy
                 );
+            $this->attendance
+                ->replaceSessionsForManualRecord(
+                    $companyId,
+                    $attendanceId,
+                    $employeeId,
+                    is_string($new['check_in_at'])
+                        ? $new['check_in_at']
+                        : null,
+                    is_string($new['check_out_at'])
+                        ? $new['check_out_at']
+                        : null,
+                    $updatedBy
+                );
             $this->auditLogs->record(
                 $updatedBy,
                 $old === null

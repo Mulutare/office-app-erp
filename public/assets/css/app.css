@@ -6640,8 +6640,92 @@ a {
     font-size: 0.88rem;
 }
 
+.attendance-session-timeline {
+    padding-top: 20px;
+    margin-top: 20px;
+    border-top: 1px solid var(--color-border);
+}
+
+.attendance-session-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.attendance-session-heading h3 {
+    margin: 3px 0 0;
+    color: var(--color-primary-dark);
+}
+
+.attendance-session-list {
+    display: grid;
+    gap: 9px;
+    padding: 0;
+    margin: 14px 0 0;
+    list-style: none;
+}
+
+.attendance-session-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.attendance-session-list li.is-open {
+    border-color: #9bd7b1;
+    background: #effcf4;
+}
+
+.attendance-session-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    border-radius: 50%;
+    background: #eaf2ff;
+    color: #1849a9;
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.attendance-session-list li.is-open
+    .attendance-session-index {
+    background: #d8f7e3;
+    color: #087443;
+}
+
+.attendance-session-list strong,
+.attendance-session-list small {
+    display: block;
+}
+
+.attendance-session-list strong {
+    color: var(--color-primary-dark);
+}
+
+.attendance-session-list small {
+    margin-top: 3px;
+    color: var(--color-muted);
+}
+
 .attendance-policy-card {
     border-color: #d6e4ff;
+}
+
+.attendance-practice-list {
+    display: grid;
+    gap: 9px;
+    padding-left: 19px;
+    margin: 16px 0 0;
+    color: var(--color-muted);
+    line-height: 1.45;
 }
 
 .attendance-policy-card .table-link {

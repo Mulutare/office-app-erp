@@ -13,6 +13,16 @@ $records = is_array($data['records'] ?? null)
 $today = is_array($data['today'] ?? null)
     ? $data['today']
     : null;
+$todaySessions = is_array(
+    $today['sessions'] ?? null
+)
+    ? $today['sessions']
+    : [];
+$isWorking = !empty(
+    $data['isWorking']
+    ?? $today['isWorking']
+    ?? false
+);
 $summary = is_array($data['summary'] ?? null)
     ? $data['summary']
     : [];
@@ -475,19 +485,23 @@ $formatDate = static function (
                     </h2>
                 </div>
                 <span class="badge badge-<?= e(
-                    $today['statusTone']
-                    ?? 'muted'
+                    $isWorking
+                        ? 'info'
+                        : ($today['statusTone']
+                            ?? 'muted')
                 ) ?>">
                     <?= e(
-                        $today['statusLabel']
-                        ?? 'Not recorded'
+                        $isWorking
+                            ? 'Working now'
+                            : ($today['statusLabel']
+                                ?? 'Not recorded')
                     ) ?>
                 </span>
             </div>
 
             <div class="attendance-clock-facts">
                 <div>
-                    <span>Check-in</span>
+                    <span>First clock-in</span>
                     <strong>
                         <?= e(
                             $today['checkInTime']
@@ -496,12 +510,18 @@ $formatDate = static function (
                     </strong>
                 </div>
                 <div>
-                    <span>Check-out</span>
+                    <span>Latest clock-out</span>
                     <strong>
                         <?= e(
                             $today['checkOutTime']
                             ?? '—'
                         ) ?>
+                    </strong>
+                </div>
+                <div>
+                    <span>Work sessions</span>
+                    <strong>
+                        <?= e(count($todaySessions)) ?>
                     </strong>
                 </div>
                 <div>
@@ -572,7 +592,9 @@ $formatDate = static function (
                                 type="submit"
                                 class="btn btn-primary"
                             >
-                                Check in now
+                                <?= $todaySessions === []
+                                    ? 'Clock in now'
+                                    : 'Clock in / resume work' ?>
                             </button>
                         </form>
                     <?php elseif ($canCheckOut): ?>
@@ -585,7 +607,7 @@ $formatDate = static function (
                                 type="submit"
                                 class="btn btn-primary"
                             >
-                                Check out now
+                                Clock out / pause work
                             </button>
                         </form>
                     <?php else: ?>
@@ -595,6 +617,80 @@ $formatDate = static function (
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
+
+            <?php if ($todaySessions !== []): ?>
+                <section class="attendance-session-timeline">
+                    <div class="attendance-session-heading">
+                        <div>
+                            <span class="section-kicker">
+                                Today’s timeline
+                            </span>
+                            <h3>Work sessions</h3>
+                        </div>
+                        <span class="badge badge-muted">
+                            <?= e(count($todaySessions)) ?>
+                            <?= count($todaySessions) === 1
+                                ? 'session'
+                                : 'sessions' ?>
+                        </span>
+                    </div>
+
+                    <ol class="attendance-session-list">
+                        <?php foreach (
+                            $todaySessions as $session
+                        ): ?>
+                            <li class="<?= !empty(
+                                $session['isOpen']
+                            )
+                                ? 'is-open'
+                                : '' ?>">
+                                <span class="attendance-session-index">
+                                    <?= e(
+                                        $session['sequence_no']
+                                        ?? ''
+                                    ) ?>
+                                </span>
+                                <div>
+                                    <strong>
+                                        <?= e(
+                                            $session['checkInTime']
+                                            ?? '—'
+                                        ) ?>
+                                        →
+                                        <?= !empty(
+                                            $session['isOpen']
+                                        )
+                                            ? 'Working now'
+                                            : e(
+                                                $session[
+                                                    'checkOutTime'
+                                                ] ?? '—'
+                                            ) ?>
+                                    </strong>
+                                    <small>
+                                        <?= e(
+                                            $session['duration']
+                                            ?? ''
+                                        ) ?>
+                                        ·
+                                        <?= e(ucwords(
+                                            str_replace(
+                                                '_',
+                                                ' ',
+                                                (string) (
+                                                    $session[
+                                                        'source'
+                                                    ] ?? ''
+                                                )
+                                            )
+                                        )) ?>
+                                    </small>
+                                </div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ol>
+                </section>
+            <?php endif; ?>
         </article>
 
         <article class="card attendance-policy-card">
@@ -603,11 +699,17 @@ $formatDate = static function (
             </span>
             <h2>Record at the point of work</h2>
             <p>
-                Check in when work begins and check out
-                when the working day ends. HR can review
-                exceptions but cannot recover an omitted
-                self-service event automatically.
+                Clock in whenever work starts or resumes,
+                and clock out whenever work stops. Your
+                first clock-in remains the arrival time;
+                the latest completed clock-out becomes the
+                day’s departure time.
             </p>
+            <ul class="attendance-practice-list">
+                <li>Use a new session after lunch or another break.</li>
+                <li>Only one work session can be open at a time.</li>
+                <li>Every session is retained for audit and payroll review.</li>
+            </ul>
             <?php if ($canViewTeam): ?>
                 <a
                     href="/office_app/public/attendance/team"

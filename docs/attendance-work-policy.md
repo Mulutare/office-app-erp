@@ -4,6 +4,24 @@ OfficeApp calculates attendance against the employee's effective workforce
 calendar and company timezone. The calendar is the source of truth for each
 weekday.
 
+## Multiple work sessions
+
+Employee self-service attendance uses an auditable session timeline beneath
+each daily attendance summary:
+
+- the first active session supplies the daily first clock-in;
+- each clock-out closes only the current session;
+- the employee may clock in again whenever work resumes;
+- the most recent completed session supplies the daily latest clock-out;
+- payroll work time is the sum of completed active sessions after applicable
+  configured lunch overlap is deducted;
+- only one active session can be open for an attendance record;
+- HR corrections invalidate earlier effective sessions instead of deleting
+  their evidence, then create the corrected effective manual interval.
+
+Open sessions do not add stored work minutes until clock-out. This keeps
+historical duration snapshots deterministic and auditable.
+
 ## Configurable day policy
 
 Each working day defines:

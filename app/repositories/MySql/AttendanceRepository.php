@@ -265,6 +265,265 @@ final class AttendanceRepository extends MySqlRepository
         int $employeeId,
         string $attendanceDate
     ): ?array {
+        return $this->findRecord(
+            $companyId,
+            $employeeId,
+            $attendanceDate,
+            false
+        );
+    }
+
+    public function findForUpdate(
+        int $companyId,
+        int $employeeId,
+        string $attendanceDate
+    ): ?array {
+        return $this->findRecord(
+            $companyId,
+            $employeeId,
+            $attendanceDate,
+            true
+        );
+    }
+
+    public function sessionsForRecord(
+        int $companyId,
+        int $attendanceId
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                session_id,
+                attendance_id,
+                company_id,
+                employee_id,
+                sequence_no,
+                check_in_at,
+                check_out_at,
+                source,
+                created_by,
+                updated_by,
+                created_at,
+                updated_at
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = TRUE
+             ORDER BY sequence_no'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+        $sessions = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($sessions)
+            ? $sessions
+            : [];
+    }
+
+    public function openSession(
+        int $companyId,
+        int $attendanceId
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                session_id,
+                attendance_id,
+                company_id,
+                employee_id,
+                sequence_no,
+                check_in_at,
+                check_out_at,
+                source
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = TRUE
+               AND check_out_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+        $session = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($session)
+            ? $session
+            : null;
+    }
+
+    public function startSession(
+        int $companyId,
+        int $attendanceId,
+        int $employeeId,
+        string $checkInAt,
+        string $source,
+        int $actorUserId
+    ): int {
+        $sequence = $this->nextSessionSequence(
+            $companyId,
+            $attendanceId
+        );
+        $statement = $this->connection()->prepare(
+            'INSERT INTO attendance_sessions
+                (
+                    attendance_id,
+                    company_id,
+                    employee_id,
+                    sequence_no,
+                    check_in_at,
+                    check_out_at,
+                    active,
+                    source,
+                    created_by,
+                    updated_by
+                )
+             VALUES
+                (
+                    :attendance_id,
+                    :company_id,
+                    :employee_id,
+                    :sequence_no,
+                    :check_in_at,
+                    NULL,
+                    TRUE,
+                    :source,
+                    :created_by,
+                    :updated_by
+                )'
+        );
+        $statement->execute([
+            'attendance_id' => $attendanceId,
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'sequence_no' => $sequence,
+            'check_in_at' => $checkInAt,
+            'source' => $source,
+            'created_by' => $actorUserId,
+            'updated_by' => $actorUserId,
+        ]);
+
+        return (int) $this->connection()
+            ->lastInsertId();
+    }
+
+    public function finishSession(
+        int $companyId,
+        int $attendanceId,
+        int $sessionId,
+        string $checkOutAt,
+        int $actorUserId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE attendance_sessions
+             SET check_out_at = :check_out_at,
+                 updated_by = :updated_by
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND session_id = :session_id
+               AND active = TRUE
+               AND check_out_at IS NULL
+               AND check_in_at <= :check_out_limit'
+        );
+        $statement->execute([
+            'check_out_at' => $checkOutAt,
+            'check_out_limit' => $checkOutAt,
+            'updated_by' => $actorUserId,
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+            'session_id' => $sessionId,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    public function replaceSessionsForManualRecord(
+        int $companyId,
+        int $attendanceId,
+        int $employeeId,
+        ?string $checkInAt,
+        ?string $checkOutAt,
+        int $actorUserId
+    ): void {
+        $invalidate = $this->connection()->prepare(
+            'UPDATE attendance_sessions
+             SET active = FALSE,
+                 invalidated_at = CURRENT_TIMESTAMP,
+                 invalidated_by = :invalidated_by,
+                 updated_by = :updated_by
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = TRUE'
+        );
+        $invalidate->execute([
+            'invalidated_by' => $actorUserId,
+            'updated_by' => $actorUserId,
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+
+        if ($checkInAt === null) {
+            return;
+        }
+
+        $sequence = $this->nextSessionSequence(
+            $companyId,
+            $attendanceId
+        );
+        $statement = $this->connection()->prepare(
+            'INSERT INTO attendance_sessions
+                (
+                    attendance_id,
+                    company_id,
+                    employee_id,
+                    sequence_no,
+                    check_in_at,
+                    check_out_at,
+                    active,
+                    source,
+                    created_by,
+                    updated_by
+                )
+             VALUES
+                (
+                    :attendance_id,
+                    :company_id,
+                    :employee_id,
+                    :sequence_no,
+                    :check_in_at,
+                    :check_out_at,
+                    TRUE,
+                    \'manual\',
+                    :created_by,
+                    :updated_by
+                )'
+        );
+        $statement->execute([
+            'attendance_id' => $attendanceId,
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'sequence_no' => $sequence,
+            'check_in_at' => $checkInAt,
+            'check_out_at' => $checkOutAt,
+            'created_by' => $actorUserId,
+            'updated_by' => $actorUserId,
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function findRecord(
+        int $companyId,
+        int $employeeId,
+        string $attendanceDate,
+        bool $lock
+    ): ?array {
         $statement = $this->connection()->prepare(
             'SELECT
                 attendance_id,
@@ -287,6 +546,7 @@ final class AttendanceRepository extends MySqlRepository
                AND attendance_date =
                     :attendance_date
              LIMIT 1'
+            . ($lock ? ' FOR UPDATE' : '')
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -300,6 +560,24 @@ final class AttendanceRepository extends MySqlRepository
         return is_array($record)
             ? $record
             : null;
+    }
+
+    private function nextSessionSequence(
+        int $companyId,
+        int $attendanceId
+    ): int {
+        $statement = $this->connection()->prepare(
+            'SELECT COALESCE(MAX(sequence_no), 0) + 1
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+
+        return (int) $statement->fetchColumn();
     }
 
     public function employeeExists(
