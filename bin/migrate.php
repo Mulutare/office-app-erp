@@ -32,6 +32,15 @@ try {
         );
     }
 
+    foreach ($result['baselined'] as $version) {
+        fwrite(
+            STDOUT,
+            'Recorded existing migration '
+            . $version
+            . PHP_EOL
+        );
+    }
+
     foreach ($result['skipped'] as $version) {
         fwrite(
             STDOUT,
@@ -44,8 +53,11 @@ try {
     fwrite(
         STDOUT,
         sprintf(
-            'Migration complete: %d applied, %d unchanged.%s',
+            'Migration complete: %d applied,'
+                . ' %d recorded from existing schema,'
+                . ' %d unchanged.%s',
             count($result['applied']),
+            count($result['baselined']),
             count($result['skipped']),
             PHP_EOL
         )

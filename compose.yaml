@@ -9,7 +9,9 @@ services:
       - /bin/sh
       - -c
       - >-
-        php bin/bootstrap-development-admin.php
+        php bin/migrate.php
+        && php bin/sync-reference-data.php
+        && php bin/bootstrap-development-admin.php
         && exec apache2-foreground
     environment:
       APP_NAME: ${APP_NAME:-OfficeApp ERP}

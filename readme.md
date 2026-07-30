@@ -20,6 +20,9 @@ Start the development application:
 docker compose up --build -d
 ```
 
+Development startup upgrades an existing database and synchronizes current
+role and permission templates before the web server starts.
+
 Open:
 
 ```text
@@ -27,6 +30,13 @@ http://localhost:8080/office_app/public/login
 ```
 
 See `docs/container-operations.md`.
+
+Create an approved sample company with a company owner, reporting manager and
+employee self-service account:
+
+```text
+docker compose exec app php bin/provision-development-sample.php
+```
 
 ## Deployment without Docker
 

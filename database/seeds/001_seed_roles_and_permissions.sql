@@ -48,7 +48,12 @@ VALUES
         'auditor',
         'Read-only audit and compliance access',
         TRUE
-    );
+    )
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    description = VALUES(description),
+    is_system = VALUES(is_system),
+    active = TRUE;
 
 
 INSERT INTO permissions
@@ -131,4 +136,9 @@ VALUES
         'business.records.manage',
         'business',
         'Create and update customers, leads and opportunities'
-    );
+    )
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    module = VALUES(module),
+    description = VALUES(description),
+    active = TRUE;

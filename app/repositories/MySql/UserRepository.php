@@ -116,6 +116,7 @@ class UserRepository extends MySqlRepository
                 memberships.active
                     AS membership_active,
                 memberships.is_default,
+                memberships.manager_user_id,
                 memberships.joined_at,
                 users.must_change_password,
                 users.failed_login_count,

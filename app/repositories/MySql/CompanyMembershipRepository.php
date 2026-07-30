@@ -339,6 +339,31 @@ class CompanyMembershipRepository extends MySqlRepository
         return $statement->fetchColumn() !== false;
     }
 
+    public function updateManager(
+        int $companyId,
+        int $userId,
+        ?int $managerUserId
+    ): void {
+        $statement = $this->connection()->prepare(
+            'UPDATE company_users
+             SET manager_user_id =
+                    :manager_user_id
+             WHERE company_id = :company_id
+               AND user_id = :user_id'
+        );
+        $statement->execute([
+            'manager_user_id' => $managerUserId,
+            'company_id' => $companyId,
+            'user_id' => $userId,
+        ]);
+
+        if ($statement->rowCount() > 1) {
+            throw new \RuntimeException(
+                'The company membership update affected multiple records.'
+            );
+        }
+    }
+
     /**
      * @param list<int> $roleIds
      */

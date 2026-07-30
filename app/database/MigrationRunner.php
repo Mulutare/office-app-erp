@@ -42,6 +42,7 @@ final class MigrationRunner
     /**
      * @return array{
      *     applied: list<string>,
+     *     baselined: list<string>,
      *     skipped: list<string>
      * }
      */
@@ -71,6 +72,7 @@ final class MigrationRunner
 
         $seenVersions = [];
         $applied = [];
+        $baselined = [];
         $skipped = [];
 
         foreach ($files as $file) {
@@ -115,6 +117,31 @@ final class MigrationRunner
                 continue;
             }
 
+            $preflight = $migration['preflight'];
+
+            if ($preflight !== null) {
+                $state = $preflight(
+                    $this->connection
+                );
+
+                if ($state === 'baseline') {
+                    $this->record(
+                        $migration,
+                        $checksum
+                    );
+                    $baselined[] = $version;
+
+                    continue;
+                }
+
+                if ($state !== 'apply') {
+                    throw new RuntimeException(
+                        'Migration preflight returned an invalid state: '
+                        . $version
+                    );
+                }
+            }
+
             $this->apply(
                 $migration,
                 $checksum
@@ -125,6 +152,7 @@ final class MigrationRunner
 
         return [
             'applied' => $applied,
+            'baselined' => $baselined,
             'skipped' => $skipped,
         ];
     }
@@ -173,7 +201,8 @@ final class MigrationRunner
      * @return array{
      *     version: string,
      *     description: string,
-     *     statements: list<string>
+     *     statements: list<string>,
+     *     preflight: (callable(PDO): string)|null
      * }
      */
     private function definition(string $file): array
@@ -189,6 +218,7 @@ final class MigrationRunner
         $version = $migration['version'] ?? null;
         $description = $migration['description'] ?? null;
         $statements = $migration['statements'] ?? null;
+        $preflight = $migration['preflight'] ?? null;
 
         if (
             !is_string($version)
@@ -201,6 +231,10 @@ final class MigrationRunner
             || strlen($description) > 255
             || !is_array($statements)
             || $statements === []
+            || (
+                $preflight !== null
+                && !is_callable($preflight)
+            )
         ) {
             throw new RuntimeException(
                 'A migration definition is invalid.'
@@ -226,6 +260,7 @@ final class MigrationRunner
             'version' => $version,
             'description' => trim($description),
             'statements' => $validatedStatements,
+            'preflight' => $preflight,
         ];
     }
 
@@ -252,7 +287,8 @@ final class MigrationRunner
      * @param array{
      *     version: string,
      *     description: string,
-     *     statements: list<string>
+     *     statements: list<string>,
+     *     preflight: (callable(PDO): string)|null
      * } $migration
      */
     private function apply(
@@ -278,6 +314,24 @@ final class MigrationRunner
             }
         }
 
+        $this->record(
+            $migration,
+            $checksum
+        );
+    }
+
+    /**
+     * @param array{
+     *     version: string,
+     *     description: string,
+     *     statements: list<string>,
+     *     preflight: (callable(PDO): string)|null
+     * } $migration
+     */
+    private function record(
+        array $migration,
+        string $checksum
+    ): void {
         $statement = $this->connection->prepare(
             'INSERT INTO schema_migrations
                 (

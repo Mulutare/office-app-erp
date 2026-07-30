@@ -47,13 +47,28 @@ docker compose logs --tail 100 db
 docker compose down
 ```
 
-Migrations and seeds run when MariaDB initializes an empty development
-volume. Restarting a populated database does not replay initialization.
+The database image initializes an empty volume from the reviewed SQL catalog.
+Before Apache starts, the application also runs checksum-protected forward
+migrations and synchronizes repeatable reference data. This upgrades populated
+development volumes without deleting company or user data.
+
+Create one complete, approved sample tenant after startup:
+
+```powershell
+docker compose exec app php bin/provision-development-sample.php
+```
+
+The command prints one-time temporary passwords for `sample.owner` and
+`sample.employee`. The employee is linked to the company, reporting manager,
+HR employee profile, Employee Self Service role, HR module and Attendance
+module. The command is development-only and refuses to overwrite an existing
+sample company.
 
 ## Disposable integration test
 
-The test stack uses PHP 8.4 and a temporary MariaDB filesystem. It applies
-all migrations, seeds and test-only fixtures before running the test script:
+The test stack uses PHP 8.4 and a temporary MariaDB filesystem. It initializes
+the schema and fixtures, verifies the migration ledger, synchronizes reference
+data a second time to prove repeatability, and then runs the test script:
 
 ```powershell
 docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from app

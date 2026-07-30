@@ -13,12 +13,34 @@ Never run migrations for one engine against another engine.
 
 ## MySQL and MariaDB
 
-The existing MySQL/MariaDB development and test environments continue loading
-the reviewed `.sql` files through `docker/mysql/init/00-officeapp-init.sh` when
-a fresh database volume is created. Existing persistent databases are not
-modified automatically.
+Fresh MySQL/MariaDB development and test databases load the reviewed `.sql`
+schema through `docker/mysql/init/00-officeapp-init.sh`.
 
-This behavior is retained to avoid disrupting the validated local workflow.
+Forward upgrades beginning with version 015 also have checksum-protected PHP
+definitions in:
+
+```text
+database/migrations/mysql/
+```
+
+Run an existing database upgrade with:
+
+```text
+php bin/migrate.php
+php bin/sync-reference-data.php
+```
+
+The migration runner records a fully existing migration as a baseline, applies
+a fully absent migration, and stops on a partial schema. It never guesses how
+to repair partially applied DDL.
+
+The reference-data synchronizer reapplies all additive MySQL role, permission,
+company-grant and default-policy seeds in numeric order. Those seeds are
+repeatable and update existing companies and role holders without creating
+duplicate grants.
+
+Development Compose runs both commands before Apache starts. Production keeps
+migration execution as an explicit operator action.
 
 ## Oracle migration ledger
 
@@ -37,6 +59,8 @@ The runner:
 - records a SHA-256 checksum;
 - skips unchanged applied migrations;
 - stops if an applied migration file was modified;
+- can baseline a verified complete pre-ledger schema;
+- stops when a migration preflight detects partial DDL;
 - does not expose SQL or credentials in its user-facing failure message.
 
 The current Oracle versions are:
@@ -54,6 +78,8 @@ The current Oracle versions are:
 100  tenant-scoped job titles and positions
 110  effective-dated employee position assignments
 120  attendance records and HR leave operations
+130  employee self-service reporting managers and leave access
+140  attendance self-service source and permissions
 ```
 
 ## Running the optional Oracle lab

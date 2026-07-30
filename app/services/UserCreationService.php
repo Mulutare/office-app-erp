@@ -171,8 +171,14 @@ final class UserCreationService
             );
         }
 
+        $connection = \db();
+        $ownsTransaction =
+            !$connection->inTransaction();
+
         try {
-            \db()->beginTransaction();
+            if ($ownsTransaction) {
+                $connection->beginTransaction();
+            }
 
             $roleAssignmentError =
                 $this->privilegeProtection
@@ -183,7 +189,9 @@ final class UserCreationService
                     );
 
             if ($roleAssignmentError !== null) {
-                \db()->rollBack();
+                if ($ownsTransaction) {
+                    $connection->rollBack();
+                }
 
                 return [
                     'successful' => false,
@@ -239,10 +247,15 @@ final class UserCreationService
                 ]
             );
 
-            \db()->commit();
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
         } catch (Throwable $exception) {
-            if (\db()->inTransaction()) {
-                \db()->rollBack();
+            if (
+                $ownsTransaction
+                && $connection->inTransaction()
+            ) {
+                $connection->rollBack();
             }
 
             throw $exception;

@@ -13,6 +13,7 @@ storage/uploads/*
 !storage/uploads/.gitkeep
 
 # Database exports and backups
+storage/backups/
 *.sql.bak
 *_export.sql
 *_backup.sql

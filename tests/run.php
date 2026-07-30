@@ -10,6 +10,8 @@ use App\Database\MigrationRunner;
 use App\Database\MySqlDialect;
 use App\Database\OracleDialect;
 use App\Database\OracleDriver;
+use App\Database\ReferenceDataSynchronizer;
+use App\Database\SqlStatementSplitter;
 use App\Models\CompanyMembership;
 use App\Models\User;
 use App\Repositories\MySql\CompanyMembershipRepository;
@@ -27,6 +29,7 @@ use App\Services\CompanyProvisioningService;
 use App\Services\CompanyUpdateService;
 use App\Services\DashboardService;
 use App\Services\DepartmentCatalogueService;
+use App\Services\DevelopmentSampleCompanyService;
 use App\Services\EmployeeActivityService;
 use App\Services\EmployeeDirectoryService;
 use App\Services\EmployeePositionAssignmentService;
@@ -349,6 +352,134 @@ try {
         'Oracle migrations use Oracle-native flags, text and timestamps'
     );
 
+    $mysqlMigrationFiles = glob(
+        __DIR__
+        . '/../database/migrations/mysql/*.php'
+    );
+    $mysqlMigrationFiles = is_array(
+        $mysqlMigrationFiles
+    )
+        ? $mysqlMigrationFiles
+        : [];
+    sort($mysqlMigrationFiles, SORT_STRING);
+    $mysqlMigrationVersions = [];
+    $mysqlMigrationDefinitionsValid = true;
+
+    foreach ($mysqlMigrationFiles as $migrationFile) {
+        $definition = require $migrationFile;
+
+        if (
+            !is_array($definition)
+            || !is_string(
+                $definition['version'] ?? null
+            )
+            || !is_string(
+                $definition['description'] ?? null
+            )
+            || !is_array(
+                $definition['statements'] ?? null
+            )
+            || !is_callable(
+                $definition['preflight'] ?? null
+            )
+        ) {
+            $mysqlMigrationDefinitionsValid = false;
+
+            continue;
+        }
+
+        $mysqlMigrationVersions[] =
+            $definition['version'];
+    }
+
+    $check(
+        $mysqlMigrationDefinitionsValid
+        && $mysqlMigrationVersions
+            === ['015', '016', '017'],
+        'MySQL forward-migration catalog is ordered and preflight protected'
+    );
+
+    $migrationLedgerCount = (int) db()
+        ->query(
+            'SELECT COUNT(*)
+             FROM schema_migrations
+             WHERE version IN (
+                \'015\',
+                \'016\',
+                \'017\'
+             )'
+        )
+        ->fetchColumn();
+
+    $check(
+        $migrationLedgerCount === 3,
+        'MySQL forward migrations are recorded in the migration ledger'
+    );
+
+    $splitStatements = (
+        new SqlStatementSplitter()
+    )->split(
+        "INSERT INTO example VALUES ('a;b');\n"
+        . "-- ignored ; comment\n"
+        . 'UPDATE example SET value = "c;d";'
+    );
+
+    $check(
+        count($splitStatements) === 2
+        && str_contains(
+            $splitStatements[0],
+            "'a;b'"
+        )
+        && str_contains(
+            $splitStatements[1],
+            '"c;d"'
+        ),
+        'SQL file splitting preserves quoted delimiters and ignores comments'
+    );
+
+    $referenceCountsBefore = db()->query(
+        'SELECT
+            (SELECT COUNT(*) FROM permissions)
+                AS permissions_count,
+            (SELECT COUNT(*) FROM role_permissions)
+                AS role_permissions_count,
+            (
+                SELECT COUNT(*)
+                FROM company_role_permissions
+            ) AS company_role_permissions_count,
+            (SELECT COUNT(*) FROM hr_leave_types)
+                AS leave_types_count'
+    )->fetch(\PDO::FETCH_ASSOC);
+    $synchronization = (
+        new ReferenceDataSynchronizer(
+            db(),
+            'mysql'
+        )
+    )->run(
+        __DIR__ . '/../database/seeds'
+    );
+    $referenceCountsAfter = db()->query(
+        'SELECT
+            (SELECT COUNT(*) FROM permissions)
+                AS permissions_count,
+            (SELECT COUNT(*) FROM role_permissions)
+                AS role_permissions_count,
+            (
+                SELECT COUNT(*)
+                FROM company_role_permissions
+            ) AS company_role_permissions_count,
+            (SELECT COUNT(*) FROM hr_leave_types)
+                AS leave_types_count'
+    )->fetch(\PDO::FETCH_ASSOC);
+
+    $check(
+        count($synchronization['files']) === 13
+        && $synchronization['statementCount'] > 13
+        && $referenceCountsBefore
+            === $referenceCountsAfter,
+        'MySQL reference-data synchronization is repeatable without duplicate grants'
+    );
+
     $check(
         is_file(
             __DIR__ . '/oracle/run.php'
@@ -386,6 +517,7 @@ try {
             'SELECT COUNT(*)
              FROM information_schema.tables
              WHERE table_schema = DATABASE()
+               AND table_name <> \'schema_migrations\'
                AND table_type = \'BASE TABLE\''
         )
         ->fetchColumn();
@@ -2877,6 +3009,161 @@ try {
         && $permissionTargetAfter
             === $permissionTargetBefore,
         'Rejected privilege escalation leaves roles and grants unchanged'
+    );
+
+    $legacyManagerUpdate = (
+        new UserUpdateService()
+    )->update(
+        $tenantATargetUserId,
+        [
+            'username' =>
+                'test_tenant_a_target',
+            'email' =>
+                'tenant-a-target@example.test',
+            'display_name' =>
+                'Test Tenant A Target',
+            'active' => true,
+            'manager_user_id' =>
+                $tenantAActorId,
+            'role_ids' =>
+                $targetRoleIdsBefore,
+        ],
+        $tenantAActorId
+    );
+    $legacyManagerStatement = db()->prepare(
+        'SELECT manager_user_id
+         FROM company_users
+         WHERE company_id = :company_id
+           AND user_id = :user_id'
+    );
+    $legacyManagerStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'user_id' => $tenantATargetUserId,
+    ]);
+
+    $check(
+        $legacyManagerUpdate['successful']
+            === true
+        && (int) $legacyManagerStatement
+            ->fetchColumn() === $tenantAActorId,
+        'Existing tenant users can receive a reporting manager through the edit workflow'
+    );
+
+    $sample = (
+        new DevelopmentSampleCompanyService()
+    )->create((int) $userId);
+    $sampleCompanyId = (int) (
+        $sample['companyId'] ?? 0
+    );
+    $sampleTopology = db()->prepare(
+        'SELECT
+            companies.approval_status,
+            companies.active,
+            employee_user.user_id AS employee_user_id,
+            employee_membership.manager_user_id,
+            owner_user.user_id AS owner_user_id,
+            employee_profile.employee_id,
+            employee_profile.manager_employee_id,
+            owner_profile.employee_id
+                AS owner_employee_id
+         FROM companies
+         INNER JOIN users owner_user
+            ON owner_user.username =
+                :owner_username
+         INNER JOIN users employee_user
+            ON employee_user.username =
+                :employee_username
+         INNER JOIN company_users
+            AS employee_membership
+            ON employee_membership.company_id =
+                companies.company_id
+           AND employee_membership.user_id =
+                employee_user.user_id
+         INNER JOIN hr_employees owner_profile
+            ON owner_profile.company_id =
+                companies.company_id
+           AND owner_profile.user_id =
+                owner_user.user_id
+         INNER JOIN hr_employees employee_profile
+            ON employee_profile.company_id =
+                companies.company_id
+           AND employee_profile.user_id =
+                employee_user.user_id
+         WHERE companies.company_id = :company_id'
+    );
+    $sampleTopology->execute([
+        'owner_username' =>
+            DevelopmentSampleCompanyService::
+                OWNER_USERNAME,
+        'employee_username' =>
+            DevelopmentSampleCompanyService::
+                EMPLOYEE_USERNAME,
+        'company_id' => $sampleCompanyId,
+    ]);
+    $sampleTopology = $sampleTopology->fetch(
+        \PDO::FETCH_ASSOC
+    );
+    $samplePermissions = is_array($sampleTopology)
+        ? (new CompanyMembership())->permissionCodes(
+            (int) $sampleTopology[
+                'employee_user_id'
+            ],
+            $sampleCompanyId
+        )
+        : [];
+
+    $check(
+        $sampleCompanyId > 0
+        && is_array($sampleTopology)
+        && $sampleTopology['approval_status']
+            === 'approved'
+        && !empty($sampleTopology['active'])
+        && (int) $sampleTopology[
+            'manager_user_id'
+        ] === (int) $sampleTopology[
+            'owner_user_id'
+        ]
+        && (int) $sampleTopology[
+            'manager_employee_id'
+        ] === (int) $sampleTopology[
+            'owner_employee_id'
+        ],
+        'Development sample provisioning creates an approved tenant with linked manager and employee records'
+    );
+
+    $check(
+        in_array(
+            'hr.leave.self.request',
+            $samplePermissions,
+            true
+        )
+        && in_array(
+            'attendance.self.record',
+            $samplePermissions,
+            true
+        ),
+        'Development sample employee receives current self-service permissions'
+    );
+
+    $sampleLogin = (new AuthService())->attempt(
+        (string) $sample['employeeUsername'],
+        (string) $sample[
+            'employeeTemporaryPassword'
+        ]
+    );
+
+    $check(
+        $sampleLogin['successful'] === true
+        && !empty(
+            $_SESSION['auth'][
+                'must_change_password'
+            ]
+        )
+        && (
+            $_SESSION['auth']['company']['company_id']
+            ?? null
+        ) === $sampleCompanyId,
+        'Development sample employee can authenticate into only the sample company and must change password'
     );
 } catch (Throwable $exception) {
     $failures++;

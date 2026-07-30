@@ -551,6 +551,11 @@ final class UserAdministrationController
                     $current['profile']['role_ids'];
                 $formData['profile']['active'] =
                     $current['profile']['active'];
+                $formData['profile'][
+                    'manager_user_id'
+                ] = $current['profile'][
+                    'manager_user_id'
+                ] ?? null;
             }
         }
 
@@ -565,12 +570,16 @@ final class UserAdministrationController
             ),
             'pageTitle' => 'Edit User',
             'pageDescription' =>
-                'Update account identity, status and assigned roles.',
+                'Update account identity, reporting manager, status and assigned roles.',
             'contentView' =>
                 'administration.users.edit',
             'user' => $_SESSION['auth'],
             'profile' => $formData['profile'],
             'roles' => $formData['roles'],
+            'managers' =>
+                $formData['managers'],
+            'managerRequired' =>
+                $formData['managerRequired'],
             'isSelf' => $isSelf,
             'isAccessProtected' =>
                 $isAccessProtected,
@@ -606,6 +615,10 @@ final class UserAdministrationController
             'email' => \postString('email'),
             'display_name' =>
                 \postString('display_name'),
+            'manager_user_id' =>
+                \postString(
+                    'manager_user_id'
+                ),
             'active' => isset($_POST['active']),
             'role_ids' =>
                 $_POST['role_ids'] ?? [],

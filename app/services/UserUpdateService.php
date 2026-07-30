@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\CompanyMembership;
 use App\Models\Role;
 use App\Models\User;
 use PDOException;
@@ -14,6 +15,7 @@ final class UserUpdateService
 {
     private User $users;
     private Role $roles;
+    private CompanyMembership $memberships;
     private TenantContext $tenant;
     private AuditLog $auditLogs;
     private PlatformAdministratorProtectionService
@@ -25,6 +27,8 @@ final class UserUpdateService
     {
         $this->users = new User();
         $this->roles = new Role();
+        $this->memberships =
+            new CompanyMembership();
         $this->tenant = new TenantContext();
         $this->auditLogs = new AuditLog();
         $this->platformAdministrators =
@@ -53,6 +57,11 @@ final class UserUpdateService
                 $companyId,
                 $userId
             );
+        $isPrimaryOwner =
+            $this->users->isPrimaryCompanyOwner(
+                $companyId,
+                $userId
+            );
 
         return [
             'profile' => $user,
@@ -62,6 +71,15 @@ final class UserUpdateService
                         $user['is_platform_admin']
                     )
                 ),
+            'managers' =>
+                $this->memberships
+                    ->managerOptions(
+                        $companyId,
+                        $userId
+                    ),
+            'managerRequired' =>
+                empty($user['is_platform_admin'])
+                && !$isPrimaryOwner,
         ];
     }
 
@@ -134,6 +152,22 @@ final class UserUpdateService
             (string) ($input['display_name'] ?? '')
         );
         $active = !empty($input['active']);
+        $managerUserId = $this->integer(
+            $input['manager_user_id'] ?? null
+        );
+        $currentManagerUserId = $this
+            ->nullableInteger(
+                $existing['manager_user_id']
+                    ?? null
+            );
+        $isPrimaryOwner =
+            $this->users->isPrimaryCompanyOwner(
+                $companyId,
+                $userId
+            );
+        $managerRequired =
+            empty($existing['is_platform_admin'])
+            && !$isPrimaryOwner;
         $roleIds = $this->normalizeRoleIds(
             $input['role_ids'] ?? []
         );
@@ -145,6 +179,34 @@ final class UserUpdateService
             $displayName,
             $roleIds
         );
+
+        if (
+            $managerRequired
+            && (
+                $managerUserId < 1
+                || !$this->memberships
+                    ->managerExists(
+                        $companyId,
+                        $managerUserId,
+                        $userId
+                    )
+            )
+        ) {
+            $errors['manager_user_id'] =
+                'Select an active manager from this company.';
+        } elseif (
+            !$managerRequired
+            && $managerUserId > 0
+            && !$this->memberships
+                ->managerExists(
+                    $companyId,
+                    $managerUserId,
+                    $userId
+                )
+        ) {
+            $errors['manager_user_id'] =
+                'Select an active manager from this company.';
+        }
 
         $validRoleIds = $this->roles
             ->validActiveRoleIds(
@@ -206,6 +268,15 @@ final class UserUpdateService
                 $errors['roles'] =
                     'You cannot change your own role assignments.';
             }
+
+            if (
+                $this->nullableManagerId(
+                    $managerUserId
+                ) !== $currentManagerUserId
+            ) {
+                $errors['manager_user_id'] =
+                    'You cannot change your own reporting manager.';
+            }
         }
 
         if ($errors !== []) {
@@ -222,6 +293,8 @@ final class UserUpdateService
             'display_name' =>
                 (string) $existing['display_name'],
             'active' => (bool) $existing['active'],
+            'manager_user_id' =>
+                $currentManagerUserId,
             'role_ids' => $existingRoleIds,
         ];
         $newValues = [
@@ -229,6 +302,10 @@ final class UserUpdateService
             'email' => $email,
             'display_name' => $displayName,
             'active' => $active,
+            'manager_user_id' =>
+                $this->nullableManagerId(
+                    $managerUserId
+                ),
             'role_ids' => $validRoleIds,
         ];
 
@@ -297,6 +374,22 @@ final class UserUpdateService
                     $validRoleIds,
                     $updatedBy
                 );
+            }
+
+            if (
+                $currentManagerUserId
+                !== $newValues[
+                    'manager_user_id'
+                ]
+            ) {
+                $this->memberships
+                    ->updateManager(
+                        $companyId,
+                        $userId,
+                        $newValues[
+                            'manager_user_id'
+                        ]
+                    );
             }
 
             $this->auditLogs->record(
@@ -433,5 +526,37 @@ final class UserUpdateService
         }
 
         return array_values(array_unique($roleIds));
+    }
+
+    private function integer(mixed $value): int
+    {
+        if (is_int($value)) {
+            return max(0, $value);
+        }
+
+        return is_string($value)
+            && ctype_digit($value)
+                ? (int) $value
+                : 0;
+    }
+
+    private function nullableInteger(
+        mixed $value
+    ): ?int {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $value = (int) $value;
+
+        return $value > 0 ? $value : null;
+    }
+
+    private function nullableManagerId(
+        int $managerUserId
+    ): ?int {
+        return $managerUserId > 0
+            ? $managerUserId
+            : null;
     }
 }

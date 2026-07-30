@@ -6,8 +6,12 @@ services:
       context: .
       target: test
     command:
-      - php
-      - tests/run.php
+      - /bin/sh
+      - -c
+      - >-
+        php bin/migrate.php
+        && php bin/sync-reference-data.php
+        && php tests/run.php
     environment:
       APP_NAME: OfficeApp ERP Test
       APP_ENV: testing

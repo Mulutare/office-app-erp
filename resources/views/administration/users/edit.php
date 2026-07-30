@@ -10,6 +10,11 @@ $profile = is_array($data['profile'] ?? null)
 $roles = is_array($data['roles'] ?? null)
     ? $data['roles']
     : [];
+$managers = is_array(
+    $data['managers'] ?? null
+)
+    ? $data['managers']
+    : [];
 $errors = is_array($data['errors'] ?? null)
     ? $data['errors']
     : [];
@@ -21,6 +26,12 @@ $selectedRoles = is_array(
 $isSelf = !empty($data['isSelf']);
 $isAccessProtected = !empty(
     $data['isAccessProtected']
+);
+$managerRequired = !empty(
+    $data['managerRequired']
+);
+$managerUserId = (int) (
+    $profile['manager_user_id'] ?? 0
 );
 ?>
 
@@ -114,6 +125,95 @@ $isAccessProtected = !empty(
                     </small>
                 <?php endif; ?>
             </div>
+
+            <?php if (empty(
+                $profile['is_platform_admin']
+            )): ?>
+                <div class="form-field form-field-wide">
+                    <label for="manager_user_id">
+                        Reporting manager
+                    </label>
+
+                    <select
+                        id="manager_user_id"
+                        name="manager_user_id"
+                        <?= $managerRequired
+                            ? 'required'
+                            : '' ?>
+                        <?= $isSelf
+                            ? 'disabled'
+                            : '' ?>
+                    >
+                        <option value="">
+                            <?= $managerRequired
+                                ? 'Select the employee manager'
+                                : 'No reporting manager' ?>
+                        </option>
+
+                        <?php foreach (
+                            $managers as $manager
+                        ): ?>
+                            <?php
+                            $optionUserId = (int) (
+                                $manager['user_id']
+                                ?? 0
+                            );
+                            ?>
+                            <option
+                                value="<?= e(
+                                    $optionUserId
+                                ) ?>"
+                                <?= $managerUserId
+                                    === $optionUserId
+                                    ? 'selected'
+                                    : '' ?>
+                            >
+                                <?= e(
+                                    $manager[
+                                        'display_name'
+                                    ]
+                                    ?? $manager[
+                                        'username'
+                                    ]
+                                    ?? ''
+                                ) ?>
+                                — <?= e(
+                                    $manager['email']
+                                    ?? ''
+                                ) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+
+                    <?php if ($isSelf): ?>
+                        <input
+                            type="hidden"
+                            name="manager_user_id"
+                            value="<?= e(
+                                $managerUserId > 0
+                                    ? $managerUserId
+                                    : ''
+                            ) ?>"
+                        >
+                        <small class="form-help">
+                            Your reporting manager is maintained
+                            by another company administrator.
+                        </small>
+                    <?php endif; ?>
+
+                    <?php if (!empty(
+                        $errors['manager_user_id']
+                    )): ?>
+                        <small class="field-error">
+                            <?= e(
+                                $errors[
+                                    'manager_user_id'
+                                ]
+                            ) ?>
+                        </small>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         </div>
     </section>
 

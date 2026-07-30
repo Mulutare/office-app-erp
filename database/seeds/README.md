@@ -7,7 +7,14 @@ migration:
 2. `002_assign_system_administrator_permissions.sql`
 3. `003_assign_standard_role_permissions.sql`
 4. Continue through the remaining numbered, additive module seeds,
-   including `011_assign_attendance_leave_permissions.sql`.
+   including `013_assign_attendance_self_service_permissions.sql`.
+
+For a configured MySQL/MariaDB application, run the full repeatable catalog
+with:
+
+```text
+php bin/sync-reference-data.php
+```
 
 The standard-role seed is additive and safe to rerun. It establishes the
 least-privilege baseline while preserving any additional grants configured

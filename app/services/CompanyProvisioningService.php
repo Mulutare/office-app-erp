@@ -236,8 +236,14 @@ final class CompanyProvisioningService
             );
         }
 
+        $connection = \db();
+        $ownsTransaction =
+            !$connection->inTransaction();
+
         try {
-            \db()->beginTransaction();
+            if ($ownsTransaction) {
+                $connection->beginTransaction();
+            }
 
             $companyId = $this->companies
                 ->create(
@@ -323,10 +329,15 @@ final class CompanyProvisioningService
                 $companyId
             );
 
-            \db()->commit();
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
         } catch (Throwable $exception) {
-            if (\db()->inTransaction()) {
-                \db()->rollBack();
+            if (
+                $ownsTransaction
+                && $connection->inTransaction()
+            ) {
+                $connection->rollBack();
             }
 
             if (
@@ -426,8 +437,14 @@ final class CompanyProvisioningService
             ];
         }
 
+        $connection = \db();
+        $ownsTransaction =
+            !$connection->inTransaction();
+
         try {
-            \db()->beginTransaction();
+            if ($ownsTransaction) {
+                $connection->beginTransaction();
+            }
             $changed = $this->companies->approve(
                 $companyId,
                 $approvedBy
@@ -464,10 +481,15 @@ final class CompanyProvisioningService
                 );
             }
 
-            \db()->commit();
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
         } catch (Throwable $exception) {
-            if (\db()->inTransaction()) {
-                \db()->rollBack();
+            if (
+                $ownsTransaction
+                && $connection->inTransaction()
+            ) {
+                $connection->rollBack();
             }
 
             throw $exception;
