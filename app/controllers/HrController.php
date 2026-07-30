@@ -94,6 +94,7 @@ final class HrController
             'hr.leave.self.view',
             'hr.leave.self.request',
             'hr.leave.team.approve',
+            'hr.leave.policy.manage',
         ]);
         $canViewCompanyLeave =
             $this->hasAnyPermission([
@@ -178,6 +179,10 @@ final class HrController
             'canViewDirectory' =>
                 $canViewDirectory,
             'canViewLeave' => $canViewLeave,
+            'canManageLeavePolicies' =>
+                $this->hasAnyPermission([
+                    'hr.leave.policy.manage',
+                ]),
             'canViewTeam' => $canViewLeave,
             'attendanceEnabled' =>
                 $attendanceEnabled,
@@ -732,6 +737,7 @@ final class HrController
                 'hr.leave.self.view',
                 'hr.leave.self.request',
                 'hr.leave.team.approve',
+                'hr.leave.policy.manage',
             ]);
     }
 

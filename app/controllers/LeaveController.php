@@ -81,6 +81,9 @@ final class LeaveController
                 $dashboard['canRequestSelf'],
             'canApprove' =>
                 $dashboard['canApprove'],
+            'canManagePolicies' => $this->can(
+                'hr.leave.policy.manage'
+            ),
             'profileRequired' =>
                 $dashboard['profileRequired'],
             'notice' => \getFlash('leave_notice'),
@@ -148,7 +151,10 @@ final class LeaveController
         \flash('leave_notice', [
             'type' => 'success',
             'message' =>
-                'Leave request was submitted for approval.',
+                ($result['status'] ?? '') ===
+                    'approved'
+                ? 'Leave request was approved automatically under the selected policy.'
+                : 'Leave request was submitted for approval.',
         ]);
         \redirect('/hr/leave');
     }
@@ -229,6 +235,7 @@ final class LeaveController
                 'hr.leave.self.view',
                 'hr.leave.self.request',
                 'hr.leave.team.approve',
+                'hr.leave.policy.manage',
             ]);
     }
 

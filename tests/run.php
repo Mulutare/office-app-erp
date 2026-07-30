@@ -37,6 +37,7 @@ use App\Services\EmployeeUpdateService;
 use App\Services\FinanceDashboardService;
 use App\Services\JobTitleManagementService;
 use App\Services\LeaveManagementService;
+use App\Services\LeavePolicyService;
 use App\Services\ManagerWorkspaceService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\PositionManagementService;
@@ -272,8 +273,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 14,
-        'Oracle migration catalog contains fourteen valid definitions'
+        && count($oracleMigrationFiles) === 15,
+        'Oracle migration catalog contains fifteen valid definitions'
     );
 
     $check(
@@ -299,6 +300,7 @@ try {
                 '120',
                 '130',
                 '140',
+                '150',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -523,8 +525,8 @@ try {
     )->fetch(\PDO::FETCH_ASSOC);
 
     $check(
-        count($synchronization['files']) === 13
-        && $synchronization['statementCount'] > 13
+        count($synchronization['files']) === 14
+        && $synchronization['statementCount'] > 14
         && $referenceCountsBefore
             === $referenceCountsAfter,
         'MySQL reference-data synchronization is repeatable without duplicate grants'
@@ -1015,6 +1017,13 @@ try {
             'organization.positions.manage'
         ),
         'Tenant A administrator has position-management permissions'
+    );
+
+    $check(
+        $tenantAAuthentication->can(
+            'hr.leave.policy.manage'
+        ),
+        'Tenant A administrator has leave-policy management permission'
     );
 
     $tenantAModules = is_array(
@@ -2244,6 +2253,201 @@ try {
             $foreignManagerDecision['notFound']
         ),
         'Manager decision scope fails closed for unassigned requests'
+    );
+
+    $leavePolicies = new LeavePolicyService();
+    $policyListing = $leavePolicies->listing();
+    $policyIds = array_map(
+        static fn (array $policy): int =>
+            (int) (
+                $policy['leave_type_id'] ?? 0
+            ),
+        $policyListing['policies'] ?? []
+    );
+    $foreignPolicy = $leavePolicies->form(970002);
+    $createdPolicy = $leavePolicies->create(
+        [
+            'code' => 'WELLNESS',
+            'name' => 'Wellness Leave',
+            'annual_entitlement' => '3.50',
+            'requires_approval' => false,
+            'active' => true,
+        ],
+        $tenantAActorId
+    );
+    $createdPolicyId = (int) (
+        $createdPolicy['leaveTypeId'] ?? 0
+    );
+    $duplicatePolicy = $leavePolicies->create(
+        [
+            'code' => 'WELLNESS',
+            'name' => 'Alternative Wellness Leave',
+            'annual_entitlement' => '4',
+            'requires_approval' => true,
+            'active' => true,
+        ],
+        $tenantAActorId
+    );
+
+    $check(
+        in_array(970001, $policyIds, true)
+        && !in_array(970002, $policyIds, true)
+        && $foreignPolicy === null,
+        'Leave-policy catalogue and lookup enforce tenant isolation'
+    );
+    $check(
+        $createdPolicy['successful'] === true
+        && $createdPolicyId > 0
+        && $duplicatePolicy['successful'] === false
+        && isset(
+            $duplicatePolicy['errors']['code']
+        ),
+        'Leave policies validate unique company codes'
+    );
+
+    $automaticLeave = $leaveManagement->create(
+        [
+            'employee_id' => '920001',
+            'leave_type_id' =>
+                (string) $createdPolicyId,
+            'start_date' => '2026-10-05',
+            'end_date' => '2026-10-06',
+            'reason' =>
+                'Automatic policy integration request',
+        ],
+        $tenantAActorId
+    );
+    $automaticLeaveStatement = db()->prepare(
+        'SELECT
+            request_status,
+            decision_note,
+            decided_by,
+            decided_at
+         FROM hr_leave_requests
+         WHERE company_id = :company_id
+           AND leave_request_id =
+                :leave_request_id'
+    );
+    $automaticLeaveStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'leave_request_id' => (int) (
+            $automaticLeave['leaveRequestId']
+                ?? 0
+        ),
+    ]);
+    $automaticLeaveRecord =
+        $automaticLeaveStatement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+    $check(
+        $automaticLeave['successful'] === true
+        && ($automaticLeave['status'] ?? null)
+            === 'approved'
+        && is_array($automaticLeaveRecord)
+        && (
+            $automaticLeaveRecord[
+                'request_status'
+            ] ?? null
+        ) === 'approved'
+        && (int) (
+            $automaticLeaveRecord['decided_by']
+                ?? 0
+        ) === $tenantAActorId
+        && !empty(
+            $automaticLeaveRecord['decided_at']
+        ),
+        'Policies without approval automatically approve and record a decision'
+    );
+
+    $updatedPolicy = $leavePolicies->update(
+        $createdPolicyId,
+        [
+            'code' => 'WELLNESS',
+            'name' => 'Wellness and Recovery Leave',
+            'annual_entitlement' => '4.00',
+            'requires_approval' => false,
+            'active' => false,
+        ],
+        $tenantAActorId
+    );
+    $updatedPolicyRecord =
+        $leavePolicies->form($createdPolicyId);
+
+    $check(
+        $updatedPolicy['successful'] === true
+        && !empty($updatedPolicy['changed'])
+        && is_array($updatedPolicyRecord)
+        && (
+            $updatedPolicyRecord['name']
+                ?? null
+        ) === 'Wellness and Recovery Leave'
+        && empty($updatedPolicyRecord['active']),
+        'Used leave policies can be updated and safely deactivated'
+    );
+
+    $pendingPolicyLeave = $leaveManagement->create(
+        [
+            'employee_id' => '920001',
+            'leave_type_id' => '970001',
+            'start_date' => '2026-12-01',
+            'end_date' => '2026-12-02',
+            'reason' =>
+                'Pending policy protection request',
+        ],
+        $tenantAActorId
+    );
+    $blockedPolicyDeactivation =
+        $leavePolicies->update(
+            970001,
+            [
+                'code' => 'ANNUAL',
+                'name' => 'Annual Leave',
+                'annual_entitlement' => '21.00',
+                'requires_approval' => true,
+                'active' => false,
+            ],
+            $tenantAActorId
+        );
+
+    $check(
+        $pendingPolicyLeave['successful'] === true
+        && ($pendingPolicyLeave['status'] ?? null)
+            === 'pending'
+        && $blockedPolicyDeactivation[
+            'successful'
+        ] === false
+        && isset(
+            $blockedPolicyDeactivation[
+                'errors'
+            ]['active']
+        ),
+        'Leave policy deactivation is blocked while requests await approval'
+    );
+
+    $policyAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND module = :module
+           AND table_name = :table_name
+           AND record_id = :record_id
+           AND action IN (
+               \'CREATE_LEAVE_POLICY\',
+               \'UPDATE_LEAVE_POLICY\'
+           )'
+    );
+    $policyAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'module' => 'hr',
+        'table_name' => 'hr_leave_types',
+        'record_id' => (string) $createdPolicyId,
+    ]);
+
+    $check(
+        (int) $policyAuditStatement
+            ->fetchColumn() === 2,
+        'Leave policy changes create tenant-scoped audit events'
     );
 
     $employeeRoleStatement = db()->prepare(

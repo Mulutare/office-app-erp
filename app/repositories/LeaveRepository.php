@@ -14,6 +14,15 @@ interface LeaveRepository
     ): array;
 
     /**
+     * Return the complete tenant policy catalogue, including inactive types.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function leaveTypeCatalog(
+        int $companyId
+    ): array;
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function employeeOptions(
@@ -27,6 +36,50 @@ interface LeaveRepository
         int $companyId,
         int $leaveTypeId
     ): ?array;
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function leaveTypeForManagement(
+        int $companyId,
+        int $leaveTypeId
+    ): ?array;
+
+    public function leaveTypeCodeExists(
+        int $companyId,
+        string $code,
+        ?int $ignoreLeaveTypeId = null
+    ): bool;
+
+    public function leaveTypeNameExists(
+        int $companyId,
+        string $name,
+        ?int $ignoreLeaveTypeId = null
+    ): bool;
+
+    /**
+     * @param array<string, mixed> $values
+     */
+    public function createLeaveType(
+        int $companyId,
+        array $values,
+        int $createdBy
+    ): int;
+
+    /**
+     * @param array<string, mixed> $values
+     */
+    public function updateLeaveType(
+        int $companyId,
+        int $leaveTypeId,
+        array $values,
+        int $updatedBy
+    ): bool;
+
+    public function leaveTypeHasPendingRequests(
+        int $companyId,
+        int $leaveTypeId
+    ): bool;
 
     public function employeeExists(
         int $companyId,

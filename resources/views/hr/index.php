@@ -37,6 +37,9 @@ $canViewDirectory = !empty(
 $canViewLeave = !empty(
     $data['canViewLeave']
 );
+$canManageLeavePolicies = !empty(
+    $data['canManageLeavePolicies']
+);
 $canViewTeam = !empty(
     $data['canViewTeam']
 );
@@ -252,12 +255,22 @@ $totalEmployees = array_sum(array_map(
             </p>
         </div>
         <?php if ($canViewLeave): ?>
-            <a
-                href="/office_app/public/hr/leave"
-                class="workspace-link"
-            >
-                Manage leave
-            </a>
+            <div class="workspace-card-actions">
+                <a
+                    href="/office_app/public/hr/leave"
+                    class="workspace-link"
+                >
+                    Manage leave
+                </a>
+                <?php if ($canManageLeavePolicies): ?>
+                    <a
+                        href="/office_app/public/hr/leave/policies"
+                        class="workspace-link is-secondary"
+                    >
+                        Configure policies
+                    </a>
+                <?php endif; ?>
+            </div>
         <?php else: ?>
             <span class="workspace-link is-disabled">
                 Permission required

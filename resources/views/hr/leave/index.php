@@ -27,6 +27,9 @@ $canRequestSelf = !empty(
     $data['canRequestSelf']
 );
 $canApprove = !empty($data['canApprove']);
+$canManagePolicies = !empty(
+    $data['canManagePolicies']
+);
 $profileRequired = !empty(
     $data['profileRequired']
 );
@@ -70,6 +73,14 @@ $formatDate = static function (mixed $value): string {
     <a href="/office_app/public/hr">HR</a>
     <span aria-hidden="true">/</span>
     <strong>Leave management</strong>
+    <?php if ($canManagePolicies): ?>
+        <a
+            href="/office_app/public/hr/leave/policies"
+            class="breadcrumb-action"
+        >
+            Configure policies
+        </a>
+    <?php endif; ?>
 </nav>
 
 <?php if ($notice !== null): ?>

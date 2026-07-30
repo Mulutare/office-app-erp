@@ -403,6 +403,26 @@ final class LeaveManagementService
             ];
         }
 
+        $leaveType = $this->leave->leaveType(
+            $companyId,
+            (int) $values['leave_type_id']
+        );
+        $requiresApproval =
+            !empty($leaveType['requires_approval']);
+        $requestStatus = $requiresApproval
+            ? 'pending'
+            : 'approved';
+        $values['request_status'] = $requestStatus;
+        $values['decision_note'] = $requiresApproval
+            ? null
+            : 'Automatically approved by leave policy.';
+        $values['decided_by'] = $requiresApproval
+            ? null
+            : $createdBy;
+        $values['decided_at'] = $requiresApproval
+            ? null
+            : date('Y-m-d H:i:s');
+
         $connection = \db();
         $ownsTransaction =
             !$connection->inTransaction();
@@ -420,13 +440,20 @@ final class LeaveManagementService
                 );
             $this->auditLogs->record(
                 $createdBy,
-                'REQUEST_LEAVE',
+                $requiresApproval
+                    ? 'REQUEST_LEAVE'
+                    : 'REQUEST_LEAVE_AUTO_APPROVED',
                 'hr',
                 'hr_leave_requests',
                 (string) $requestId,
                 null,
                 $this->requestValues($values)
-                    + ['request_status' => 'pending'],
+                    + [
+                        'request_status' =>
+                            $requestStatus,
+                        'decision_note' =>
+                            $values['decision_note'],
+                    ],
                 $companyId
             );
 
@@ -448,6 +475,7 @@ final class LeaveManagementService
             'successful' => true,
             'errors' => [],
             'leaveRequestId' => $requestId,
+            'status' => $requestStatus,
         ];
     }
 

@@ -36,6 +36,55 @@ final class LeaveRepository extends MySqlRepository
         return is_array($types) ? $types : [];
     }
 
+    public function leaveTypeCatalog(
+        int $companyId
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                types.leave_type_id,
+                types.code,
+                types.name,
+                types.annual_entitlement,
+                types.requires_approval,
+                types.active,
+                types.created_at,
+                types.updated_at,
+                (
+                    SELECT COUNT(*)
+                    FROM hr_leave_requests requests
+                    WHERE requests.company_id =
+                            types.company_id
+                      AND requests.leave_type_id =
+                            types.leave_type_id
+                ) AS request_count,
+                (
+                    SELECT COUNT(*)
+                    FROM hr_leave_requests pending
+                    WHERE pending.company_id =
+                            types.company_id
+                      AND pending.leave_type_id =
+                            types.leave_type_id
+                      AND pending.request_status =
+                            \'pending\'
+                ) AS pending_request_count
+             FROM hr_leave_types types
+             WHERE types.company_id = :company_id
+               AND types.deleted_at IS NULL
+             ORDER BY
+                types.active DESC,
+                types.name
+             LIMIT 250'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+        $types = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($types) ? $types : [];
+    }
+
     public function employeeOptions(
         int $companyId
     ): array {
@@ -92,6 +141,160 @@ final class LeaveRepository extends MySqlRepository
         );
 
         return is_array($type) ? $type : null;
+    }
+
+    public function leaveTypeForManagement(
+        int $companyId,
+        int $leaveTypeId
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                leave_type_id,
+                code,
+                name,
+                annual_entitlement,
+                requires_approval,
+                active,
+                created_by,
+                updated_by,
+                created_at,
+                updated_at
+             FROM hr_leave_types
+             WHERE company_id = :company_id
+               AND leave_type_id = :leave_type_id
+               AND deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'leave_type_id' => $leaveTypeId,
+        ]);
+        $type = $statement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($type) ? $type : null;
+    }
+
+    public function leaveTypeCodeExists(
+        int $companyId,
+        string $code,
+        ?int $ignoreLeaveTypeId = null
+    ): bool {
+        return $this->leaveTypeValueExists(
+            $companyId,
+            'code',
+            $code,
+            $ignoreLeaveTypeId
+        );
+    }
+
+    public function leaveTypeNameExists(
+        int $companyId,
+        string $name,
+        ?int $ignoreLeaveTypeId = null
+    ): bool {
+        return $this->leaveTypeValueExists(
+            $companyId,
+            'name',
+            $name,
+            $ignoreLeaveTypeId
+        );
+    }
+
+    public function createLeaveType(
+        int $companyId,
+        array $values,
+        int $createdBy
+    ): int {
+        $statement = $this->connection()->prepare(
+            'INSERT INTO hr_leave_types
+                (
+                    company_id,
+                    code,
+                    name,
+                    annual_entitlement,
+                    requires_approval,
+                    active,
+                    created_by,
+                    updated_by
+                )
+             VALUES
+                (
+                    :company_id,
+                    :code,
+                    :name,
+                    :annual_entitlement,
+                    :requires_approval,
+                    :active,
+                    :created_by,
+                    :updated_by
+                )'
+        );
+        $statement->execute(
+            $this->leaveTypeWriteParameters(
+                $companyId,
+                $values,
+                $createdBy
+            )
+        );
+
+        return (int) $this->connection()
+            ->lastInsertId();
+    }
+
+    public function updateLeaveType(
+        int $companyId,
+        int $leaveTypeId,
+        array $values,
+        int $updatedBy
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'UPDATE hr_leave_types
+             SET code = :code,
+                 name = :name,
+                 annual_entitlement =
+                    :annual_entitlement,
+                 requires_approval =
+                    :requires_approval,
+                 active = :active,
+                 updated_by = :updated_by
+             WHERE company_id = :company_id
+               AND leave_type_id = :leave_type_id
+               AND deleted_at IS NULL'
+        );
+        $parameters =
+            $this->leaveTypeWriteParameters(
+                $companyId,
+                $values,
+                $updatedBy
+            );
+        unset($parameters['created_by']);
+        $parameters['leave_type_id'] =
+            $leaveTypeId;
+        $statement->execute($parameters);
+
+        return $statement->rowCount() > 0;
+    }
+
+    public function leaveTypeHasPendingRequests(
+        int $companyId,
+        int $leaveTypeId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'SELECT 1
+             FROM hr_leave_requests
+             WHERE company_id = :company_id
+               AND leave_type_id = :leave_type_id
+               AND request_status = \'pending\'
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'leave_type_id' => $leaveTypeId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
     }
 
     public function employeeExists(
@@ -495,6 +698,9 @@ final class LeaveRepository extends MySqlRepository
                     requested_days,
                     reason,
                     request_status,
+                    decision_note,
+                    decided_by,
+                    decided_at,
                     created_by,
                     updated_by
                 )
@@ -507,7 +713,10 @@ final class LeaveRepository extends MySqlRepository
                     :end_date,
                     :requested_days,
                     :reason,
-                    \'pending\',
+                    :request_status,
+                    :decision_note,
+                    :decided_by,
+                    :decided_at,
                     :created_by,
                     :updated_by
                 )'
@@ -522,6 +731,12 @@ final class LeaveRepository extends MySqlRepository
             'requested_days' =>
                 $values['requested_days'],
             'reason' => $values['reason'],
+            'request_status' =>
+                $values['request_status'],
+            'decision_note' =>
+                $values['decision_note'],
+            'decided_by' => $values['decided_by'],
+            'decided_at' => $values['decided_at'],
             'created_by' => $createdBy,
             'updated_by' => $createdBy,
         ]);
@@ -608,6 +823,78 @@ final class LeaveRepository extends MySqlRepository
                 'updated_by' => $createdBy,
             ]);
         }
+    }
+
+    private function leaveTypeValueExists(
+        int $companyId,
+        string $column,
+        string $value,
+        ?int $ignoreLeaveTypeId
+    ): bool {
+        if (!in_array(
+            $column,
+            ['code', 'name'],
+            true
+        )) {
+            throw new \InvalidArgumentException(
+                'Unsupported leave-policy uniqueness column.'
+            );
+        }
+
+        $sql = 'SELECT 1
+                FROM hr_leave_types
+                WHERE company_id = :company_id
+                  AND ' . $column . ' = :value
+                  AND deleted_at IS NULL';
+        $parameters = [
+            'company_id' => $companyId,
+            'value' => $value,
+        ];
+
+        if ($ignoreLeaveTypeId !== null) {
+            $sql .= '
+                  AND leave_type_id <>
+                        :ignore_leave_type_id';
+            $parameters['ignore_leave_type_id'] =
+                $ignoreLeaveTypeId;
+        }
+
+        $sql .= '
+                LIMIT 1';
+        $statement = $this->connection()->prepare(
+            $sql
+        );
+        $statement->execute($parameters);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     *
+     * @return array<string, mixed>
+     */
+    private function leaveTypeWriteParameters(
+        int $companyId,
+        array $values,
+        int $actorId
+    ): array {
+        return [
+            'company_id' => $companyId,
+            'code' => $values['code'],
+            'name' => $values['name'],
+            'annual_entitlement' =>
+                $values['annual_entitlement'],
+            'requires_approval' =>
+                !empty($values['requires_approval'])
+                    ? 1
+                    : 0,
+            'active' => !empty($values['active'])
+                ? 1
+                : 0,
+            'created_by' => $actorId,
+            'updated_by' => $actorId,
+        ];
     }
 
     /**

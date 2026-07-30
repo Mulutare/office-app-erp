@@ -19,6 +19,7 @@ use App\Controllers\HomeController;
 use App\Controllers\HrController;
 use App\Controllers\JobTitleController;
 use App\Controllers\LeaveController;
+use App\Controllers\LeavePolicyController;
 use App\Controllers\ManagerWorkspaceController;
 use App\Controllers\ModuleAdministrationController;
 use App\Controllers\PositionController;
@@ -38,6 +39,8 @@ $attendanceController =
 $attendanceSelfServiceController =
     new AttendanceSelfServiceController();
 $leaveController = new LeaveController();
+$leavePolicyController =
+    new LeavePolicyController();
 $managerWorkspaceController =
     new ManagerWorkspaceController();
 $hrController = new HrController();
@@ -88,6 +91,26 @@ $router->post(
 $router->post(
     '/hr/leave/decision',
     [$leaveController, 'decide']
+);
+$router->get(
+    '/hr/leave/policies',
+    [$leavePolicyController, 'index']
+);
+$router->get(
+    '/hr/leave/policies/create',
+    [$leavePolicyController, 'create']
+);
+$router->post(
+    '/hr/leave/policies',
+    [$leavePolicyController, 'store']
+);
+$router->get(
+    '/hr/leave/policies/edit',
+    [$leavePolicyController, 'edit']
+);
+$router->post(
+    '/hr/leave/policies/update',
+    [$leavePolicyController, 'update']
 );
 $router->get(
     '/attendance',
