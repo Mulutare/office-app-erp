@@ -56,9 +56,10 @@ The runner:
 - reads only that driver's internal migration directory;
 - creates a `schema_migrations` ledger;
 - validates unique numeric versions;
-- records a SHA-256 checksum;
+- records a SHA-256 checksum after normalizing text line endings;
 - skips unchanged applied migrations;
-- stops if an applied migration file was modified;
+- treats LF and CRLF checkouts identically;
+- stops if an applied migration file was substantively modified;
 - can baseline a verified complete pre-ledger schema;
 - stops when a migration preflight detects partial DDL;
 - does not expose SQL or credentials in its user-facing failure message.

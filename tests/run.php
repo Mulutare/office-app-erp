@@ -416,6 +416,56 @@ try {
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
+    $checksumFixture = tempnam(
+        sys_get_temp_dir(),
+        'officeapp-migration-'
+    );
+
+    if (!is_string($checksumFixture)) {
+        throw new RuntimeException(
+            'Unable to create the migration checksum fixture.'
+        );
+    }
+
+    $checksumMethod = new ReflectionMethod(
+        MigrationRunner::class,
+        'checksum'
+    );
+    $checksumMethod->setAccessible(true);
+    $checksumRunner = new MigrationRunner(
+        db(),
+        'mysql'
+    );
+
+    file_put_contents(
+        $checksumFixture,
+        "<?php\r\nreturn [];\r\n"
+    );
+    $crlfChecksum = $checksumMethod->invoke(
+        $checksumRunner,
+        $checksumFixture
+    );
+
+    file_put_contents(
+        $checksumFixture,
+        "<?php\nreturn [];\n"
+    );
+    $lfChecksum = $checksumMethod->invoke(
+        $checksumRunner,
+        $checksumFixture
+    );
+    unlink($checksumFixture);
+
+    $check(
+        is_string($crlfChecksum)
+        && is_string($lfChecksum)
+        && hash_equals(
+            $crlfChecksum,
+            $lfChecksum
+        ),
+        'Migration checksums are stable across LF and CRLF checkouts'
+    );
+
     $splitStatements = (
         new SqlStatementSplitter()
     )->split(

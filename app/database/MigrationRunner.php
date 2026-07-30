@@ -87,13 +87,7 @@ final class MigrationRunner
             }
 
             $seenVersions[$version] = true;
-            $checksum = hash_file('sha256', $file);
-
-            if (!is_string($checksum)) {
-                throw new RuntimeException(
-                    'The migration checksum could not be calculated.'
-                );
-            }
+            $checksum = $this->checksum($file);
 
             $existingChecksum = $this->appliedChecksum(
                 $version
@@ -281,6 +275,35 @@ final class MigrationRunner
         return is_string($checksum)
             ? rtrim($checksum)
             : null;
+    }
+
+    /**
+     * Hash migration source independently of checkout line-ending style.
+     *
+     * Git may materialize the same reviewed migration with LF or CRLF line
+     * endings. Normalizing text newlines prevents a false modification alert
+     * while preserving checksum protection for every substantive change.
+     */
+    private function checksum(string $file): string
+    {
+        $contents = file_get_contents($file);
+
+        if (!is_string($contents)) {
+            throw new RuntimeException(
+                'The migration checksum could not be calculated.'
+            );
+        }
+
+        $normalizedContents = str_replace(
+            ["\r\n", "\r"],
+            "\n",
+            $contents
+        );
+
+        return hash(
+            'sha256',
+            $normalizedContents
+        );
     }
 
     /**
