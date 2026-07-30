@@ -167,6 +167,7 @@ final class HrController
             'canViewDirectory' =>
                 $canViewDirectory,
             'canViewLeave' => $canViewLeave,
+            'canViewTeam' => $canViewLeave,
             'attendanceEnabled' =>
                 $attendanceEnabled,
             'canViewAttendance' =>

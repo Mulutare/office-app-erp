@@ -74,6 +74,18 @@ interface LeaveRepository
         string $status = ''
     ): array;
 
+    /**
+     * Return calendar-year entitlement usage for one employee.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function balancesForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $yearStart,
+        string $yearEnd
+    ): array;
+
     public function managerCanDecide(
         int $companyId,
         int $managerUserId,

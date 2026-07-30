@@ -18,6 +18,7 @@ use App\Controllers\HomeController;
 use App\Controllers\HrController;
 use App\Controllers\JobTitleController;
 use App\Controllers\LeaveController;
+use App\Controllers\ManagerWorkspaceController;
 use App\Controllers\ModuleAdministrationController;
 use App\Controllers\PositionController;
 use App\Controllers\RoleAdministrationController;
@@ -34,6 +35,8 @@ $auditLogController =
 $attendanceController =
     new AttendanceController();
 $leaveController = new LeaveController();
+$managerWorkspaceController =
+    new ManagerWorkspaceController();
 $hrController = new HrController();
 $employeeActivityController =
     new EmployeeActivityController();
@@ -70,6 +73,10 @@ $router->get(
 $router->get(
     '/hr/leave',
     [$leaveController, 'index']
+);
+$router->get(
+    '/hr/team',
+    [$managerWorkspaceController, 'index']
 );
 $router->post(
     '/hr/leave',

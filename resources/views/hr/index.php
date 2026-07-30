@@ -37,6 +37,9 @@ $canViewDirectory = !empty(
 $canViewLeave = !empty(
     $data['canViewLeave']
 );
+$canViewTeam = !empty(
+    $data['canViewTeam']
+);
 $attendanceEnabled = !empty(
     $data['attendanceEnabled']
 );
@@ -187,6 +190,30 @@ $totalEmployees = array_sum(array_map(
             class="workspace-link"
         >
             Open directory
+        </a>
+    </article>
+    <?php endif; ?>
+
+    <?php if ($canViewTeam): ?>
+    <article class="card hr-workspace-card">
+        <div class="hr-workspace-icon" aria-hidden="true">
+            TM
+        </div>
+        <div>
+            <span class="workspace-status is-live">
+                Employee workspace
+            </span>
+            <h3>My team</h3>
+            <p>
+                Personal leave balances, reporting lines,
+                direct reports and manager approvals.
+            </p>
+        </div>
+        <a
+            href="/office_app/public/hr/team"
+            class="workspace-link"
+        >
+            Open my team
         </a>
     </article>
     <?php endif; ?>

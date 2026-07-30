@@ -784,6 +784,28 @@ $check(
     'HR leave workspace exposes only Tenant A people and policy types'
 );
 
+$tenantAManagerWorkspace = httpRequest(
+    $baseUrl,
+    '/hr/team',
+    $tenantAAdminCookies
+);
+$check(
+    $tenantAManagerWorkspace['status'] === 200
+    && str_contains(
+        $tenantAManagerWorkspace['body'],
+        'Alice TenantA'
+    )
+    && str_contains(
+        $tenantAManagerWorkspace['body'],
+        'Direct reports'
+    )
+    && !str_contains(
+        $tenantAManagerWorkspace['body'],
+        'Bob TenantB'
+    ),
+    'Manager workspace exposes only assigned users in the active company'
+);
+
 $employeeCookies = [];
 $employeeLogin = login(
     $baseUrl,
@@ -799,6 +821,11 @@ $employeeHr = httpRequest(
 $employeeLeave = httpRequest(
     $baseUrl,
     '/hr/leave',
+    $employeeCookies
+);
+$employeeTeam = httpRequest(
+    $baseUrl,
+    '/hr/team',
     $employeeCookies
 );
 $employeeDirectoryAttempt = httpRequest(
@@ -818,6 +845,22 @@ $check(
         'Search employees'
     ),
     'Normal employee sees HR self service without the company directory'
+);
+$check(
+    $employeeTeam['status'] === 200
+    && str_contains(
+        $employeeTeam['body'],
+        'My leave balance'
+    )
+    && str_contains(
+        $employeeTeam['body'],
+        'No direct reports assigned'
+    )
+    && !str_contains(
+        $employeeTeam['body'],
+        'Bob TenantB'
+    ),
+    'Normal employee can open personal team workspace without cross-company visibility'
 );
 $check(
     $employeeLeave['status'] === 200

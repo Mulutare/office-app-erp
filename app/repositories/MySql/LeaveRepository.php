@@ -240,6 +240,63 @@ final class LeaveRepository extends MySqlRepository
         );
     }
 
+    public function balancesForEmployee(
+        int $companyId,
+        int $employeeId,
+        string $yearStart,
+        string $yearEnd
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT
+                types.leave_type_id,
+                types.code,
+                types.name,
+                types.annual_entitlement,
+                COALESCE(SUM(
+                    CASE
+                        WHEN requests.request_status =
+                                \'approved\'
+                         AND requests.start_date >=
+                                :year_start
+                         AND requests.start_date <=
+                                :year_end
+                        THEN requests.requested_days
+                        ELSE 0
+                    END
+                ), 0) AS used_days
+             FROM hr_leave_types types
+             LEFT JOIN hr_leave_requests requests
+               ON requests.company_id =
+                    types.company_id
+              AND requests.leave_type_id =
+                    types.leave_type_id
+              AND requests.employee_id =
+                    :employee_id
+             WHERE types.company_id = :company_id
+               AND types.active = TRUE
+               AND types.deleted_at IS NULL
+             GROUP BY
+                types.leave_type_id,
+                types.code,
+                types.name,
+                types.annual_entitlement
+             ORDER BY types.name'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'year_start' => $yearStart,
+            'year_end' => $yearEnd,
+        ]);
+        $balances = $statement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+        return is_array($balances)
+            ? $balances
+            : [];
+    }
+
     public function managerCanDecide(
         int $companyId,
         int $managerUserId,

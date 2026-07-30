@@ -40,6 +40,10 @@ use App\Repositories\MySql\LeaveRepository
     as MySqlLeaveRepository;
 use App\Repositories\Oracle\LeaveRepository
     as OracleLeaveRepository;
+use App\Repositories\MySql\ManagerTeamRepository
+    as MySqlManagerTeamRepository;
+use App\Repositories\Oracle\ManagerTeamRepository
+    as OracleManagerTeamRepository;
 use RuntimeException;
 
 /**
@@ -47,6 +51,22 @@ use RuntimeException;
  */
 final class RepositoryFactory
 {
+    public static function managerTeams():
+        ManagerTeamRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlManagerTeamRepository();
+        }
+
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleManagerTeamRepository();
+        }
+
+        throw new RuntimeException(
+            'No manager-team repository is available for the configured database driver.'
+        );
+    }
+
     public static function attendance():
         AttendanceRepository
     {

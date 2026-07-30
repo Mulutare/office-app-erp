@@ -33,6 +33,7 @@ use App\Services\EmployeeUpdateService;
 use App\Services\FinanceDashboardService;
 use App\Services\JobTitleManagementService;
 use App\Services\LeaveManagementService;
+use App\Services\ManagerWorkspaceService;
 use App\Services\PlatformAdministratorProtectionService;
 use App\Services\PositionManagementService;
 use App\Services\RolePermissionUpdateService;
@@ -2013,6 +2014,64 @@ try {
         && (int) $createdManagerStatement
             ->fetchColumn() === $tenantAActorId,
         'Tenant user creation persists company and reporting manager'
+    );
+
+    $managerTeamWorkspace =
+        (new ManagerWorkspaceService())->workspace(
+            $tenantAActorId,
+            true
+        );
+    $employeeTeamWorkspace =
+        (new ManagerWorkspaceService())->workspace(
+            910004,
+            true
+        );
+    $managerReportNames = array_map(
+        static fn (array $report): string =>
+            (string) (
+                $report['displayName'] ?? ''
+            ),
+        $managerTeamWorkspace['reports'] ?? []
+    );
+    $employeeBalanceNames = array_map(
+        static fn (array $balance): string =>
+            (string) ($balance['name'] ?? ''),
+        $employeeTeamWorkspace['balances'] ?? []
+    );
+
+    $check(
+        in_array(
+            'Alice TenantA',
+            $managerReportNames,
+            true
+        )
+        && !in_array(
+            'Bob TenantB',
+            $managerReportNames,
+            true
+        )
+        && (
+            $managerTeamWorkspace['summary'][
+                'directReports'
+            ] ?? null
+        ) === count($managerReportNames)
+        && count($managerReportNames) >= 1,
+        'Manager workspace returns only same-company direct reports'
+    );
+    $check(
+        ($employeeTeamWorkspace['reports'] ?? null)
+            === []
+        && in_array(
+            'Annual Leave',
+            $employeeBalanceNames,
+            true
+        )
+        && (
+            $employeeTeamWorkspace['reporting'][
+                'manager_display_name'
+            ] ?? null
+        ) === 'Test Tenant A Administrator',
+        'Employee workspace shows personal balances and reporting line without company directory access'
     );
 
     $financeDashboard =
