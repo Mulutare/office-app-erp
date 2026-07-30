@@ -1345,6 +1345,69 @@ a {
     max-width: 1040px;
 }
 
+.prerequisite-panel,
+.workflow-readiness {
+    display: grid;
+    grid-template-columns:
+        minmax(0, 1fr) minmax(320px, 0.9fr);
+    gap: 24px;
+    max-width: 1040px;
+    margin-bottom: 20px;
+    border: 1px solid #fedf89;
+    background:
+        linear-gradient(135deg, #fffaeb, #ffffff);
+}
+
+.prerequisite-panel h2,
+.workflow-readiness h2 {
+    margin: 6px 0 8px;
+    color: var(--color-primary-dark);
+}
+
+.prerequisite-panel p,
+.workflow-readiness p {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.prerequisite-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.prerequisite-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.prerequisite-item > span {
+    display: grid;
+    grid-row: 1 / 3;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #eaf2ff;
+    color: #1849a9;
+    font-weight: 800;
+    place-items: center;
+}
+
+.prerequisite-item strong,
+.prerequisite-item small {
+    display: block;
+}
+
+.prerequisite-item small {
+    margin-top: 3px;
+    color: var(--color-muted);
+}
+
 .position-organization-grid {
     align-items: start;
 }
@@ -1367,6 +1430,11 @@ a {
     }
 
     .position-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .prerequisite-panel,
+    .workflow-readiness {
         grid-template-columns: 1fr;
     }
 }
@@ -4422,6 +4490,53 @@ a {
 .assignment-form select,
 .assignment-form textarea {
     width: 100%;
+}
+
+.workflow-readiness {
+    grid-template-columns: auto minmax(0, 1fr);
+    max-width: 980px;
+}
+
+.workflow-readiness-icon {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #fef0c7;
+    color: #b54708;
+    font-size: 1.25rem;
+    font-weight: 900;
+    place-items: center;
+}
+
+.workflow-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.workflow-guidance {
+    margin-top: 14px !important;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #f2f4f7;
+    color: var(--color-primary-dark) !important;
+    font-weight: 700;
+}
+
+@media (max-width: 620px) {
+    .workflow-readiness {
+        grid-template-columns: 1fr;
+    }
+
+    .workflow-actions {
+        flex-direction: column;
+    }
+
+    .workflow-actions .btn {
+        width: 100%;
+    }
 }
 
 .assignment-history {

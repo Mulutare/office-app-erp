@@ -1104,8 +1104,43 @@ $check(
     && !str_contains(
         $tenantAAssignmentForm['body'],
         'Tenant B Confidential Position'
+    )
+    && str_contains(
+        $tenantAAssignmentForm['body'],
+        'Create open position'
+    )
+    && str_contains(
+        $tenantAAssignmentForm['body'],
+        'assign_employee_id=920001'
     ),
-    'Tenant A position assignment form exposes only Tenant A headcount'
+    'Tenant A position assignment form exposes only Tenant A headcount and a guided create path'
+);
+
+$guidedPositionCreate = httpRequest(
+    $baseUrl,
+    '/organization/positions/create'
+        . '?assign_employee_id=920001',
+    $tenantAAdminCookies
+);
+$check(
+    $guidedPositionCreate['status'] === 200
+    && str_contains(
+        $guidedPositionCreate['body'],
+        'Employee assignment workflow'
+    )
+    && str_contains(
+        $guidedPositionCreate['body'],
+        'name="assign_employee_id"'
+    )
+    && str_contains(
+        $guidedPositionCreate['body'],
+        'value="920001"'
+    )
+    && preg_match(
+        '/<option\s+value="open"\s+selected/s',
+        $guidedPositionCreate['body']
+    ) === 1,
+    'Guided position creation preserves the employee return context'
 );
 
 $foreignHrPaths = [

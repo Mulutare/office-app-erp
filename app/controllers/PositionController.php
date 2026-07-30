@@ -55,12 +55,19 @@ final class PositionController
     public function create(): void
     {
         $this->requireManagement();
+        $assignEmployeeId =
+            $this->queryInteger(
+                'assign_employee_id'
+            );
         $old = \getFlash('position_create_old');
 
         if (!is_array($old)) {
             $old = [
                 'approved_headcount' => 1,
-                'status' => 'planned',
+                'status' =>
+                    $assignEmployeeId > 0
+                        ? 'open'
+                        : 'planned',
             ];
         }
 
@@ -71,13 +78,18 @@ final class PositionController
             \getFlash(
                 'position_create_errors',
                 []
-            )
+            ),
+            $assignEmployeeId
         );
     }
 
     public function store(): void
     {
         $this->requireManagement();
+        $assignEmployeeId =
+            $this->postInteger(
+                'assign_employee_id'
+            );
 
         if (
             !\verifyCsrfToken(
@@ -89,7 +101,9 @@ final class PositionController
                     'The form session expired. Please try again.',
             ]);
             \redirect(
-                '/organization/positions/create'
+                $this->createPath(
+                    $assignEmployeeId
+                )
             );
         }
 
@@ -106,7 +120,30 @@ final class PositionController
             );
             \flash('position_create_old', $input);
             \redirect(
-                '/organization/positions/create'
+                $this->createPath(
+                    $assignEmployeeId
+                )
+            );
+        }
+
+        if ($assignEmployeeId > 0) {
+            \flash(
+                'employee_position_notice',
+                [
+                    'type' => 'success',
+                    'message' => sprintf(
+                        'Position %s was created as open. Complete the employee assignment below.',
+                        (string) $result[
+                            'positionName'
+                        ]
+                    ),
+                ]
+            );
+            \redirect(
+                '/hr/employees/position?id='
+                . $assignEmployeeId
+                . '&position_id='
+                . (int) $result['positionId']
             );
         }
 
@@ -218,7 +255,8 @@ final class PositionController
         string $mode,
         int $positionId,
         array $old,
-        array $errors
+        array $errors,
+        int $assignEmployeeId = 0
     ): void {
         $isEdit = $mode === 'edit';
         $options = $this->positions->options();
@@ -250,6 +288,8 @@ final class PositionController
                 $options['departments'],
             'jobTitles' => $options['jobTitles'],
             'statuses' => $options['statuses'],
+            'assignEmployeeId' =>
+                $isEdit ? 0 : $assignEmployeeId,
         ]);
     }
 
@@ -310,6 +350,18 @@ final class PositionController
             && ctype_digit($value)
                 ? (int) $value
                 : (is_int($value) ? $value : 0);
+    }
+
+    private function createPath(
+        int $assignEmployeeId
+    ): string {
+        if ($assignEmployeeId < 1) {
+            return '/organization/positions/create';
+        }
+
+        return '/organization/positions/create'
+            . '?assign_employee_id='
+            . $assignEmployeeId;
     }
 
     private function notFound(): never

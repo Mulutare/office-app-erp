@@ -44,12 +44,82 @@ $selectedJobTitle = (string) (
 $selectedStatus = (string) (
     $old['status'] ?? 'planned'
 );
+$assignEmployeeId = (int) (
+    $data['assignEmployeeId'] ?? 0
+);
+$missingPrerequisites = [];
+
+if (!$isEdit && $departments === []) {
+    $missingPrerequisites['departments'] =
+        'Create an active department';
+}
+
+if (!$isEdit && $jobTitles === []) {
+    $missingPrerequisites['job_titles'] =
+        'Create an active job title';
+}
 ?>
 
 <?php if (!empty($errors['form'])): ?>
     <div class="alert alert-danger" role="alert">
         <?= e($errors['form']) ?>
     </div>
+<?php endif; ?>
+
+<?php if ($assignEmployeeId > 0): ?>
+    <div class="alert alert-information" role="status">
+        <strong>Employee assignment workflow</strong>
+        This position will default to
+        <strong>Open</strong>. After creation, you will
+        return to the employee and complete the assignment.
+    </div>
+<?php endif; ?>
+
+<?php if ($missingPrerequisites !== []): ?>
+    <section class="card prerequisite-panel">
+        <div>
+            <span class="eyebrow">
+                Setup required
+            </span>
+            <h2>Complete organization prerequisites</h2>
+            <p>
+                A position must reference controlled company
+                records. Complete the missing catalogues,
+                then return here.
+            </p>
+        </div>
+        <div class="prerequisite-grid">
+            <?php if (isset(
+                $missingPrerequisites['departments']
+            )): ?>
+                <a
+                    href="/office_app/public/organization/departments/create"
+                    class="prerequisite-item"
+                >
+                    <span>1</span>
+                    <strong>Create department</strong>
+                    <small>
+                        Define the organization unit.
+                    </small>
+                </a>
+            <?php endif; ?>
+
+            <?php if (isset(
+                $missingPrerequisites['job_titles']
+            )): ?>
+                <a
+                    href="/office_app/public/organization/job-titles/create"
+                    class="prerequisite-item"
+                >
+                    <span>2</span>
+                    <strong>Create job title</strong>
+                    <small>
+                        Define the job architecture record.
+                    </small>
+                </a>
+            <?php endif; ?>
+        </div>
+    </section>
 <?php endif; ?>
 
 <div class="details-toolbar">
@@ -67,6 +137,16 @@ $selectedStatus = (string) (
     class="card enterprise-form position-form"
 >
     <?= csrfField() ?>
+    <?php if (
+        !$isEdit
+        && $assignEmployeeId > 0
+    ): ?>
+        <input
+            type="hidden"
+            name="assign_employee_id"
+            value="<?= e($assignEmployeeId) ?>"
+        >
+    <?php endif; ?>
     <?php if ($isEdit): ?>
         <input
             type="hidden"
@@ -401,10 +481,20 @@ $selectedStatus = (string) (
         >
             Cancel
         </a>
-        <button type="submit" class="btn btn-primary">
+        <button
+            type="submit"
+            class="btn btn-primary"
+            <?= $missingPrerequisites === []
+                ? ''
+                : 'disabled' ?>
+        >
             <?= $isEdit
                 ? 'Save position changes'
-                : 'Create position' ?>
+                : (
+                    $missingPrerequisites === []
+                        ? 'Create position'
+                        : 'Complete setup first'
+                ) ?>
         </button>
     </div>
 </form>

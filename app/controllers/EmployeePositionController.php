@@ -42,6 +42,31 @@ final class EmployeePositionController
                 'effective_from' =>
                     date('Y-m-d'),
             ];
+
+            $requestedPositionId =
+                $this->queryInteger('position_id');
+            $availablePositionIds = array_map(
+                static fn (array $position): int =>
+                    !empty($position['available'])
+                        ? (int) (
+                            $position['position_id']
+                            ?? 0
+                        )
+                        : 0,
+                $form['positions']
+            );
+
+            if (
+                $requestedPositionId > 0
+                && in_array(
+                    $requestedPositionId,
+                    $availablePositionIds,
+                    true
+                )
+            ) {
+                $old['position_id'] =
+                    (string) $requestedPositionId;
+            }
         }
 
         \view('layouts.app', [
@@ -64,6 +89,11 @@ final class EmployeePositionController
             'employee' => $form['employee'],
             'current' => $form['current'],
             'positions' => $form['positions'],
+            'canManagePositions' =>
+                $this->canManagePositions(),
+            'notice' => \getFlash(
+                'employee_position_notice'
+            ),
             'old' => $old,
             'errors' => \getFlash(
                 'employee_position_errors',
@@ -149,6 +179,15 @@ final class EmployeePositionController
             ->requireTenantPermission(
                 'hr.records.manage'
             );
+    }
+
+    private function canManagePositions(): bool
+    {
+        return in_array(
+            'organization.positions.manage',
+            $_SESSION['auth']['permissions'] ?? [],
+            true
+        );
     }
 
     private function queryInteger(string $key): int

@@ -275,8 +275,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 18,
-        'Oracle migration catalog contains eighteen valid definitions'
+        && count($oracleMigrationFiles) === 19,
+        'Oracle migration catalog contains nineteen valid definitions'
     );
 
     $check(
@@ -306,6 +306,7 @@ try {
                 '160',
                 '170',
                 '180',
+                '190',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -538,11 +539,31 @@ try {
     )->fetch(\PDO::FETCH_ASSOC);
 
     $check(
-        count($synchronization['files']) === 16
-        && $synchronization['statementCount'] > 16
+        count($synchronization['files']) === 17
+        && $synchronization['statementCount'] > 17
         && $referenceCountsBefore
             === $referenceCountsAfter,
         'MySQL reference-data synchronization is repeatable without duplicate grants'
+    );
+
+    $hrJobTitleGrantCount = (int) db()->query(
+        'SELECT COUNT(*)
+         FROM role_permissions grants
+         INNER JOIN roles
+            ON roles.role_id = grants.role_id
+         INNER JOIN permissions
+            ON permissions.permission_id =
+                grants.permission_id
+         WHERE roles.code = \'hr_administrator\'
+           AND permissions.code IN (
+                \'organization.job_titles.view\',
+                \'organization.job_titles.manage\'
+           )'
+    )->fetchColumn();
+
+    $check(
+        $hrJobTitleGrantCount === 2,
+        'HR administrators can maintain job-title prerequisites for position planning'
     );
 
     $check(

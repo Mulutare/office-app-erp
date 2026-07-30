@@ -29,11 +29,30 @@ $employeeId = (int) (
 $selectedPosition = (string) (
     $old['position_id'] ?? ''
 );
+$canManagePositions = !empty(
+    $data['canManagePositions']
+);
+$notice = is_array($data['notice'] ?? null)
+    ? $data['notice']
+    : null;
+$availablePositionCount = count(
+    array_filter(
+        $positions,
+        static fn (array $position): bool =>
+            !empty($position['available'])
+    )
+);
 ?>
 
 <?php if (!empty($errors['form'])): ?>
     <div class="alert alert-danger" role="alert">
         <?= e($errors['form']) ?>
+    </div>
+<?php endif; ?>
+
+<?php if ($notice !== null): ?>
+    <div class="alert alert-success" role="status">
+        <?= e($notice['message'] ?? '') ?>
     </div>
 <?php endif; ?>
 
@@ -46,6 +65,25 @@ $selectedPosition = (string) (
     >
         Back to employee
     </a>
+
+    <?php if ($canManagePositions): ?>
+        <div class="details-actions">
+            <a
+                href="/office_app/public/organization/positions"
+                class="btn btn-secondary"
+            >
+                Position catalogue
+            </a>
+            <a
+                href="/office_app/public/organization/positions/create?assign_employee_id=<?= e(
+                    $employeeId
+                ) ?>"
+                class="btn btn-primary"
+            >
+                Create open position
+            </a>
+        </div>
+    <?php endif; ?>
 </div>
 
 <section class="card assignment-context">
@@ -97,6 +135,53 @@ $selectedPosition = (string) (
     </div>
 </section>
 
+<?php if ($availablePositionCount === 0): ?>
+    <section class="card workflow-readiness">
+        <div class="workflow-readiness-icon">
+            !
+        </div>
+        <div>
+            <span class="eyebrow">
+                Assignment prerequisite
+            </span>
+            <h2>
+                <?= $positions === []
+                    ? 'No open positions are available'
+                    : 'Every open position is at capacity' ?>
+            </h2>
+            <p>
+                <?= $positions === []
+                    ? 'Create an open position before assigning this employee. Position records keep department, job title, location and approved headcount consistent.'
+                    : 'Create another open position or increase approved headcount in the position catalogue before continuing.' ?>
+            </p>
+
+            <?php if ($canManagePositions): ?>
+                <div class="workflow-actions">
+                    <a
+                        href="/office_app/public/organization/positions/create?assign_employee_id=<?= e(
+                            $employeeId
+                        ) ?>"
+                        class="btn btn-primary"
+                    >
+                        Create open position
+                    </a>
+                    <a
+                        href="/office_app/public/organization/positions"
+                        class="btn btn-secondary"
+                    >
+                        Review catalogue
+                    </a>
+                </div>
+            <?php else: ?>
+                <p class="workflow-guidance">
+                    Ask a company owner or HR administrator
+                    with position-management access to create
+                    the required position.
+                </p>
+            <?php endif; ?>
+        </div>
+    </section>
+<?php else: ?>
 <form
     method="post"
     action="/office_app/public/hr/employees/position"
@@ -274,3 +359,4 @@ $selectedPosition = (string) (
         </button>
     </div>
 </form>
+<?php endif; ?>
