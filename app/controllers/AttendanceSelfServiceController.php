@@ -75,6 +75,10 @@ final class AttendanceSelfServiceController
                 $workspace['canCheckIn'],
             'canCheckOut' =>
                 $workspace['canCheckOut'],
+            'canScan' => $workspace['canScan'],
+            'scanRequestKey' => bin2hex(
+                random_bytes(16)
+            ),
             'isWorking' =>
                 $workspace['isWorking'],
             'sessionCount' =>
@@ -133,12 +137,17 @@ final class AttendanceSelfServiceController
 
     public function checkIn(): void
     {
-        $this->recordAction('checkIn');
+        $this->recordAction('scan');
     }
 
     public function checkOut(): void
     {
-        $this->recordAction('checkOut');
+        $this->recordAction('scan');
+    }
+
+    public function scan(): void
+    {
+        $this->recordAction('scan');
     }
 
     public function saveReminders(): void
@@ -366,9 +375,27 @@ final class AttendanceSelfServiceController
             \redirect('/attendance/me');
         }
 
-        $result = $this->attendance->{$method}(
-            $this->actorUserId()
-        );
+        $requestKey = \postString('request_key');
+
+        $userAgent = $_SERVER['HTTP_USER_AGENT']
+            ?? null;
+        $deviceReference = is_string($userAgent)
+            && $userAgent !== ''
+                ? substr(
+                    hash('sha256', $userAgent),
+                    0,
+                    32
+                )
+                : null;
+        $result = $method === 'scan'
+            ? $this->attendance->scan(
+                $this->actorUserId(),
+                $requestKey,
+                $deviceReference
+            )
+            : $this->attendance->{$method}(
+                $this->actorUserId()
+            );
 
         if (!$result['successful']) {
             \flash(
@@ -378,11 +405,28 @@ final class AttendanceSelfServiceController
             \redirect('/attendance/me');
         }
 
+        $eventType = (string) (
+            $result['eventType'] ?? ''
+        );
+        $message = match ($eventType) {
+            'clock_in' =>
+                'Clock-in recorded. Your first scan is now preserved.',
+            'clock_out' =>
+                'Clock-out recorded.',
+            'clock_out_update' =>
+                'Clock-out updated to your latest scan.',
+            default =>
+                'Attendance scan recorded successfully.',
+        };
+
+        if (!empty($result['duplicate'])) {
+            $message =
+                'This attendance request was already processed; no duplicate change was made.';
+        }
+
         \flash('attendance_self_notice', [
             'type' => 'success',
-            'message' => $method === 'checkIn'
-                ? 'Your work session started. The first clock-in remains your arrival time.'
-                : 'Your work session ended. You can clock in again when work resumes.',
+            'message' => $message,
         ]);
         \redirect('/attendance/me');
     }

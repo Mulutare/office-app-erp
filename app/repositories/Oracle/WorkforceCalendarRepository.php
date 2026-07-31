@@ -233,7 +233,11 @@ final class WorkforceCalendarRepository extends OracleRepository
                     :target_work_minutes
                         AS target_work_minutes,
                     :flex_start_minutes
-                        AS flex_start_minutes
+                        AS flex_start_minutes,
+                    :scan_open_before_minutes
+                        AS scan_open_before_minutes,
+                    :scan_close_after_minutes
+                        AS scan_close_after_minutes
                 FROM dual
              ) source
              ON (
@@ -256,7 +260,11 @@ final class WorkforceCalendarRepository extends OracleRepository
                 target.target_work_minutes =
                     source.target_work_minutes,
                 target.flex_start_minutes =
-                    source.flex_start_minutes
+                    source.flex_start_minutes,
+                target.scan_open_before_minutes =
+                    source.scan_open_before_minutes,
+                target.scan_close_after_minutes =
+                    source.scan_close_after_minutes
              WHEN NOT MATCHED THEN INSERT
                 (
                     calendar_id,
@@ -268,7 +276,9 @@ final class WorkforceCalendarRepository extends OracleRepository
                     break_end_time,
                     break_minutes,
                     target_work_minutes,
-                    flex_start_minutes
+                    flex_start_minutes,
+                    scan_open_before_minutes,
+                    scan_close_after_minutes
                 )
              VALUES
                 (
@@ -281,7 +291,9 @@ final class WorkforceCalendarRepository extends OracleRepository
                     source.break_end_time,
                     source.break_minutes,
                     source.target_work_minutes,
-                    source.flex_start_minutes
+                    source.flex_start_minutes,
+                    source.scan_open_before_minutes,
+                    source.scan_close_after_minutes
                 )'
         );
         $statement->execute([
@@ -301,6 +313,10 @@ final class WorkforceCalendarRepository extends OracleRepository
                 $values['target_work_minutes'],
             'flex_start_minutes' =>
                 $values['flex_start_minutes'],
+            'scan_open_before_minutes' =>
+                $values['scan_open_before_minutes'],
+            'scan_close_after_minutes' =>
+                $values['scan_close_after_minutes'],
         ]);
     }
 

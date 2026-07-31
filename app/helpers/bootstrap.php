@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/runtime.php';
+
 $runtimeRequirements = require __DIR__
     . '/../../config/runtime.php';
 $minimumPhpVersion = (string) (
@@ -56,7 +58,7 @@ if (PHP_VERSION_ID < $minimumPhpVersionId) {
     foreach ($requiredExtensions as $extension) {
         if (
             is_string($extension)
-            && !extension_loaded($extension)
+            && !runtimeExtensionLoaded($extension)
         ) {
             $missingExtensions[] = $extension;
         }

@@ -477,6 +477,38 @@ $formatDate = static function (mixed $value): string {
                                     step="5"
                                 >
                             </label>
+                            <label class="form-field">
+                                <span>Scan opens before (min)</span>
+                                <input
+                                    type="number"
+                                    name="days[<?= e(
+                                        $weekday
+                                    ) ?>][scan_open_before_minutes]"
+                                    value="<?= e(
+                                        $day['scan_open_before_minutes']
+                                            ?? 120
+                                    ) ?>"
+                                    min="0"
+                                    max="720"
+                                    step="5"
+                                >
+                            </label>
+                            <label class="form-field">
+                                <span>Scan closes after (min)</span>
+                                <input
+                                    type="number"
+                                    name="days[<?= e(
+                                        $weekday
+                                    ) ?>][scan_close_after_minutes]"
+                                    value="<?= e(
+                                        $day['scan_close_after_minutes']
+                                            ?? 240
+                                    ) ?>"
+                                    min="0"
+                                    max="720"
+                                    step="5"
+                                >
+                            </label>
                         </div>
                     <?php endforeach; ?>
                 </div>

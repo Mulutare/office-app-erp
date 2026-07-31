@@ -26,6 +26,7 @@ final class AttendanceRepository extends MySqlRepository
                 employees.last_name,
                 employees.preferred_name,
                 employees.job_title,
+                employees.department_id,
                 employees.employment_status,
                 departments.name AS department_name,
                 manager.display_name
@@ -442,6 +443,201 @@ final class AttendanceRepository extends MySqlRepository
         return $statement->rowCount() === 1;
     }
 
+    public function syncFirstLastSession(
+        int $companyId,
+        int $attendanceId,
+        int $employeeId,
+        string $checkInAt,
+        ?string $checkOutAt,
+        string $source,
+        int $actorUserId
+    ): int {
+        $current = $this->connection()->prepare(
+            'SELECT session_id, check_in_at
+             FROM attendance_sessions
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = TRUE
+             ORDER BY sequence_no DESC
+             LIMIT 1
+             FOR UPDATE'
+        );
+        $current->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+        $session = $current->fetch(\PDO::FETCH_ASSOC);
+
+        if (
+            is_array($session)
+            && (string) $session['check_in_at']
+                === $checkInAt
+        ) {
+            $update = $this->connection()->prepare(
+                'UPDATE attendance_sessions
+                 SET check_out_at = :check_out_at,
+                     source = :source,
+                     updated_by = :updated_by
+                 WHERE company_id = :company_id
+                   AND attendance_id = :attendance_id
+                   AND session_id = :session_id
+                   AND active = TRUE'
+            );
+            $update->execute([
+                'check_out_at' => $checkOutAt,
+                'source' => $source,
+                'updated_by' => $actorUserId,
+                'company_id' => $companyId,
+                'attendance_id' => $attendanceId,
+                'session_id' => (int) $session['session_id'],
+            ]);
+
+            return (int) $session['session_id'];
+        }
+
+        $invalidate = $this->connection()->prepare(
+            'UPDATE attendance_sessions
+             SET active = FALSE,
+                 invalidated_at = CURRENT_TIMESTAMP,
+                 invalidated_by = :invalidated_by,
+                 updated_by = :updated_by
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+               AND active = TRUE'
+        );
+        $invalidate->execute([
+            'invalidated_by' => $actorUserId,
+            'updated_by' => $actorUserId,
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+        $sessionId = $this->startSession(
+            $companyId,
+            $attendanceId,
+            $employeeId,
+            $checkInAt,
+            $source,
+            $actorUserId
+        );
+
+        if ($checkOutAt !== null) {
+            $this->finishSession(
+                $companyId,
+                $attendanceId,
+                $sessionId,
+                $checkOutAt,
+                $actorUserId
+            );
+        }
+
+        return $sessionId;
+    }
+
+    public function scanEventByRequestKey(
+        int $companyId,
+        int $employeeId,
+        string $requestKey
+    ): ?array {
+        $statement = $this->connection()->prepare(
+            'SELECT *
+             FROM attendance_scan_events
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
+               AND request_key = :request_key
+             LIMIT 1'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'request_key' => $requestKey,
+        ]);
+        $event = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($event) ? $event : null;
+    }
+
+    public function appendScanEvent(
+        int $companyId,
+        int $employeeId,
+        array $values
+    ): int {
+        $statement = $this->connection()->prepare(
+            'INSERT INTO attendance_scan_events
+                (
+                    company_id,
+                    employee_id,
+                    attendance_id,
+                    attendance_date,
+                    request_key,
+                    scanned_at,
+                    timezone,
+                    event_type,
+                    source,
+                    device_reference,
+                    processing_result,
+                    result_reason,
+                    actor_user_id
+                )
+             VALUES
+                (
+                    :company_id,
+                    :employee_id,
+                    :attendance_id,
+                    :attendance_date,
+                    :request_key,
+                    :scanned_at,
+                    :timezone,
+                    :event_type,
+                    :source,
+                    :device_reference,
+                    :processing_result,
+                    :result_reason,
+                    :actor_user_id
+                )'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+            'attendance_id' => $values['attendance_id'] ?? null,
+            'attendance_date' => $values['attendance_date'],
+            'request_key' => $values['request_key'],
+            'scanned_at' => $values['scanned_at'],
+            'timezone' => $values['timezone'],
+            'event_type' => $values['event_type'],
+            'source' => $values['source'],
+            'device_reference' =>
+                $values['device_reference'] ?? null,
+            'processing_result' =>
+                $values['processing_result'],
+            'result_reason' =>
+                $values['result_reason'] ?? null,
+            'actor_user_id' =>
+                $values['actor_user_id'] ?? null,
+        ]);
+
+        return (int) $this->connection()->lastInsertId();
+    }
+
+    public function scanEventsForRecord(
+        int $companyId,
+        int $attendanceId
+    ): array {
+        $statement = $this->connection()->prepare(
+            'SELECT *
+             FROM attendance_scan_events
+             WHERE company_id = :company_id
+               AND attendance_id = :attendance_id
+             ORDER BY scanned_at, event_id'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'attendance_id' => $attendanceId,
+        ]);
+        $events = $statement->fetchAll(\PDO::FETCH_ASSOC);
+
+        return is_array($events) ? $events : [];
+    }
+
     public function replaceSessionsForManualRecord(
         int $companyId,
         int $attendanceId,
@@ -538,6 +734,18 @@ final class AttendanceRepository extends MySqlRepository
                 break_minutes,
                 target_work_minutes,
                 work_variance_minutes,
+                schedule_calendar_id,
+                schedule_timezone,
+                scheduled_start_at,
+                scheduled_end_at,
+                scan_window_start_at,
+                scan_window_end_at,
+                department_id_snapshot,
+                department_name_snapshot,
+                late_minutes,
+                early_departure_minutes,
+                missing_clock_out,
+                schedule_snapshot_json,
                 source,
                 notes
              FROM attendance_records
@@ -602,6 +810,26 @@ final class AttendanceRepository extends MySqlRepository
         return $statement->fetchColumn() !== false;
     }
 
+    public function lockEmployee(
+        int $companyId,
+        int $employeeId
+    ): bool {
+        $statement = $this->connection()->prepare(
+            'SELECT employee_id
+             FROM hr_employees
+             WHERE company_id = :company_id
+               AND employee_id = :employee_id
+               AND deleted_at IS NULL
+             FOR UPDATE'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'employee_id' => $employeeId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
     public function save(
         int $companyId,
         int $employeeId,
@@ -623,6 +851,18 @@ final class AttendanceRepository extends MySqlRepository
                     break_minutes,
                     target_work_minutes,
                     work_variance_minutes,
+                    schedule_calendar_id,
+                    schedule_timezone,
+                    scheduled_start_at,
+                    scheduled_end_at,
+                    scan_window_start_at,
+                    scan_window_end_at,
+                    department_id_snapshot,
+                    department_name_snapshot,
+                    late_minutes,
+                    early_departure_minutes,
+                    missing_clock_out,
+                    schedule_snapshot_json,
                     source,
                     notes,
                     created_by,
@@ -641,6 +881,18 @@ final class AttendanceRepository extends MySqlRepository
                     :break_minutes,
                     :target_work_minutes,
                     :work_variance_minutes,
+                    :schedule_calendar_id,
+                    :schedule_timezone,
+                    :scheduled_start_at,
+                    :scheduled_end_at,
+                    :scan_window_start_at,
+                    :scan_window_end_at,
+                    :department_id_snapshot,
+                    :department_name_snapshot,
+                    :late_minutes,
+                    :early_departure_minutes,
+                    :missing_clock_out,
+                    :schedule_snapshot_json,
                     :source,
                     :notes,
                     :created_by,
@@ -658,6 +910,11 @@ final class AttendanceRepository extends MySqlRepository
                     VALUES(target_work_minutes),
                 work_variance_minutes =
                     VALUES(work_variance_minutes),
+                late_minutes = VALUES(late_minutes),
+                early_departure_minutes =
+                    VALUES(early_departure_minutes),
+                missing_clock_out =
+                    VALUES(missing_clock_out),
                 source = VALUES(source),
                 notes = VALUES(notes),
                 updated_by = VALUES(updated_by)'
@@ -679,6 +936,30 @@ final class AttendanceRepository extends MySqlRepository
                 $values['target_work_minutes'] ?? 0,
             'work_variance_minutes' =>
                 $values['work_variance_minutes'] ?? 0,
+            'schedule_calendar_id' =>
+                $values['schedule_calendar_id'] ?? null,
+            'schedule_timezone' =>
+                $values['schedule_timezone'] ?? null,
+            'scheduled_start_at' =>
+                $values['scheduled_start_at'] ?? null,
+            'scheduled_end_at' =>
+                $values['scheduled_end_at'] ?? null,
+            'scan_window_start_at' =>
+                $values['scan_window_start_at'] ?? null,
+            'scan_window_end_at' =>
+                $values['scan_window_end_at'] ?? null,
+            'department_id_snapshot' =>
+                $values['department_id_snapshot'] ?? null,
+            'department_name_snapshot' =>
+                $values['department_name_snapshot'] ?? null,
+            'late_minutes' =>
+                $values['late_minutes'] ?? 0,
+            'early_departure_minutes' =>
+                $values['early_departure_minutes'] ?? 0,
+            'missing_clock_out' =>
+                !empty($values['missing_clock_out']) ? 1 : 0,
+            'schedule_snapshot_json' =>
+                $values['schedule_snapshot_json'] ?? null,
             'source' => $values['source'],
             'notes' => $values['notes'],
             'created_by' => $updatedBy,

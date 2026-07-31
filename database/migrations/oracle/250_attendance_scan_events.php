@@ -1,0 +1,241 @@
+<?php
+
+declare(strict_types=1);
+
+return [
+    'version' => '250',
+    'description' =>
+        'Create immutable attendance scan events and schedule snapshots',
+    'preflight' => static function (
+        \PDO $connection
+    ): string {
+        $table = $connection->prepare(
+            'SELECT COUNT(*)
+             FROM user_tables
+             WHERE table_name = :table_name'
+        );
+        $table->execute([
+            'table_name' => 'ATTENDANCE_SCAN_EVENTS',
+        ]);
+        $columns = $connection->prepare(
+            'SELECT COUNT(*)
+             FROM user_tab_columns
+             WHERE table_name = :table_name
+               AND column_name IN (
+                    \'SCHEDULE_CALENDAR_ID\',
+                    \'SCHEDULE_TIMEZONE\',
+                    \'SCHEDULED_START_AT\',
+                    \'SCHEDULED_END_AT\',
+                    \'SCAN_WINDOW_START_AT\',
+                    \'SCAN_WINDOW_END_AT\',
+                    \'DEPARTMENT_ID_SNAPSHOT\',
+                    \'DEPARTMENT_NAME_SNAPSHOT\',
+                    \'LATE_MINUTES\',
+                    \'EARLY_DEPARTURE_MINUTES\',
+                    \'MISSING_CLOCK_OUT\',
+                    \'SCHEDULE_SNAPSHOT_JSON\'
+               )'
+        );
+        $columns->execute([
+            'table_name' => 'ATTENDANCE_RECORDS',
+        ]);
+        $calendarColumns = $connection->prepare(
+            'SELECT COUNT(*)
+             FROM user_tab_columns
+             WHERE table_name = :table_name
+               AND column_name IN (
+                    \'SCAN_OPEN_BEFORE_MINUTES\',
+                    \'SCAN_CLOSE_AFTER_MINUTES\'
+               )'
+        );
+        $calendarColumns->execute([
+            'table_name' => 'WORKFORCE_CALENDAR_DAYS',
+        ]);
+        $tableCount = (int) $table->fetchColumn();
+        $recordCount = (int) $columns->fetchColumn();
+        $calendarCount = (int) (
+            $calendarColumns->fetchColumn()
+        );
+
+        if (
+            $tableCount === 0
+            && $recordCount === 0
+            && $calendarCount === 0
+        ) {
+            return 'apply';
+        }
+
+        if (
+            $tableCount === 1
+            && $recordCount === 12
+            && $calendarCount === 2
+        ) {
+            $eventColumns = $connection->prepare(
+                'SELECT COUNT(*)
+                 FROM user_tab_columns
+                 WHERE table_name = :table_name
+                   AND column_name IN (
+                        \'EVENT_ID\',
+                        \'COMPANY_ID\',
+                        \'EMPLOYEE_ID\',
+                        \'ATTENDANCE_ID\',
+                        \'ATTENDANCE_DATE\',
+                        \'REQUEST_KEY\',
+                        \'SCANNED_AT\',
+                        \'TIMEZONE\',
+                        \'EVENT_TYPE\',
+                        \'SOURCE\',
+                        \'DEVICE_REFERENCE\',
+                        \'PROCESSING_RESULT\',
+                        \'RESULT_REASON\',
+                        \'ACTOR_USER_ID\',
+                        \'CREATED_AT\'
+                   )'
+            );
+            $eventColumns->execute([
+                'table_name' =>
+                    'ATTENDANCE_SCAN_EVENTS',
+            ]);
+
+            if ((int) $eventColumns->fetchColumn() === 15) {
+                return 'baseline';
+            }
+        }
+
+        throw new \RuntimeException(
+            'Migration 250 found a partial attendance scan-event schema.'
+        );
+    },
+    'statements' => [
+        <<<'SQL'
+ALTER TABLE workforce_calendar_days ADD (
+    scan_open_before_minutes
+        NUMBER(5) DEFAULT 120 NOT NULL,
+    scan_close_after_minutes
+        NUMBER(5) DEFAULT 240 NOT NULL,
+    CONSTRAINT ck_workforce_day_scan_open
+        CHECK (scan_open_before_minutes BETWEEN 0 AND 720),
+    CONSTRAINT ck_workforce_day_scan_close
+        CHECK (scan_close_after_minutes BETWEEN 0 AND 720)
+)
+SQL,
+        <<<'SQL'
+ALTER TABLE attendance_records ADD (
+    schedule_calendar_id NUMBER(19),
+    schedule_timezone VARCHAR2(64 CHAR),
+    scheduled_start_at TIMESTAMP(6),
+    scheduled_end_at TIMESTAMP(6),
+    scan_window_start_at TIMESTAMP(6),
+    scan_window_end_at TIMESTAMP(6),
+    department_id_snapshot NUMBER(19),
+    department_name_snapshot VARCHAR2(120 CHAR),
+    late_minutes NUMBER(10) DEFAULT 0 NOT NULL,
+    early_departure_minutes NUMBER(10)
+        DEFAULT 0 NOT NULL,
+    missing_clock_out NUMBER(1) DEFAULT 0 NOT NULL,
+    schedule_snapshot_json CLOB,
+    CONSTRAINT ck_attendance_missing_clock_out
+        CHECK (missing_clock_out IN (0, 1)),
+    CONSTRAINT fk_attendance_schedule_calendar
+        FOREIGN KEY (schedule_calendar_id)
+        REFERENCES workforce_calendars(calendar_id)
+        ON DELETE SET NULL
+)
+SQL,
+        <<<'SQL'
+CREATE TABLE attendance_scan_events (
+    event_id NUMBER(19)
+        GENERATED BY DEFAULT ON NULL AS IDENTITY,
+    company_id NUMBER(19) NOT NULL,
+    employee_id NUMBER(19) NOT NULL,
+    attendance_id NUMBER(19),
+    attendance_date DATE NOT NULL,
+    request_key VARCHAR2(64 CHAR) NOT NULL,
+    scanned_at TIMESTAMP(6) NOT NULL,
+    timezone VARCHAR2(64 CHAR) NOT NULL,
+    event_type VARCHAR2(24 CHAR) NOT NULL,
+    source VARCHAR2(20 CHAR) NOT NULL,
+    device_reference VARCHAR2(120 CHAR),
+    processing_result VARCHAR2(20 CHAR) NOT NULL,
+    result_reason VARCHAR2(190 CHAR),
+    actor_user_id NUMBER(19),
+    created_at TIMESTAMP(6)
+        DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT pk_attendance_scan_events
+        PRIMARY KEY (event_id),
+    CONSTRAINT uq_attendance_scan_request
+        UNIQUE (company_id, employee_id, request_key),
+    CONSTRAINT ck_attendance_scan_event_type
+        CHECK (
+            event_type IN (
+                'clock_in',
+                'clock_out',
+                'clock_out_update',
+                'rejected'
+            )
+        ),
+    CONSTRAINT ck_attendance_scan_source
+        CHECK (
+            source IN (
+                'self_service',
+                'device',
+                'import',
+                'manual',
+                'system'
+            )
+        ),
+    CONSTRAINT ck_attendance_scan_result
+        CHECK (
+            processing_result IN (
+                'accepted',
+                'rejected'
+            )
+        ),
+    CONSTRAINT fk_attendance_scan_employee
+        FOREIGN KEY (company_id, employee_id)
+        REFERENCES hr_employees(company_id, employee_id),
+    CONSTRAINT fk_attendance_scan_record
+        FOREIGN KEY (
+            company_id,
+            employee_id,
+            attendance_id
+        )
+        REFERENCES attendance_records (
+            company_id,
+            employee_id,
+            attendance_id
+        ),
+    CONSTRAINT fk_attendance_scan_actor
+        FOREIGN KEY (actor_user_id)
+        REFERENCES users(user_id)
+        ON DELETE SET NULL
+)
+SQL,
+        <<<'SQL'
+CREATE INDEX idx_attendance_scan_record
+    ON attendance_scan_events (
+        company_id,
+        attendance_id,
+        scanned_at
+    )
+SQL,
+        <<<'SQL'
+CREATE INDEX idx_attendance_scan_employee_date
+    ON attendance_scan_events (
+        company_id,
+        employee_id,
+        attendance_date,
+        scanned_at
+    )
+SQL,
+        <<<'SQL'
+CREATE INDEX idx_attendance_scan_result
+    ON attendance_scan_events (
+        company_id,
+        attendance_date,
+        processing_result,
+        event_type
+    )
+SQL,
+    ],
+];

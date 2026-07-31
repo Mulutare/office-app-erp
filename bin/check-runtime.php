@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+require_once __DIR__
+    . '/../app/helpers/runtime.php';
+
 $requirements = require __DIR__
     . '/../config/runtime.php';
 $minimumVersion = (string) (
@@ -55,7 +58,7 @@ if (PHP_VERSION_ID < $minimumVersionId) {
 foreach ($requiredExtensions as $extension) {
     if (
         is_string($extension)
-        && !extension_loaded($extension)
+        && !runtimeExtensionLoaded($extension)
     ) {
         $failures[] = sprintf(
             'Required PHP extension is missing: %s.',

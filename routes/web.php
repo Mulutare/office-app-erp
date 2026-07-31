@@ -174,6 +174,10 @@ $router->post(
     [$attendanceSelfServiceController, 'checkOut']
 );
 $router->post(
+    '/attendance/me/scan',
+    [$attendanceSelfServiceController, 'scan']
+);
+$router->post(
     '/attendance/me/reminders',
     [
         $attendanceSelfServiceController,

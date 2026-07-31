@@ -312,6 +312,10 @@ final class WorkforceCalendarService
         $days = [];
         $errors = [];
         $workingDays = 0;
+        $previousDays = $this->calendars->days(
+            $companyId,
+            $calendarId
+        );
 
         foreach (self::WEEKDAYS as $weekday => $label) {
             $source = is_array(
@@ -347,6 +351,22 @@ final class WorkforceCalendarService
                 FILTER_VALIDATE_INT
             );
             $flex = is_int($flex) ? $flex : -1;
+            $scanOpen = filter_var(
+                $source['scan_open_before_minutes']
+                    ?? 120,
+                FILTER_VALIDATE_INT
+            );
+            $scanOpen = is_int($scanOpen)
+                ? $scanOpen
+                : -1;
+            $scanClose = filter_var(
+                $source['scan_close_after_minutes']
+                    ?? 240,
+                FILTER_VALIDATE_INT
+            );
+            $scanClose = is_int($scanClose)
+                ? $scanClose
+                : -1;
 
             if (
                 $working
@@ -372,6 +392,16 @@ final class WorkforceCalendarService
             if ($flex < 0 || $flex > 240) {
                 $errors['days'] =
                     'Flexible arrival must be between 0 and 240 minutes.';
+            }
+
+            if (
+                $scanOpen < 0
+                || $scanOpen > 720
+                || $scanClose < 0
+                || $scanClose > 720
+            ) {
+                $errors['days'] =
+                    'Attendance scan windows must be between 0 and 720 minutes.';
             }
 
             if (
@@ -425,6 +455,12 @@ final class WorkforceCalendarService
                 'flex_start_minutes' => $working
                     ? $flex
                     : 0,
+                'scan_open_before_minutes' => $working
+                    ? $scanOpen
+                    : 0,
+                'scan_close_after_minutes' => $working
+                    ? $scanClose
+                    : 0,
             ];
         }
 
@@ -465,7 +501,7 @@ final class WorkforceCalendarService
                 'attendance',
                 'workforce_calendar_days',
                 (string) $calendarId,
-                null,
+                ['days' => $previousDays],
                 ['days' => $days],
                 $companyId
             );
@@ -953,6 +989,12 @@ final class WorkforceCalendarService
             ),
             'flexStartMinutes' => (int) (
                 $day['flex_start_minutes'] ?? 0
+            ),
+            'scanOpenBeforeMinutes' => (int) (
+                $day['scan_open_before_minutes'] ?? 120
+            ),
+            'scanCloseAfterMinutes' => (int) (
+                $day['scan_close_after_minutes'] ?? 240
             ),
             'holiday' => $holiday === null
                 ? null

@@ -145,6 +145,11 @@ $canCheckIn = $canRecord
     && !empty($data['canCheckIn']);
 $canCheckOut = $canRecord
     && !empty($data['canCheckOut']);
+$canScan = $canRecord
+    && !empty($data['canScan']);
+$scanRequestKey = (string) (
+    $data['scanRequestKey'] ?? ''
+);
 $canViewTeam = !empty($data['canViewTeam']);
 
 $formatDate = static function (
@@ -582,32 +587,22 @@ $formatDate = static function (
 
             <?php if ($canRecord): ?>
                 <div class="attendance-clock-actions">
-                    <?php if ($canCheckIn): ?>
+                    <?php if ($canScan): ?>
                         <form
                             method="post"
-                            action="/office_app/public/attendance/me/check-in"
+                            action="/office_app/public/attendance/me/scan"
                         >
                             <?= csrfField() ?>
+                            <input
+                                type="hidden"
+                                name="request_key"
+                                value="<?= e($scanRequestKey) ?>"
+                            >
                             <button
                                 type="submit"
                                 class="btn btn-primary"
                             >
-                                <?= $todaySessions === []
-                                    ? 'Clock in now'
-                                    : 'Clock in / resume work' ?>
-                            </button>
-                        </form>
-                    <?php elseif ($canCheckOut): ?>
-                        <form
-                            method="post"
-                            action="/office_app/public/attendance/me/check-out"
-                        >
-                            <?= csrfField() ?>
-                            <button
-                                type="submit"
-                                class="btn btn-primary"
-                            >
-                                Clock out / pause work
+                                Record attendance scan
                             </button>
                         </form>
                     <?php else: ?>
@@ -625,7 +620,7 @@ $formatDate = static function (
                             <span class="section-kicker">
                                 Today’s timeline
                             </span>
-                            <h3>Work sessions</h3>
+                            <h3>Calculated attendance interval</h3>
                         </div>
                         <span class="badge badge-muted">
                             <?= e(count($todaySessions)) ?>

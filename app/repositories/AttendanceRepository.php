@@ -104,6 +104,40 @@ interface AttendanceRepository
     ): bool;
 
     /**
+     * Maintain one calculated first/latest interval while retaining replaced
+     * legacy session rows as inactive evidence.
+     */
+    public function syncFirstLastSession(
+        int $companyId,
+        int $attendanceId,
+        int $employeeId,
+        string $checkInAt,
+        ?string $checkOutAt,
+        string $source,
+        int $actorUserId
+    ): int;
+
+    /** @return array<string, mixed>|null */
+    public function scanEventByRequestKey(
+        int $companyId,
+        int $employeeId,
+        string $requestKey
+    ): ?array;
+
+    /** @param array<string, mixed> $values */
+    public function appendScanEvent(
+        int $companyId,
+        int $employeeId,
+        array $values
+    ): int;
+
+    /** @return list<array<string, mixed>> */
+    public function scanEventsForRecord(
+        int $companyId,
+        int $attendanceId
+    ): array;
+
+    /**
      * Preserve old punch rows as inactive evidence and create the effective
      * manual interval represented by an HR attendance correction.
      */
@@ -117,6 +151,12 @@ interface AttendanceRepository
     ): void;
 
     public function employeeExists(
+        int $companyId,
+        int $employeeId
+    ): bool;
+
+    /** Serialize attendance mutations for one tenant employee. */
+    public function lockEmployee(
         int $companyId,
         int $employeeId
     ): bool;

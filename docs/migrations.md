@@ -91,6 +91,7 @@ The current Oracle versions are:
 220  attendance lunch, flexible-start and net work-policy snapshots
 230  tenant-scoped attendance Web Push subscriptions and delivery outbox
 240  auditable multi-session attendance punches
+250  immutable attendance scans, configured windows and historical snapshots
 ```
 
 ## Running the optional Oracle lab

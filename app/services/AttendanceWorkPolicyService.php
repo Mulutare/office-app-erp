@@ -63,8 +63,43 @@ final class AttendanceWorkPolicyService
         $latestStart = $scheduledStart?->modify(
             '+' . $flex . ' minutes'
         );
+        $scheduledEnd = $this->atLocalTime(
+            $attendanceDate,
+            (string) ($context['endTime'] ?? ''),
+            $timezone
+        );
+
+        if (
+            $scheduledStart !== null
+            && $scheduledEnd !== null
+            && $scheduledEnd <= $scheduledStart
+        ) {
+            $scheduledEnd = $scheduledEnd->modify(
+                '+1 day'
+            );
+        }
+
         $late = $latestStart !== null
             && $checkIn > $latestStart;
+        $lateMinutes = $late
+            ? (int) floor(
+                (
+                    $checkIn->getTimestamp()
+                    - $latestStart->getTimestamp()
+                ) / 60
+            )
+            : 0;
+        $earlyDepartureMinutes =
+            $checkOut !== null
+            && $scheduledEnd !== null
+            && $checkOut < $scheduledEnd
+                ? (int) floor(
+                    (
+                        $scheduledEnd->getTimestamp()
+                        - $checkOut->getTimestamp()
+                    ) / 60
+                )
+                : 0;
         $gross = $checkOut === null
             ? 0
             : max(
@@ -98,6 +133,10 @@ final class AttendanceWorkPolicyService
 
         return [
             'late' => $late,
+            'late_minutes' => $lateMinutes,
+            'early_departure_minutes' =>
+                $earlyDepartureMinutes,
+            'missing_clock_out' => $checkOut === null,
             'gross_minutes' => $gross,
             'break_minutes' => $deductedBreak,
             'work_minutes' => $net,

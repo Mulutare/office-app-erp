@@ -216,7 +216,9 @@ final class WorkforceCalendarRepository extends MySqlRepository
                     break_end_time,
                     break_minutes,
                     target_work_minutes,
-                    flex_start_minutes
+                    flex_start_minutes,
+                    scan_open_before_minutes,
+                    scan_close_after_minutes
                 )
              VALUES
                 (
@@ -229,7 +231,9 @@ final class WorkforceCalendarRepository extends MySqlRepository
                     :break_end_time,
                     :break_minutes,
                     :target_work_minutes,
-                    :flex_start_minutes
+                    :flex_start_minutes,
+                    :scan_open_before_minutes,
+                    :scan_close_after_minutes
                 )
              ON DUPLICATE KEY UPDATE
                 working_day = VALUES(working_day),
@@ -243,7 +247,11 @@ final class WorkforceCalendarRepository extends MySqlRepository
                 target_work_minutes =
                     VALUES(target_work_minutes),
                 flex_start_minutes =
-                    VALUES(flex_start_minutes)'
+                    VALUES(flex_start_minutes),
+                scan_open_before_minutes =
+                    VALUES(scan_open_before_minutes),
+                scan_close_after_minutes =
+                    VALUES(scan_close_after_minutes)'
         );
         $statement->execute([
             'calendar_id' => $calendarId,
@@ -262,6 +270,10 @@ final class WorkforceCalendarRepository extends MySqlRepository
                 $values['target_work_minutes'],
             'flex_start_minutes' =>
                 $values['flex_start_minutes'],
+            'scan_open_before_minutes' =>
+                $values['scan_open_before_minutes'],
+            'scan_close_after_minutes' =>
+                $values['scan_close_after_minutes'],
         ]);
     }
 

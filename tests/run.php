@@ -148,7 +148,7 @@ try {
         }
 
         $check(
-            extension_loaded($extension),
+            runtimeExtensionLoaded($extension),
             'Required extension is loaded: ' . $extension
         );
     }
@@ -376,8 +376,8 @@ try {
     $check(
         class_exists(MigrationRunner::class)
         && $oracleMigrationDefinitionsValid
-        && count($oracleMigrationFiles) === 24,
-        'Oracle migration catalog contains twenty-four valid definitions'
+        && count($oracleMigrationFiles) === 25,
+        'Oracle migration catalog contains twenty-five valid definitions'
     );
 
     $check(
@@ -413,6 +413,7 @@ try {
                 '220',
                 '230',
                 '240',
+                '250',
             ],
         'Oracle migration versions are unique and ordered'
     );
@@ -431,8 +432,8 @@ try {
     );
 
     $check(
-        $oracleTableCount === 36
-        && $oracleIdentityCount === 28,
+        $oracleTableCount === 37
+        && $oracleIdentityCount === 29,
         'Oracle migrations define all tables and generated identifiers'
     );
 
@@ -520,6 +521,7 @@ try {
                 '022',
                 '023',
                 '024',
+                '025',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -538,13 +540,14 @@ try {
                 \'021\',
                 \'022\',
                 \'023\',
-                \'024\'
+                \'024\',
+                \'025\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 10,
+        $migrationLedgerCount === 11,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -725,8 +728,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 36,
-        'All 36 application tables were created'
+        $tableCount === 37,
+        'All 37 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -738,8 +741,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 105,
-        'All 105 foreign-key relationships were created'
+        $foreignKeyCount === 109,
+        'All 109 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -2932,6 +2935,322 @@ try {
             ] ?? null
         ) === 'holiday',
         'Assigned calendars suppress personal attendance reminders on full-day holidays'
+    );
+
+    $scanService = new AttendanceSelfServiceService();
+    $firstScan = $scanService->scan(
+        910004,
+        'scan-test-20260803-first-000001',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-03 08:20:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $secondScan = $scanService->scan(
+        910004,
+        'scan-test-20260803-second-00002',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-03 17:00:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $latestScan = $scanService->scan(
+        910004,
+        'scan-test-20260803-latest-00003',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-03 17:15:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $duplicateLatestScan = $scanService->scan(
+        910004,
+        'scan-test-20260803-latest-00003',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-03 17:16:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $outsideWindowScan = $scanService->scan(
+        910004,
+        'scan-test-20260803-outside-0004',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-03 05:00:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $nextDayScan = $scanService->scan(
+        910004,
+        'scan-test-20260804-first-000005',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-04 08:25:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $scanRecordStatement = db()->prepare(
+        'SELECT
+            attendance_id,
+            check_in_at,
+            check_out_at,
+            schedule_calendar_id,
+            schedule_timezone,
+            scheduled_start_at,
+            scheduled_end_at,
+            scan_window_start_at,
+            scan_window_end_at,
+            department_id_snapshot,
+            department_name_snapshot,
+            late_minutes,
+            early_departure_minutes,
+            missing_clock_out,
+            schedule_snapshot_json
+         FROM attendance_records
+         WHERE company_id = :company_id
+           AND employee_id = :employee_id
+           AND attendance_date = :attendance_date'
+    );
+    $scanRecordStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'employee_id' => 920001,
+        'attendance_date' => '2026-08-03',
+    ]);
+    $scanRecord = $scanRecordStatement->fetch(
+        \PDO::FETCH_ASSOC
+    );
+    $scanEventStatement = db()->prepare(
+        'SELECT event_type, processing_result
+         FROM attendance_scan_events
+         WHERE company_id = :company_id
+           AND employee_id = :employee_id
+           AND attendance_date = :attendance_date
+         ORDER BY scanned_at, event_id'
+    );
+    $scanEventStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'employee_id' => 920001,
+        'attendance_date' => '2026-08-03',
+    ]);
+    $scanEvents = $scanEventStatement->fetchAll(
+        \PDO::FETCH_ASSOC
+    );
+    $activeCalculatedSession = db()->prepare(
+        'SELECT check_in_at, check_out_at
+         FROM attendance_sessions
+         WHERE company_id = :company_id
+           AND attendance_id = :attendance_id
+           AND active = TRUE'
+    );
+    $activeCalculatedSession->execute([
+        'company_id' => $tenantACompanyId,
+        'attendance_id' => (int) (
+            $scanRecord['attendance_id'] ?? 0
+        ),
+    ]);
+    $calculatedSessions =
+        $activeCalculatedSession->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+
+    $check(
+        $firstScan['successful'] === true
+        && ($firstScan['eventType'] ?? null)
+            === 'clock_in'
+        && $secondScan['successful'] === true
+        && ($secondScan['eventType'] ?? null)
+            === 'clock_out'
+        && $latestScan['successful'] === true
+        && ($latestScan['eventType'] ?? null)
+            === 'clock_out_update',
+        'First attendance scan creates clock-in and later scans update clock-out'
+    );
+    $check(
+        is_array($scanRecord)
+        && substr(
+            (string) $scanRecord['check_in_at'],
+            0,
+            19
+        ) === '2026-08-03 08:20:00'
+        && substr(
+            (string) $scanRecord['check_out_at'],
+            0,
+            19
+        ) === '2026-08-03 17:15:00'
+        && count($calculatedSessions) === 1
+        && substr(
+            (string) $calculatedSessions[0][
+                'check_in_at'
+            ],
+            0,
+            19
+        ) === '2026-08-03 08:20:00'
+        && substr(
+            (string) $calculatedSessions[0][
+                'check_out_at'
+            ],
+            0,
+            19
+        ) === '2026-08-03 17:15:00',
+        'Calculated attendance preserves the first clock-in and latest clock-out'
+    );
+    $check(
+        count($scanEvents) === 4
+        && array_column(
+            $scanEvents,
+            'event_type'
+        ) === [
+            'rejected',
+            'clock_in',
+            'clock_out',
+            'clock_out_update',
+        ]
+        && !empty($duplicateLatestScan['duplicate']),
+        'Immutable scan log retains accepted and rejected events while retries remain idempotent'
+    );
+    $check(
+        $outsideWindowScan['successful'] === false
+        && isset($outsideWindowScan['errors']['form']),
+        'Attendance scan outside the configured window is rejected and logged'
+    );
+    $check(
+        $nextDayScan['successful'] === true
+        && ($nextDayScan['attendanceId'] ?? 0)
+            !== ($firstScan['attendanceId'] ?? 0),
+        'A new configured attendance day creates a separate daily record'
+    );
+    $check(
+        (int) ($scanRecord['schedule_calendar_id'] ?? 0)
+            === $calendarId
+        && ($scanRecord['schedule_timezone'] ?? null)
+            === 'Africa/Nairobi'
+        && !empty($scanRecord['scheduled_start_at'])
+        && !empty($scanRecord['scheduled_end_at'])
+        && !empty($scanRecord['scan_window_start_at'])
+        && !empty($scanRecord['scan_window_end_at'])
+        && (int) (
+            $scanRecord['department_id_snapshot']
+            ?? 0
+        ) === 9201
+        && !empty($scanRecord['department_name_snapshot'])
+        && is_array(json_decode(
+            (string) $scanRecord[
+                'schedule_snapshot_json'
+            ],
+            true
+        )),
+        'Attendance result stores reproducible schedule and department snapshots'
+    );
+    $overnightWeek = [];
+
+    foreach (range(1, 7) as $weekday) {
+        $working = $weekday <= 5;
+        $overnightWeek[$weekday] = [
+            'working_day' => $working,
+            'start_time' => $weekday === 1
+                ? '22:00'
+                : ($working ? '08:30' : ''),
+            'end_time' => $weekday === 1
+                ? '06:00'
+                : ($working ? '17:30' : ''),
+            'break_minutes' => $working ? '60' : '0',
+            'scan_open_before_minutes' => '120',
+            'scan_close_after_minutes' => '240',
+        ];
+    }
+
+    $savedOvernightWeek = $workforceCalendars
+        ->saveWeek(
+            $calendarId,
+            $overnightWeek,
+            $tenantAActorId
+        );
+    $overnightFirst = $scanService->scan(
+        910004,
+        'scan-test-overnight-first-00001',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-10 22:05:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $overnightLatest = $scanService->scan(
+        910004,
+        'scan-test-overnight-latest-0002',
+        'integration-browser',
+        new \DateTimeImmutable(
+            '2026-08-11 02:00:00',
+            new \DateTimeZone('Africa/Nairobi')
+        )
+    );
+    $overnightRecord = db()->query(
+        'SELECT attendance_date,
+                check_in_at,
+                check_out_at,
+                scheduled_start_at,
+                scheduled_end_at
+         FROM attendance_records
+         WHERE company_id = '
+            . (int) $tenantACompanyId
+            . ' AND employee_id = 920001
+                AND attendance_date = \'2026-08-10\''
+    )->fetch(\PDO::FETCH_ASSOC);
+    $historicalSnapshot = db()->query(
+        'SELECT scheduled_start_at,
+                schedule_snapshot_json
+         FROM attendance_records
+         WHERE company_id = '
+            . (int) $tenantACompanyId
+            . ' AND employee_id = 920001
+                AND attendance_date = \'2026-08-03\''
+    )->fetch(\PDO::FETCH_ASSOC);
+
+    $check(
+        $savedOvernightWeek['successful'] === true
+        && $overnightFirst['successful'] === true
+        && $overnightLatest['successful'] === true
+        && is_array($overnightRecord)
+        && substr(
+            (string) $overnightRecord['attendance_date'],
+            0,
+            10
+        ) === '2026-08-10'
+        && substr(
+            (string) $overnightRecord['check_out_at'],
+            0,
+            19
+        ) === '2026-08-11 02:00:00'
+        && substr(
+            (string) $overnightRecord['scheduled_end_at'],
+            0,
+            19
+        ) === '2026-08-11 06:00:00',
+        'Overnight scans resolve after midnight to the configured starting attendance day'
+    );
+    $historicalSchedule = is_array($historicalSnapshot)
+        ? json_decode(
+            (string) $historicalSnapshot[
+                'schedule_snapshot_json'
+            ],
+            true
+        )
+        : null;
+    $check(
+        is_array($historicalSnapshot)
+        && substr(
+            (string) $historicalSnapshot[
+                'scheduled_start_at'
+            ],
+            0,
+            19
+        ) === '2026-08-03 08:30:00'
+        && is_array($historicalSchedule)
+        && ($historicalSchedule['startTime'] ?? null)
+            === '08:30',
+        'Schedule changes do not rewrite historical attendance snapshots'
     );
 
     $attendanceNotifications =

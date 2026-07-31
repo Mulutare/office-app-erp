@@ -26,13 +26,15 @@ final class AttendanceSelfServiceService
     private TenantContext $tenant;
     private WorkforceCalendarService $calendars;
     private AttendanceWorkPolicyService $workPolicy;
+    private AttendanceDayResolver $dayResolver;
 
     public function __construct(
         ?AttendanceRepository $attendance = null,
         ?AuditLogWriter $auditLogs = null,
         ?TenantContext $tenant = null,
         ?WorkforceCalendarService $calendars = null,
-        ?AttendanceWorkPolicyService $workPolicy = null
+        ?AttendanceWorkPolicyService $workPolicy = null,
+        ?AttendanceDayResolver $dayResolver = null
     ) {
         $this->attendance = $attendance
             ?? RepositoryFactory::attendance();
@@ -44,6 +46,10 @@ final class AttendanceSelfServiceService
             ?? new WorkforceCalendarService();
         $this->workPolicy = $workPolicy
             ?? new AttendanceWorkPolicyService();
+        $this->dayResolver = $dayResolver
+            ?? new AttendanceDayResolver(
+                $this->calendars
+            );
     }
 
     /**
@@ -172,6 +178,10 @@ final class AttendanceSelfServiceService
                 && $employmentStatus === 'active'
                 && $hasCheckIn
                 && $openSession !== null,
+            'canScan' =>
+                $employeeId > 0
+                && $employmentStatus === 'active'
+                && !$blockedStatus,
         ];
     }
 
@@ -273,6 +283,379 @@ final class AttendanceSelfServiceService
                     $profilesMissing,
             ],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function scan(
+        int $actorUserId,
+        string $requestKey,
+        ?string $deviceReference = null,
+        ?DateTimeImmutable $instant = null
+    ): array {
+        $requestKey = trim($requestKey);
+
+        if (
+            preg_match(
+                '/^[A-Za-z0-9_-]{16,64}$/',
+                $requestKey
+            ) !== 1
+        ) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' =>
+                        'The attendance request identifier is invalid. Refresh and try again.',
+                ],
+            ];
+        }
+
+        $companyId = $this->tenant->companyId();
+        $employee = $this->attendance
+            ->employeeForUser(
+                $companyId,
+                $actorUserId
+            );
+        $employeeId = (int) (
+            $employee['employee_id'] ?? 0
+        );
+
+        if (
+            $employeeId < 1
+            || ($employee['employment_status'] ?? '')
+                !== 'active'
+        ) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' =>
+                        'Your company account must be linked to an active employee profile before recording attendance.',
+                ],
+            ];
+        }
+
+        $resolution = $this->dayResolver
+            ->resolveForUser(
+                $actorUserId,
+                $instant
+            );
+        $attendanceDate = (string) (
+            $resolution['attendanceDate']
+            ?? $resolution['localDate']
+            ?? date('Y-m-d')
+        );
+        $scannedAt = (string) (
+            $resolution['scannedAt']
+            ?? date('Y-m-d H:i:s')
+        );
+        $timezone = (string) (
+            $resolution['timezone']
+            ?? \config('timezone', 'UTC')
+        );
+        $connection = \db();
+        $ownsTransaction = !$connection->inTransaction();
+
+        try {
+            if ($ownsTransaction) {
+                $connection->beginTransaction();
+            }
+
+            if (!$this->attendance->lockEmployee(
+                $companyId,
+                $employeeId
+            )) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'The employee profile is no longer available.'
+                );
+            }
+
+            $duplicate = $this->attendance
+                ->scanEventByRequestKey(
+                    $companyId,
+                    $employeeId,
+                    $requestKey
+                );
+
+            if (is_array($duplicate)) {
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+
+                return [
+                    'successful' =>
+                        ($duplicate['processing_result']
+                            ?? '') === 'accepted',
+                    'duplicate' => true,
+                    'eventType' =>
+                        $duplicate['event_type']
+                            ?? 'rejected',
+                    'attendanceId' => (int) (
+                        $duplicate['attendance_id'] ?? 0
+                    ),
+                    'errors' =>
+                        ($duplicate['processing_result']
+                            ?? '') === 'accepted'
+                            ? []
+                            : [
+                                'form' => (string) (
+                                    $duplicate['result_reason']
+                                    ?? 'The attendance scan was rejected.'
+                                ),
+                            ],
+                ];
+            }
+
+            if (empty($resolution['successful'])) {
+                $message = (string) (
+                    $resolution['message']
+                    ?? 'The attendance scan was rejected.'
+                );
+                $this->appendRejectedScan(
+                    $companyId,
+                    $employeeId,
+                    null,
+                    $attendanceDate,
+                    $requestKey,
+                    $scannedAt,
+                    $timezone,
+                    $deviceReference,
+                    (string) (
+                        $resolution['reason']
+                        ?? 'outside_window'
+                    ) . ': ' . $message,
+                    $actorUserId
+                );
+
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+
+                return [
+                    'successful' => false,
+                    'errors' => ['form' => $message],
+                ];
+            }
+
+            $schedule = is_array(
+                $resolution['schedule'] ?? null
+            )
+                ? $resolution['schedule']
+                : [];
+            $old = $this->attendance->findForUpdate(
+                $companyId,
+                $employeeId,
+                $attendanceDate
+            );
+
+            if (
+                is_array($old)
+                && in_array(
+                    $old['attendance_status'] ?? '',
+                    ['absent', 'on_leave', 'holiday'],
+                    true
+                )
+            ) {
+                $message =
+                    'This attendance day is marked unavailable. Ask HR to review it.';
+                $this->appendRejectedScan(
+                    $companyId,
+                    $employeeId,
+                    (int) ($old['attendance_id'] ?? 0),
+                    $attendanceDate,
+                    $requestKey,
+                    $scannedAt,
+                    $timezone,
+                    $deviceReference,
+                    'attendance_unavailable: ' . $message,
+                    $actorUserId
+                );
+
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+
+                return [
+                    'successful' => false,
+                    'errors' => ['form' => $message],
+                ];
+            }
+
+            $firstScan = !is_array($old)
+                || empty($old['check_in_at']);
+            $checkInAt = $firstScan
+                ? $scannedAt
+                : (string) $old['check_in_at'];
+            $checkOutAt = $firstScan
+                ? null
+                : $scannedAt;
+
+            if (strcmp($scannedAt, $checkInAt) < 0) {
+                $message =
+                    'The scan time is earlier than the preserved first clock-in.';
+                $this->appendRejectedScan(
+                    $companyId,
+                    $employeeId,
+                    (int) ($old['attendance_id'] ?? 0),
+                    $attendanceDate,
+                    $requestKey,
+                    $scannedAt,
+                    $timezone,
+                    $deviceReference,
+                    'scan_before_clock_in: ' . $message,
+                    $actorUserId
+                );
+
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+
+                return [
+                    'successful' => false,
+                    'errors' => ['form' => $message],
+                ];
+            }
+
+            $metrics = $this->workPolicy->evaluate(
+                $schedule,
+                $attendanceDate,
+                $checkInAt,
+                $checkOutAt
+            );
+            $eventType = $firstScan
+                ? 'clock_in'
+                : (empty($old['check_out_at'])
+                    ? 'clock_out'
+                    : 'clock_out_update');
+            $snapshot = json_encode(
+                $schedule,
+                JSON_THROW_ON_ERROR
+            );
+            $values = [
+                'attendance_status' =>
+                    ($old['attendance_status'] ?? '')
+                        === 'remote'
+                            ? 'remote'
+                            : (!empty($metrics['late'])
+                                ? 'late'
+                                : 'present'),
+                'check_in_at' => $checkInAt,
+                'check_out_at' => $checkOutAt,
+                'work_minutes' =>
+                    (int) $metrics['work_minutes'],
+                'gross_minutes' =>
+                    (int) $metrics['gross_minutes'],
+                'break_minutes' =>
+                    (int) $metrics['break_minutes'],
+                'target_work_minutes' =>
+                    (int) $metrics['target_work_minutes'],
+                'work_variance_minutes' =>
+                    (int) $metrics['work_variance_minutes'],
+                'schedule_calendar_id' =>
+                    (int) ($schedule['calendarId'] ?? 0)
+                        ?: null,
+                'schedule_timezone' => $timezone,
+                'scheduled_start_at' =>
+                    $schedule['scheduledStartAt'] ?? null,
+                'scheduled_end_at' =>
+                    $schedule['scheduledEndAt'] ?? null,
+                'scan_window_start_at' =>
+                    $schedule['scanWindowStartAt'] ?? null,
+                'scan_window_end_at' =>
+                    $schedule['scanWindowEndAt'] ?? null,
+                'department_id_snapshot' =>
+                    (int) ($employee['department_id'] ?? 0)
+                        ?: null,
+                'department_name_snapshot' =>
+                    $employee['department_name'] ?? null,
+                'late_minutes' =>
+                    (int) ($metrics['late_minutes'] ?? 0),
+                'early_departure_minutes' =>
+                    (int) (
+                        $metrics['early_departure_minutes']
+                        ?? 0
+                    ),
+                'missing_clock_out' =>
+                    !empty($metrics['missing_clock_out']),
+                'schedule_snapshot_json' => $snapshot,
+                'source' => 'self_service',
+                'notes' => $old['notes'] ?? null,
+            ];
+            $attendanceId = $this->attendance->save(
+                $companyId,
+                $employeeId,
+                $attendanceDate,
+                $values,
+                $actorUserId
+            );
+            $sessionId = $this->attendance
+                ->syncFirstLastSession(
+                    $companyId,
+                    $attendanceId,
+                    $employeeId,
+                    $checkInAt,
+                    $checkOutAt,
+                    'self_service',
+                    $actorUserId
+                );
+            $eventId = $this->attendance
+                ->appendScanEvent(
+                    $companyId,
+                    $employeeId,
+                    [
+                        'attendance_id' => $attendanceId,
+                        'attendance_date' => $attendanceDate,
+                        'request_key' => $requestKey,
+                        'scanned_at' => $scannedAt,
+                        'timezone' => $timezone,
+                        'event_type' => $eventType,
+                        'source' => 'self_service',
+                        'device_reference' =>
+                            $deviceReference,
+                        'processing_result' =>
+                            'accepted',
+                        'result_reason' => null,
+                        'actor_user_id' => $actorUserId,
+                    ]
+                );
+            $this->auditLogs->record(
+                $actorUserId,
+                strtoupper($eventType),
+                'attendance',
+                'attendance_records',
+                (string) $attendanceId,
+                $old,
+                $values + [
+                    'event_id' => $eventId,
+                    'session_id' => $sessionId,
+                ],
+                $companyId
+            );
+
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
+
+            return [
+                'successful' => true,
+                'duplicate' => false,
+                'eventType' => $eventType,
+                'attendanceId' => $attendanceId,
+                'eventId' => $eventId,
+                'errors' => [],
+            ];
+        } catch (Throwable $exception) {
+            if (
+                $ownsTransaction
+                && $connection->inTransaction()
+            ) {
+                $connection->rollBack();
+            }
+
+            throw $exception;
+        }
     }
 
     /**
@@ -781,6 +1164,42 @@ final class AttendanceSelfServiceService
             'successful' => false,
             'errors' => ['form' => $message],
         ];
+    }
+
+    private function appendRejectedScan(
+        int $companyId,
+        int $employeeId,
+        ?int $attendanceId,
+        string $attendanceDate,
+        string $requestKey,
+        string $scannedAt,
+        string $timezone,
+        ?string $deviceReference,
+        string $reason,
+        int $actorUserId
+    ): int {
+        return $this->attendance->appendScanEvent(
+            $companyId,
+            $employeeId,
+            [
+                'attendance_id' => $attendanceId,
+                'attendance_date' => $attendanceDate,
+                'request_key' => $requestKey,
+                'scanned_at' => $scannedAt,
+                'timezone' => $timezone,
+                'event_type' => 'rejected',
+                'source' => 'self_service',
+                'device_reference' =>
+                    $deviceReference,
+                'processing_result' => 'rejected',
+                'result_reason' => mb_substr(
+                    $reason,
+                    0,
+                    190
+                ),
+                'actor_user_id' => $actorUserId,
+            ]
+        );
     }
 
     /**
