@@ -24,6 +24,19 @@ Run integration dispatch every minute in production. Only one invocation is
 normally required, but duplicate invocations are safe because module handlers
 use unique business keys.
 
+## Sales daily operation
+
+1. Maintain customers, telecom products, territories and DSA/DSP records.
+2. Register IMEI, ICCID, device or voucher serials for tracked products.
+3. Save incomplete orders as drafts or submit complete orders for approval.
+4. An authorized approver approves, fulfils or cancels orders.
+5. Record receipts only after approval.
+6. Approve accrued commissions and mark them paid after external settlement.
+7. Review receivables, overdue balances and target achievement daily.
+
+Order approval creates the events consumed by Finance and Inventory. Run the
+dispatcher every minute and monitor failed events.
+
 ## Platform password recovery
 
 Platform administrators can open a customer company, review its users and

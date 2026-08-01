@@ -37,6 +37,9 @@ final class SalesController
             'canCreateOrders' => $this->can('sales.orders.create'),
             'canRecordPayments' => $this->can('sales.payments.record'),
             'canManageTargets' => $this->can('sales.targets.manage'),
+            'canApproveOrders' => $this->can('sales.orders.approve'),
+            'canManageSerials' => $this->can('sales.serials.manage'),
+            'canManageCommissions' => $this->can('sales.commissions.manage'),
         ] + $workspace);
     }
 
@@ -136,6 +139,39 @@ final class SalesController
         $this->finish(
             $this->sales->recordPayment((int) $input['order_id'], $input, $this->actorId()),
             'payment', 'Payment recorded and receivable updated.', $input
+        );
+    }
+
+    public function transitionOrder(): void
+    {
+        $this->authorize('sales.orders.approve');
+        $this->requireCsrf('order_action');
+        $input = $this->input(['order_id', 'action', 'reason']);
+        $this->finish(
+            $this->sales->transitionOrder((int) $input['order_id'], $input['action'], $input['reason'] ?: null, $this->actorId()),
+            'order_action', 'Order status updated successfully.', $input
+        );
+    }
+
+    public function storeSerialNumbers(): void
+    {
+        $this->authorize('sales.serials.manage');
+        $this->requireCsrf('serials');
+        $input = $this->input(['product_id', 'serial_numbers']);
+        $this->finish(
+            $this->sales->registerSerialNumbers($input, $this->actorId()),
+            'serials', 'Serial numbers registered successfully.', $input
+        );
+    }
+
+    public function transitionCommission(): void
+    {
+        $this->authorize('sales.commissions.manage');
+        $this->requireCsrf('commission_action');
+        $input = $this->input(['commission_id', 'action']);
+        $this->finish(
+            $this->sales->transitionCommission((int) $input['commission_id'], $input['action'], $this->actorId()),
+            'commission_action', 'Commission status updated successfully.', $input
         );
     }
 

@@ -525,6 +525,7 @@ try {
                 '026',
                 '027',
                 '028',
+                '029',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -547,13 +548,14 @@ try {
                 \'025\',
                 \'026\',
                 \'027\',
-                \'028\'
+                \'028\',
+                \'029\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 14,
+        $migrationLedgerCount === 15,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -664,8 +666,8 @@ try {
     )->fetch(\PDO::FETCH_ASSOC);
 
     $check(
-        count($synchronization['files']) === 18
-        && $synchronization['statementCount'] > 18
+        count($synchronization['files']) === 19
+        && $synchronization['statementCount'] > 19
         && $referenceCountsBefore
             === $referenceCountsAfter,
         'MySQL reference-data synchronization is repeatable without duplicate grants'
@@ -734,8 +736,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 50,
-        'All 50 application tables were created'
+        $tableCount === 52,
+        'All 52 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -747,8 +749,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 151,
-        'All 151 foreign-key relationships were created'
+        $foreignKeyCount === 162,
+        'All 162 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();

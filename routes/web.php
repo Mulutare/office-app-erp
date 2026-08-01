@@ -222,6 +222,9 @@ $router->post('/sales/territories', [$salesController, 'storeTerritory']);
 $router->post('/sales/agents', [$salesController, 'storeAgent']);
 $router->post('/sales/targets', [$salesController, 'storeTarget']);
 $router->post('/sales/orders', [$salesController, 'storeOrder']);
+$router->post('/sales/orders/action', [$salesController, 'transitionOrder']);
+$router->post('/sales/serials', [$salesController, 'storeSerialNumbers']);
+$router->post('/sales/commissions/action', [$salesController, 'transitionCommission']);
 $router->post('/sales/payments', [$salesController, 'recordPayment']);
 $router->get('/sales/export', [$salesController, 'export']);
 $router->get(

@@ -27,6 +27,17 @@ interface SalesRepository
     /** @return list<array<string, mixed>> */
     public function targets(int $companyId): array;
 
+    /** @return list<array<string, mixed>> */
+    public function commissions(int $companyId): array;
+
+    /** @return list<array<string, mixed>> */
+    public function serialNumbers(int $companyId): array;
+
+    public function customerOutstanding(
+        int $companyId,
+        int $customerId
+    ): float;
+
     /** @param array<string, mixed> $values */
     public function createCustomer(int $companyId, array $values, int $actorId): int;
 
@@ -41,6 +52,31 @@ interface SalesRepository
 
     /** @param array<string, mixed> $values */
     public function createTarget(int $companyId, array $values, int $actorId): int;
+
+    /** @param list<string> $serialNumbers */
+    public function registerSerialNumbers(
+        int $companyId,
+        int $productId,
+        array $serialNumbers,
+        int $actorId
+    ): int;
+
+    /** @return array<string, mixed> */
+    public function transitionOrder(
+        int $companyId,
+        int $orderId,
+        string $action,
+        ?string $reason,
+        int $actorId
+    ): array;
+
+    /** @return array<string, mixed> */
+    public function transitionCommission(
+        int $companyId,
+        int $commissionId,
+        string $action,
+        int $actorId
+    ): array;
 
     /** @param array<string, mixed> $order @param list<array<string, mixed>> $lines */
     public function createOrder(int $companyId, array $order, array $lines, int $actorId): int;

@@ -90,7 +90,7 @@ try {
             'unit_of_measure' => 'unit',
             'unit_price' => (string) $fixture[1],
             'commission_rate' => (string) $fixture[2],
-            'serial_tracking' => false,
+            'serial_tracking' => $index === 0,
         ], $actorId);
         $created['products'][] = (int) ($product['id'] ?? 0);
         $check(!empty($product['successful']), 'Product line ' . ($index + 1) . ' is created');
@@ -121,7 +121,16 @@ try {
         ],
     ], $actorId);
     $created['order'] = (int) ($order['orderId'] ?? 0);
-    $check(!empty($order['successful']), 'Confirmed multi-line order is created');
+    $check(!empty($order['successful']), 'Multi-line order is submitted for approval');
+
+    $approval = $service->transitionOrder($created['order'], 'approve', null, $actorId);
+    $check(!empty($approval['successful']), 'Submitted order is approved');
+
+    $serials = $service->registerSerialNumbers([
+        'product_id' => $created['products'][0],
+        'serial_numbers' => 'IMEI-' . $suffix . "\nICCID-" . $suffix,
+    ], $actorId);
+    $check(!empty($serials['successful']) && ($serials['count'] ?? 0) === 2, 'Telecom serial numbers are registered');
 
     $lineCount = 0;
     if ($created['order'] > 0) {
@@ -136,6 +145,12 @@ try {
         $lineCount = (int) $lineStatement->fetchColumn();
     }
     $check($lineCount === 2, 'Order stores both product lines');
+
+    $commissionId = (int) db()->query(
+        'SELECT commission_id FROM sales_commissions WHERE order_id = ' . $created['order'] . ' LIMIT 1'
+    )->fetchColumn();
+    $commissionApproval = $service->transitionCommission($commissionId, 'approve', $actorId);
+    $check(!empty($commissionApproval['successful']), 'Accrued DSA commission is approved');
 
     $payment = $service->recordPayment($created['order'], [
         'receipt_number' => 'R-' . $suffix,
@@ -229,6 +244,7 @@ try {
         ['finance_sales_receipts', 'order_id', $created['order']],
         ['finance_sales_receivables', 'order_id', $created['order']],
         ['sales_commissions', 'order_id', $created['order']],
+        ['sales_serial_numbers', 'product_id', $created['products'][0] ?? 0],
         ['sales_payments', 'order_id', $created['order']],
         ['sales_order_lines', 'order_id', $created['order']],
         ['sales_orders', 'order_id', $created['order']],

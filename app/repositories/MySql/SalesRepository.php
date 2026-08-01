@@ -16,9 +16,9 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         $statement = $this->connection()->prepare(
             "SELECT
                 COUNT(*) AS order_count,
-                COALESCE(SUM(CASE WHEN status <> 'cancelled' THEN total_amount ELSE 0 END), 0) AS sales_total,
-                COALESCE(SUM(CASE WHEN status IN ('confirmed','partially_paid') THEN total_amount - paid_amount ELSE 0 END), 0) AS receivable_total,
-                COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE AND status IN ('confirmed','partially_paid') THEN total_amount - paid_amount ELSE 0 END), 0) AS overdue_total
+                COALESCE(SUM(CASE WHEN status IN ('approved','confirmed','fulfilled','partially_paid','paid') THEN total_amount ELSE 0 END), 0) AS sales_total,
+                COALESCE(SUM(CASE WHEN status IN ('approved','confirmed','fulfilled','partially_paid') THEN total_amount - paid_amount ELSE 0 END), 0) AS receivable_total,
+                COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE AND status IN ('approved','confirmed','fulfilled','partially_paid') THEN total_amount - paid_amount ELSE 0 END), 0) AS overdue_total
              FROM sales_orders
              WHERE company_id = :company_id AND deleted_at IS NULL"
         );
@@ -102,7 +102,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             "SELECT targets.*, territories.name AS territory_name,
                     agents.name AS agent_name,
                     COALESCE(SUM(CASE
-                        WHEN orders.status <> 'cancelled'
+                        WHEN orders.status IN ('approved','confirmed','fulfilled','partially_paid','paid')
                          AND orders.order_date BETWEEN targets.period_start AND targets.period_end
                         THEN orders.total_amount ELSE 0 END), 0) AS achieved_amount
              FROM sales_targets targets
@@ -122,6 +122,50 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
              ORDER BY targets.period_start DESC, targets.target_id DESC",
             $companyId
         );
+    }
+
+    public function commissions(int $companyId): array
+    {
+        return $this->catalogue(
+            "SELECT commissions.*, orders.order_number,
+                    agents.agent_code, agents.name AS agent_name
+             FROM sales_commissions commissions
+             INNER JOIN sales_orders orders ON orders.order_id = commissions.order_id
+             INNER JOIN sales_agents agents ON agents.agent_id = commissions.agent_id
+             WHERE commissions.company_id = :company_id
+             ORDER BY commissions.accrued_at DESC, commissions.commission_id DESC",
+            $companyId
+        );
+    }
+
+    public function serialNumbers(int $companyId): array
+    {
+        return $this->catalogue(
+            "SELECT serials.*, products.sku, products.name AS product_name
+             FROM sales_serial_numbers serials
+             INNER JOIN sales_products products ON products.product_id = serials.product_id
+             WHERE serials.company_id = :company_id
+             ORDER BY serials.registered_at DESC, serials.serial_id DESC
+             LIMIT 200",
+            $companyId
+        );
+    }
+
+    public function customerOutstanding(int $companyId, int $customerId): float
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT COALESCE(SUM(total_amount - paid_amount), 0)
+             FROM sales_orders
+             WHERE company_id = :company_id
+               AND customer_id = :customer_id
+               AND status IN ('confirmed', 'approved', 'partially_paid', 'fulfilled')
+               AND deleted_at IS NULL"
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'customer_id' => $customerId,
+        ]);
+        return (float) $statement->fetchColumn();
     }
 
     public function createCustomer(int $companyId, array $values, int $actorId): int
@@ -188,6 +232,161 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             $values,
             $actorId
         );
+    }
+
+    public function registerSerialNumbers(
+        int $companyId,
+        int $productId,
+        array $serialNumbers,
+        int $actorId
+    ): int {
+        $statement = $this->connection()->prepare(
+            "INSERT INTO sales_serial_numbers
+                (company_id, product_id, serial_number, status,
+                 registered_by, registered_at)
+             VALUES
+                (:company_id, :product_id, :serial_number, 'available',
+                 :registered_by, NOW())"
+        );
+        $created = 0;
+        foreach ($serialNumbers as $serialNumber) {
+            $statement->execute([
+                'company_id' => $companyId,
+                'product_id' => $productId,
+                'serial_number' => $serialNumber,
+                'registered_by' => $actorId,
+            ]);
+            $created++;
+        }
+        return $created;
+    }
+
+    public function transitionOrder(
+        int $companyId,
+        int $orderId,
+        string $action,
+        ?string $reason,
+        int $actorId
+    ): array {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $statement = $connection->prepare(
+                'SELECT * FROM sales_orders
+                 WHERE company_id = :company_id AND order_id = :order_id
+                   AND deleted_at IS NULL FOR UPDATE'
+            );
+            $statement->execute([
+                'company_id' => $companyId,
+                'order_id' => $orderId,
+            ]);
+            $order = $statement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($order)) {
+                throw new RuntimeException('Sales order was not found.');
+            }
+            $current = (string) $order['status'];
+            $allowed = [
+                'submit' => ['draft'],
+                'approve' => ['submitted'],
+                'cancel' => ['draft', 'submitted', 'approved', 'confirmed'],
+                'fulfill' => ['approved', 'confirmed'],
+            ];
+            if (!in_array($current, $allowed[$action] ?? [], true)) {
+                throw new RuntimeException(
+                    'The requested order transition is not allowed from ' . $current . '.'
+                );
+            }
+            if ($action === 'cancel' && (float) $order['paid_amount'] > 0) {
+                throw new RuntimeException('A paid order requires a return or credit-note workflow.');
+            }
+            if ($action === 'cancel' && ($reason === null || mb_strlen($reason) < 10)) {
+                throw new RuntimeException('Provide a cancellation reason of at least 10 characters.');
+            }
+            $newStatus = match ($action) {
+                'submit' => 'submitted',
+                'approve' => 'approved',
+                'cancel' => 'cancelled',
+                'fulfill' => 'fulfilled',
+            };
+            $update = $connection->prepare(
+                "UPDATE sales_orders SET
+                    status = :status,
+                    submitted_at = CASE WHEN :is_submit = 1 THEN NOW() ELSE submitted_at END,
+                    approved_by = CASE WHEN :is_approve = 1 THEN :actor_approve ELSE approved_by END,
+                    approved_at = CASE WHEN :is_approve_time = 1 THEN NOW() ELSE approved_at END,
+                    cancelled_by = CASE WHEN :is_cancel = 1 THEN :actor_cancel ELSE cancelled_by END,
+                    cancelled_at = CASE WHEN :is_cancel_time = 1 THEN NOW() ELSE cancelled_at END,
+                    cancellation_reason = CASE WHEN :is_cancel_reason = 1 THEN :reason ELSE cancellation_reason END,
+                    updated_by = :updated_by
+                 WHERE company_id = :company_id AND order_id = :order_id"
+            );
+            $update->execute([
+                'status' => $newStatus,
+                'is_submit' => $action === 'submit' ? 1 : 0,
+                'is_approve' => $action === 'approve' ? 1 : 0,
+                'actor_approve' => $actorId,
+                'is_approve_time' => $action === 'approve' ? 1 : 0,
+                'is_cancel' => $action === 'cancel' ? 1 : 0,
+                'actor_cancel' => $actorId,
+                'is_cancel_time' => $action === 'cancel' ? 1 : 0,
+                'is_cancel_reason' => $action === 'cancel' ? 1 : 0,
+                'reason' => $reason,
+                'updated_by' => $actorId,
+                'company_id' => $companyId,
+                'order_id' => $orderId,
+            ]);
+            if ($action === 'approve') {
+                $this->accrueCommission($connection, $companyId, $orderId, $order);
+                $this->enqueueOrderConfirmed($connection, $companyId, $orderId, $order);
+            }
+            $connection->commit();
+            return ['oldStatus' => $current, 'newStatus' => $newStatus];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function transitionCommission(
+        int $companyId,
+        int $commissionId,
+        string $action,
+        int $actorId
+    ): array {
+        $expected = $action === 'approve' ? 'accrued' : 'approved';
+        $next = $action === 'approve' ? 'approved' : 'paid';
+        if (!in_array($action, ['approve', 'pay'], true)) {
+            throw new RuntimeException('Unsupported commission transition.');
+        }
+        $statement = $this->connection()->prepare(
+            "UPDATE sales_commissions SET
+                status = :next_status,
+                approved_by = CASE WHEN :is_approve = 1 THEN :approver ELSE approved_by END,
+                approved_at = CASE WHEN :is_approve_time = 1 THEN NOW() ELSE approved_at END,
+                paid_by = CASE WHEN :is_pay = 1 THEN :payer ELSE paid_by END,
+                paid_at = CASE WHEN :is_pay_time = 1 THEN NOW() ELSE paid_at END
+             WHERE company_id = :company_id
+               AND commission_id = :commission_id
+               AND status = :expected_status"
+        );
+        $statement->execute([
+            'next_status' => $next,
+            'is_approve' => $action === 'approve' ? 1 : 0,
+            'approver' => $actorId,
+            'is_approve_time' => $action === 'approve' ? 1 : 0,
+            'is_pay' => $action === 'pay' ? 1 : 0,
+            'payer' => $actorId,
+            'is_pay_time' => $action === 'pay' ? 1 : 0,
+            'company_id' => $companyId,
+            'commission_id' => $commissionId,
+            'expected_status' => $expected,
+        ]);
+        if ($statement->rowCount() !== 1) {
+            throw new RuntimeException('The commission status changed or the transition is not allowed.');
+        }
+        return ['oldStatus' => $expected, 'newStatus' => $next];
     }
 
     public function createOrder(int $companyId, array $order, array $lines, int $actorId): int
@@ -278,7 +477,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             );
             $order->execute(['company_id' => $companyId, 'order_id' => $orderId]);
             $row = $order->fetch(PDO::FETCH_ASSOC);
-            if (!is_array($row) || in_array($row['status'], ['draft', 'cancelled'], true)) {
+            if (!is_array($row) || in_array($row['status'], ['draft', 'submitted', 'cancelled'], true)) {
                 throw new RuntimeException('The order cannot receive a payment.');
             }
             $balance = (float) $row['total_amount'] - (float) $row['paid_amount'];
@@ -352,6 +551,93 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         ]);
 
         return (int) $this->connection()->lastInsertId();
+    }
+
+    /** @param array<string, mixed> $order */
+    private function accrueCommission(
+        PDO $connection,
+        int $companyId,
+        int $orderId,
+        array $order
+    ): void {
+        $agentId = (int) ($order['agent_id'] ?? 0);
+        if ($agentId < 1) {
+            return;
+        }
+        $amount = $connection->prepare(
+            'SELECT COALESCE(SUM(
+                (quantity * unit_price - discount_amount)
+                * commission_rate / 100
+             ), 0)
+             FROM sales_order_lines
+             WHERE company_id = :company_id AND order_id = :order_id'
+        );
+        $amount->execute([
+            'company_id' => $companyId,
+            'order_id' => $orderId,
+        ]);
+        $commissionAmount = round((float) $amount->fetchColumn(), 2);
+        if ($commissionAmount <= 0) {
+            return;
+        }
+        $statement = $connection->prepare(
+            "INSERT INTO sales_commissions
+                (company_id, order_id, agent_id, commission_amount,
+                 status, accrued_at)
+             VALUES
+                (:company_id, :order_id, :agent_id, :amount,
+                 'accrued', NOW())
+             ON DUPLICATE KEY UPDATE
+                commission_amount = VALUES(commission_amount)"
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'order_id' => $orderId,
+            'agent_id' => $agentId,
+            'amount' => $commissionAmount,
+        ]);
+    }
+
+    /** @param array<string, mixed> $order */
+    private function enqueueOrderConfirmed(
+        PDO $connection,
+        int $companyId,
+        int $orderId,
+        array $order
+    ): void {
+        $lineStatement = $connection->prepare(
+            'SELECT product_id, quantity
+             FROM sales_order_lines
+             WHERE company_id = :company_id AND order_id = :order_id
+             ORDER BY order_line_id'
+        );
+        $lineStatement->execute([
+            'company_id' => $companyId,
+            'order_id' => $orderId,
+        ]);
+        $lines = $lineStatement->fetchAll(PDO::FETCH_ASSOC);
+        $this->enqueue(
+            $connection,
+            $companyId,
+            'sales.order.confirmed',
+            'sales_order',
+            (string) $orderId,
+            [
+                'order_id' => $orderId,
+                'order_number' => $order['order_number'],
+                'customer_id' => $order['customer_id'],
+                'currency' => $order['currency'],
+                'total_amount' => $order['total_amount'],
+                'due_date' => $order['due_date'],
+                'lines' => array_map(
+                    static fn (array $line): array => [
+                        'product_id' => (int) $line['product_id'],
+                        'quantity' => (float) $line['quantity'],
+                    ],
+                    $lines
+                ),
+            ]
+        );
     }
 
     /** @param array<string, mixed> $payload */

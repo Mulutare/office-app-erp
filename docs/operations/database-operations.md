@@ -17,6 +17,26 @@ php bin/sync-reference-data.php
 - Migration failure must stop deployment. Do not manually mark it complete.
 - Reference-data files must be idempotent.
 
+Sales migration `029` preserves legacy confirmed orders, adds approval and
+cancellation attribution, adds commission control, and creates the serial
+registry. Always synchronize reference data afterward so the new Sales
+permissions are available.
+
+## Sales integrity checks
+
+```sql
+SELECT status, COUNT(*), SUM(total_amount), SUM(paid_amount)
+FROM sales_orders GROUP BY status;
+
+SELECT status, COUNT(*), SUM(commission_amount)
+FROM sales_commissions GROUP BY status;
+
+SELECT status, COUNT(*) FROM sales_serial_numbers GROUP BY status;
+```
+
+Never change these statuses directly; use the application workflow so audit
+records, attribution and integration events remain complete.
+
 ## Backup minimum
 
 Back up before every deployment and at the agreed daily interval. A backup is

@@ -35,6 +35,8 @@ final class SalesService
             'agents' => $this->sales->agents($companyId),
             'territories' => $this->sales->territories($companyId),
             'targets' => $this->sales->targets($companyId),
+            'commissions' => $this->sales->commissions($companyId),
+            'serialNumbers' => $this->sales->serialNumbers($companyId),
         ];
     }
 
@@ -217,7 +219,7 @@ final class SalesService
         }
         $customers = [];
         foreach ($this->sales->customers($companyId) as $customer) {
-            $customers[(int) $customer['customer_id']] = true;
+            $customers[(int) $customer['customer_id']] = $customer;
         }
         $agents = [];
         foreach ($this->sales->agents($companyId) as $agent) {
@@ -306,7 +308,20 @@ final class SalesService
         $tax = round($tax, 2);
         $total = round($subtotal - $discount + $tax, 2);
         $commissionAmount = round($commissionAmount, 2);
-        $status = !empty($input['confirm']) ? 'confirmed' : 'draft';
+        $status = !empty($input['confirm']) ? 'submitted' : 'draft';
+        $customer = $customers[$customerId];
+        $creditLimit = (float) ($customer['credit_limit'] ?? 0);
+        if ($status === 'submitted' && $creditLimit > 0) {
+            $outstanding = $this->sales->customerOutstanding($companyId, $customerId);
+            if (round($outstanding + $total, 2) > $creditLimit) {
+                return ['successful' => false, 'errors' => [
+                    'credit_limit' => sprintf(
+                        'This order would exceed the customer credit limit. Available credit: %.2f.',
+                        max(0, $creditLimit - $outstanding)
+                    ),
+                ]];
+            }
+        }
         $orderNumber = sprintf('SO-%s-%04d', date('YmdHis'), random_int(1, 9999));
         $order = [
             'branch_id' => null,
@@ -323,7 +338,7 @@ final class SalesService
             'tax_amount' => $tax,
             'total_amount' => $total,
             'notes' => $this->nullable($input['notes'] ?? null),
-            'confirmed_at' => $status === 'confirmed' ? date('Y-m-d H:i:s') : null,
+            'confirmed_at' => null,
             'commission_amount' => $commissionAmount,
         ];
         if (preg_match('/^[A-Z]{3}$/', $order['currency']) !== 1) {
@@ -341,6 +356,73 @@ final class SalesService
                 . $exception::class . ': ' . $exception->getMessage()
             );
             return ['successful' => false, 'errors' => ['form' => 'The sales order could not be created. Please retry or contact support with the current time.']];
+        }
+    }
+
+    /** @param array<string, mixed> $input @return array<string, mixed> */
+    public function registerSerialNumbers(array $input, int $actorId): array
+    {
+        $companyId = $this->tenant->companyId();
+        $productId = (int) ($input['product_id'] ?? 0);
+        $product = null;
+        foreach ($this->sales->products($companyId) as $candidate) {
+            if ((int) $candidate['product_id'] === $productId) {
+                $product = $candidate;
+                break;
+            }
+        }
+        if (!is_array($product) || empty($product['serial_tracking'])) {
+            return ['successful' => false, 'errors' => ['product_id' => 'Select a serial-tracked product.']];
+        }
+        $serials = preg_split('/[\r\n,]+/', (string) ($input['serial_numbers'] ?? '')) ?: [];
+        $serials = array_values(array_unique(array_filter(array_map(
+            static fn (string $serial): string => strtoupper(trim($serial)),
+            $serials
+        ), static fn (string $serial): bool => $serial !== '' && strlen($serial) <= 120)));
+        if ($serials === [] || count($serials) > 500) {
+            return ['successful' => false, 'errors' => ['serial_numbers' => 'Enter between 1 and 500 serial numbers, one per line.']];
+        }
+        try {
+            $this->sales->registerSerialNumbers($companyId, $productId, $serials, $actorId);
+            $this->audit->record($actorId, 'REGISTER_SALES_SERIALS', 'sales', 'sales_serial_numbers', null, null, [
+                'product_id' => $productId, 'count' => count($serials),
+            ], $companyId);
+            return ['successful' => true, 'count' => count($serials)];
+        } catch (Throwable $exception) {
+            error_log('Sales serial registration failed: ' . $exception->getMessage());
+            return ['successful' => false, 'errors' => ['form' => 'Serial numbers could not be registered. Check for duplicates.']];
+        }
+    }
+
+    /** @return array<string, mixed> */
+    public function transitionOrder(int $orderId, string $action, ?string $reason, int $actorId): array
+    {
+        $companyId = $this->tenant->companyId();
+        try {
+            $this->sales->transitionOrder($companyId, $orderId, $action, $reason, $actorId);
+            $this->audit->record($actorId, 'TRANSITION_SALES_ORDER', 'sales', 'sales_orders', (string) $orderId, null, [
+                'action' => $action, 'reason' => $reason,
+            ], $companyId);
+            return ['successful' => true];
+        } catch (Throwable $exception) {
+            error_log('Sales order transition failed: ' . $exception->getMessage());
+            return ['successful' => false, 'errors' => ['form' => $exception->getMessage()]];
+        }
+    }
+
+    /** @return array<string, mixed> */
+    public function transitionCommission(int $commissionId, string $action, int $actorId): array
+    {
+        $companyId = $this->tenant->companyId();
+        try {
+            $this->sales->transitionCommission($companyId, $commissionId, $action, $actorId);
+            $this->audit->record($actorId, 'TRANSITION_SALES_COMMISSION', 'sales', 'sales_commissions', (string) $commissionId, null, [
+                'action' => $action,
+            ], $companyId);
+            return ['successful' => true];
+        } catch (Throwable $exception) {
+            error_log('Sales commission transition failed: ' . $exception->getMessage());
+            return ['successful' => false, 'errors' => ['form' => $exception->getMessage()]];
         }
     }
 

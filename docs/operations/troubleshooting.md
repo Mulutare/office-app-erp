@@ -36,6 +36,24 @@ Locate the `sales.payment.recorded` event. The Finance handler uses the Sales
 payment ID as an idempotency key. Re-dispatching is safe and must not duplicate
 the receipt.
 
+## Sales order cannot be approved
+
+Confirm the order is `submitted` and the user has `sales.orders.approve`.
+Credit-limit validation happens during submission. Use the audit record to
+identify later state changes; do not edit the status directly.
+
+## Serial number cannot be registered
+
+Confirm the product has serial tracking enabled, the user has
+`sales.serials.manage`, and the value is not already registered for that
+company. Use one serial per line and preserve manufacturer formatting.
+
+## Commission is missing
+
+Commission is created only after approval when the order has a DSA/DSP and its
+products have a positive commission rate. Check the agent, approval timestamp
+and catalogue rates. Never recreate paid or cancelled commissions manually.
+
 ## User cannot sign in after an administrator reset
 
 Confirm that the user is entering the newly generated temporary password and

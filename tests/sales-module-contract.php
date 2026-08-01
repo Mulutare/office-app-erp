@@ -31,6 +31,9 @@ $expectContains('routes/web.php', [
     "'/sales/agents'",
     "'/sales/targets'",
     "'/sales/orders'",
+    "'/sales/orders/action'",
+    "'/sales/serials'",
+    "'/sales/commissions/action'",
     "'/sales/payments'",
     "'/sales/export'",
 ]);
@@ -75,6 +78,18 @@ $expectContains('database/seeds/018_enable_sales_module.sql', [
     "'sales.orders.create'",
     "'sales.payments.record'",
     "'sales.targets.manage'",
+]);
+
+$expectContains('database/migrations/mysql/029_complete_sales_controls.php', [
+    'CREATE TABLE sales_serial_numbers',
+    'CREATE TABLE sales_order_line_serials',
+    "'submitted'", "'approved'", "'fulfilled'", "'cancelled'",
+]);
+
+$expectContains('database/seeds/019_assign_sales_control_permissions.sql', [
+    "'sales.orders.approve'",
+    "'sales.serials.manage'",
+    "'sales.commissions.manage'",
 ]);
 
 if ($failures !== []) {
