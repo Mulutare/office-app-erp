@@ -215,6 +215,12 @@ try {
         $dispatch['processed'] === 2 && $dispatch['failed'] === 0,
         'Order and payment integration events are dispatched'
     );
+    $webhookEventDispatch = (new IntegrationDispatcherService())->dispatch(50);
+    $check(
+        $webhookEventDispatch['processed'] === 1
+        && $webhookEventDispatch['failed'] === 0,
+        'Ordered Sales webhook event is released after its internal predecessor'
+    );
 
     $receivableStatement = db()->prepare(
         'SELECT paid_amount, balance_amount, status

@@ -23,6 +23,7 @@ final class IntegrationDispatcherService
         $this->handlers = $handlers ?? [
             new FinanceSalesIntegrationHandler(),
             new InventorySalesIntegrationHandler(),
+            new WebhookOutboxMarkerHandler(),
         ];
     }
 

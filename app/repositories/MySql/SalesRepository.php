@@ -410,6 +410,27 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 $this->accrueCommission($connection, $companyId, $orderId, $order);
                 $this->enqueueOrderConfirmed($connection, $companyId, $orderId, $order);
             }
+            $webhookEvent = match ($action) {
+                'submit' => 'sales.order.submitted',
+                'approve' => 'sales.order.approved',
+                'cancel' => 'sales.order.cancelled',
+                'fulfill' => 'sales.order.confirmed',
+            };
+            if (!($action === 'approve' && $webhookEvent === 'sales.order.confirmed')) {
+                $this->enqueue(
+                    $connection,
+                    $companyId,
+                    $webhookEvent,
+                    'sales_order',
+                    (string) $orderId,
+                    [
+                        'order_id' => $orderId,
+                        'order_number' => $order['order_number'],
+                        'status' => $newStatus,
+                        'reason' => $reason,
+                    ]
+                );
+            }
             $history = $connection->prepare(
                 'INSERT INTO sales_order_status_history
                     (company_id, order_id, from_status, to_status, action, reason,
@@ -482,9 +503,9 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         try {
             $statement = $connection->prepare(
                 'INSERT INTO sales_orders
-                    (company_id, branch_id, customer_id, territory_id, agent_id, order_number, order_date, due_date, status, currency, subtotal, discount_amount, tax_amount, total_amount, notes, confirmed_at, created_by, updated_by)
+                    (company_id, branch_id, customer_id, territory_id, agent_id, order_number, external_reference, order_date, due_date, status, currency, subtotal, discount_amount, tax_amount, total_amount, notes, confirmed_at, created_by, updated_by)
                  VALUES
-                    (:company_id, :branch_id, :customer_id, :territory_id, :agent_id, :order_number, :order_date, :due_date, :status, :currency, :subtotal, :discount_amount, :tax_amount, :total_amount, :notes, :confirmed_at, :created_by, :updated_by)'
+                    (:company_id, :branch_id, :customer_id, :territory_id, :agent_id, :order_number, :external_reference, :order_date, :due_date, :status, :currency, :subtotal, :discount_amount, :tax_amount, :total_amount, :notes, :confirmed_at, :created_by, :updated_by)'
             );
             $orderValues = $order;
             unset($orderValues['commission_amount']);

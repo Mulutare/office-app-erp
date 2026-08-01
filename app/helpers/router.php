@@ -9,6 +9,9 @@ final class Router
      */
     private array $routes = [];
 
+    /** @var array<string, list<array{pattern:string,handler:callable}>> */
+    private array $patternRoutes = [];
+
     public function get(string $path, callable $handler): void
     {
         $this->add('GET', $path, $handler);
@@ -25,6 +28,20 @@ final class Router
         callable $handler
     ): void {
         $normalizedPath = $this->normalizePath($path);
+
+        if (str_contains($normalizedPath, '{')) {
+            $pattern = preg_replace_callback(
+                '/\\\\\{([A-Za-z][A-Za-z0-9_]*)\\\\\}/',
+                static fn (array $match): string =>
+                    '(?P<' . $match[1] . '>[^/]+)',
+                preg_quote($normalizedPath, '#')
+            );
+            $this->patternRoutes[$method][] = [
+                'pattern' => '#^' . $pattern . '$#',
+                'handler' => $handler,
+            ];
+            return;
+        }
 
         $this->routes[$method][$normalizedPath] = $handler;
     }
@@ -59,6 +76,18 @@ final class Router
         $handler = $this->routes[$method][$path] ?? null;
 
         if (!is_callable($handler)) {
+            foreach ($this->patternRoutes[$method] ?? [] as $route) {
+                if (preg_match($route['pattern'], $path, $matches) !== 1) {
+                    continue;
+                }
+                $arguments = array_filter(
+                    $matches,
+                    static fn (mixed $key): bool => is_string($key),
+                    ARRAY_FILTER_USE_KEY
+                );
+                ($route['handler'])(...array_values($arguments));
+                return;
+            }
             $this->notFound();
 
             return;

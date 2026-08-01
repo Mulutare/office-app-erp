@@ -19,6 +19,8 @@ Sales transaction
   -> dispatch-integration-events.php
        -> Finance receivable and receipt projections
        -> Inventory sales commitments
+  -> dispatch-api-webhooks.php
+       -> Signed company webhook deliveries
 ```
 
 Handlers are idempotent. Re-running the dispatcher must not duplicate Finance

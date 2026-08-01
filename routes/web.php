@@ -16,6 +16,7 @@ use App\Controllers\EmployeeActivityController;
 use App\Controllers\EmployeePositionController;
 use App\Controllers\FinanceController;
 use App\Controllers\SalesController;
+use App\Controllers\ApiV1SalesController;
 use App\Controllers\HomeController;
 use App\Controllers\HrController;
 use App\Controllers\JobTitleController;
@@ -58,6 +59,7 @@ $employeePositionController =
     new EmployeePositionController();
 $financeController = new FinanceController();
 $salesController = new SalesController();
+$apiV1SalesController = new ApiV1SalesController();
 $moduleAdministrationController =
     new ModuleAdministrationController();
 $companyAdministrationController =
@@ -72,6 +74,22 @@ $organizationSetupController =
     new OrganizationSetupController();
 
 $router = new Router();
+
+$router->post('/api/v1/oauth/token', [$apiV1SalesController, 'token']);
+$router->get('/api/v1/sales/products', [$apiV1SalesController, 'products']);
+$router->get('/api/v1/sales/products/{id}', [$apiV1SalesController, 'product']);
+$router->get('/api/v1/sales/customers', [$apiV1SalesController, 'customers']);
+$router->post('/api/v1/sales/customers', [$apiV1SalesController, 'createCustomer']);
+$router->get('/api/v1/sales/customers/{id}', [$apiV1SalesController, 'customer']);
+$router->get('/api/v1/sales/orders', [$apiV1SalesController, 'orders']);
+$router->post('/api/v1/sales/orders', [$apiV1SalesController, 'createOrder']);
+$router->get('/api/v1/sales/orders/{id}', [$apiV1SalesController, 'order']);
+$router->post('/api/v1/sales/orders/{id}/submit', [$apiV1SalesController, 'submitOrder']);
+$router->post('/api/v1/sales/orders/{id}/cancel', [$apiV1SalesController, 'cancelOrder']);
+$router->post('/api/v1/sales/orders/{id}/payments', [$apiV1SalesController, 'payment']);
+$router->get('/api/v1/sales/receivables', [$apiV1SalesController, 'receivables']);
+$router->get('/api/v1/sales/receivables/{id}', [$apiV1SalesController, 'receivable']);
+$router->get('/api/v1/sales/reports/summary', [$apiV1SalesController, 'reportSummary']);
 
 $homeController = new HomeController();
 $authController = new AuthController();

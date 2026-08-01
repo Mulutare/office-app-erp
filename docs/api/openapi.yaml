@@ -1,0 +1,133 @@
+openapi: 3.1.0
+info:
+  title: OfficeApp ERP Third-Party API
+  version: 1.0.0
+  description: Tenant-bound Sales API. All POST business requests require Idempotency-Key.
+servers:
+  - url: https://erp.example.com/office_app/public/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /oauth/token:
+    post:
+      security:
+        - basicAuth: []
+      summary: Issue a client-credentials token
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type: {type: string, const: client_credentials}
+      responses:
+        '200': {description: Token issued, content: {application/json: {schema: {$ref: '#/components/schemas/Token'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+  /sales/products:
+    get:
+      summary: List active products
+      responses:
+        '200': {description: Product list, content: {application/json: {schema: {$ref: '#/components/schemas/ListResponse'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /sales/products/{id}:
+    get:
+      summary: Get an active product
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: Product}, '404': {$ref: '#/components/responses/Error'}}
+  /sales/customers:
+    get:
+      summary: List active customers
+      responses: {'200': {description: Customer list}}
+    post:
+      summary: Create a customer
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerInput'}}}}
+      responses: {'201': {description: Customer created}, '409': {$ref: '#/components/responses/Error'}, '422': {$ref: '#/components/responses/Error'}}
+  /sales/customers/{id}:
+    get:
+      summary: Get an active customer
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: Customer}, '404': {$ref: '#/components/responses/Error'}}
+  /sales/orders:
+    get:
+      summary: List orders
+      responses: {'200': {description: Order list}}
+    post:
+      summary: Create a draft order
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OrderInput'}, examples: {standard: {value: {customer_id: 10, order_date: '2026-08-01', due_date: '2026-08-31', currency: ETB, external_reference: PARTNER-1001, lines: [{product_id: 20, quantity: 2, discount_amount: 0, tax_rate: 15}]}}}}}}
+      responses: {'201': {description: Draft created}, '409': {$ref: '#/components/responses/Error'}, '422': {$ref: '#/components/responses/Error'}}
+  /sales/orders/{id}:
+    get:
+      summary: Get an order
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: Order}, '404': {$ref: '#/components/responses/Error'}}
+  /sales/orders/{id}/submit:
+    post:
+      summary: Submit a draft order
+      parameters: [{$ref: '#/components/parameters/Id'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Submitted}, '409': {$ref: '#/components/responses/Error'}, '422': {$ref: '#/components/responses/Error'}}
+  /sales/orders/{id}/cancel:
+    post:
+      summary: Cancel an eligible order
+      parameters: [{$ref: '#/components/parameters/Id'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [reason], properties: {reason: {type: string, minLength: 10}}}}}}
+      responses: {'200': {description: Cancelled}, '422': {$ref: '#/components/responses/Error'}}
+  /sales/orders/{id}/payments:
+    post:
+      summary: Record a payment not exceeding balance
+      parameters: [{$ref: '#/components/parameters/Id'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PaymentInput'}}}}
+      responses: {'201': {description: Payment recorded}, '422': {$ref: '#/components/responses/Error'}}
+  /sales/receivables:
+    get:
+      summary: List open receivables
+      responses: {'200': {description: Receivable list}}
+  /sales/receivables/{id}:
+    get:
+      summary: Get an open receivable by order ID
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: Receivable}, '404': {$ref: '#/components/responses/Error'}}
+  /sales/reports/summary:
+    get:
+      summary: Get Sales summary
+      responses: {'200': {description: Summary}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: opaque}
+    basicAuth: {type: http, scheme: basic}
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 100}}
+  responses:
+    Error: {description: Structured error, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  schemas:
+    Token:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties: {access_token: {type: string}, token_type: {type: string, const: Bearer}, expires_in: {type: integer}, scope: {type: string}}
+    Error:
+      type: object
+      properties: {error: {type: object, properties: {code: {type: string}, message: {type: string}}}, correlation_id: {type: string, format: uuid}}
+    ListResponse: {type: object, properties: {data: {type: array, items: {type: object}}, correlation_id: {type: string, format: uuid}}}
+    CustomerInput:
+      type: object
+      required: [customer_number, name, customer_type]
+      properties: {customer_number: {type: string, maxLength: 40}, name: {type: string, maxLength: 160}, customer_type: {type: string}, email: {type: string, format: email}, phone: {type: string}, credit_mode: {type: string, enum: [no_credit, fixed, unlimited]}, credit_limit: {type: number, minimum: 0}}
+    OrderInput:
+      type: object
+      required: [customer_id, order_date, due_date, currency, lines]
+      properties:
+        customer_id: {type: integer}
+        order_date: {type: string, format: date}
+        due_date: {type: string, format: date}
+        currency: {type: string, minLength: 3, maxLength: 3}
+        external_reference: {type: string, maxLength: 120}
+        lines: {type: array, minItems: 1, items: {type: object, required: [product_id, quantity], properties: {product_id: {type: integer}, quantity: {type: number, exclusiveMinimum: 0}, discount_amount: {type: number, minimum: 0}, tax_rate: {type: number, minimum: 0, maximum: 100}}}}
+    PaymentInput:
+      type: object
+      required: [receipt_number, payment_date, amount, payment_method]
+      properties: {receipt_number: {type: string}, payment_date: {type: string, format: date}, amount: {type: number, exclusiveMinimum: 0}, payment_method: {type: string, enum: [bank_transfer, cash, mobile_money, card]}, reference_number: {type: string}, notes: {type: string}}

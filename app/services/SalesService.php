@@ -359,6 +359,7 @@ final class SalesService
             'territory_id' => $territoryId,
             'agent_id' => $agentId,
             'order_number' => $orderNumber,
+            'external_reference' => $this->nullable($input['external_reference'] ?? null),
             'order_date' => $orderDate,
             'due_date' => $dueDate,
             'status' => $status,
@@ -371,6 +372,9 @@ final class SalesService
             'confirmed_at' => null,
             'commission_amount' => $commissionAmount,
         ];
+        if ($order['external_reference'] !== null && strlen($order['external_reference']) > 120) {
+            return ['successful' => false, 'errors' => ['external_reference' => 'External reference cannot exceed 120 characters.']];
+        }
         if (preg_match('/^[A-Z]{3}$/', $order['currency']) !== 1) {
             return ['successful' => false, 'errors' => ['currency' => 'Currency must be a three-letter ISO code.']];
         }
