@@ -15,6 +15,7 @@ use App\Controllers\DepartmentController;
 use App\Controllers\EmployeeActivityController;
 use App\Controllers\EmployeePositionController;
 use App\Controllers\FinanceController;
+use App\Controllers\SalesController;
 use App\Controllers\HomeController;
 use App\Controllers\HrController;
 use App\Controllers\JobTitleController;
@@ -56,6 +57,7 @@ $employeeActivityController =
 $employeePositionController =
     new EmployeePositionController();
 $financeController = new FinanceController();
+$salesController = new SalesController();
 $moduleAdministrationController =
     new ModuleAdministrationController();
 $companyAdministrationController =
@@ -213,6 +215,15 @@ $router->get(
     '/finance',
     [$financeController, 'index']
 );
+$router->get('/sales', [$salesController, 'index']);
+$router->post('/sales/customers', [$salesController, 'storeCustomer']);
+$router->post('/sales/products', [$salesController, 'storeProduct']);
+$router->post('/sales/territories', [$salesController, 'storeTerritory']);
+$router->post('/sales/agents', [$salesController, 'storeAgent']);
+$router->post('/sales/targets', [$salesController, 'storeTarget']);
+$router->post('/sales/orders', [$salesController, 'storeOrder']);
+$router->post('/sales/payments', [$salesController, 'recordPayment']);
+$router->get('/sales/export', [$salesController, 'export']);
 $router->get(
     '/organization/setup',
     [$organizationSetupController, 'index']
@@ -384,6 +395,10 @@ $router->get(
         'showOwnerPasswordReset',
     ]
 );
+$router->get(
+    '/administration/companies/reset-user-password',
+    [$companyAdministrationController, 'showCompanyUserPasswordReset']
+);
 $router->post(
     '/administration/companies',
     [$companyAdministrationController, 'store']
@@ -402,6 +417,10 @@ $router->post(
         $companyAdministrationController,
         'resetOwnerPassword',
     ]
+);
+$router->post(
+    '/administration/companies/reset-user-password',
+    [$companyAdministrationController, 'resetCompanyUserPassword']
 );
 $router->post(
     '/administration/companies/lifecycle',

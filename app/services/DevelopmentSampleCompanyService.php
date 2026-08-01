@@ -237,6 +237,7 @@ final class DevelopmentSampleCompanyService
             'module_codes' => [
                 'hr',
                 'attendance',
+                'sales',
             ],
             'owner_display_name' =>
                 'Sample Company Owner',

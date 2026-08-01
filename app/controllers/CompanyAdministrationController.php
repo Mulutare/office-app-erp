@@ -9,6 +9,7 @@ use App\Services\CompanyLifecycleService;
 use App\Services\CompanyOwnerPasswordResetService;
 use App\Services\CompanyProvisioningService;
 use App\Services\CompanyUpdateService;
+use App\Services\PlatformCompanyUserPasswordResetService;
 
 final class CompanyAdministrationController
 {
@@ -18,6 +19,8 @@ final class CompanyAdministrationController
     private CompanyLifecycleService $lifecycle;
     private CompanyOwnerPasswordResetService
         $ownerPasswordResets;
+    private PlatformCompanyUserPasswordResetService
+        $companyUserPasswordResets;
 
     public function __construct()
     {
@@ -31,6 +34,8 @@ final class CompanyAdministrationController
             new CompanyLifecycleService();
         $this->ownerPasswordResets =
             new CompanyOwnerPasswordResetService();
+        $this->companyUserPasswordResets =
+            new PlatformCompanyUserPasswordResetService();
     }
 
     public function index(): void
@@ -246,6 +251,14 @@ final class CompanyAdministrationController
             'ownerCredentials' => \getFlash(
                 'company_owner_credentials'
             ),
+            'companyUserCredentials' => \getFlash(
+                'company_user_reset_credentials'
+            ),
+            'companyUsers' =>
+                $this->companyUserPasswordResets->users(
+                    (int) $details['company']['company_id'],
+                    (int) ($_SESSION['auth']['user_id'] ?? 0)
+                ),
             'approvalErrors' => \getFlash(
                 'company_approval_errors',
                 []
@@ -255,6 +268,79 @@ final class CompanyAdministrationController
                 []
             ),
         ]);
+    }
+
+    public function showCompanyUserPasswordReset(): void
+    {
+        $this->authorization->requirePlatformAdministrator();
+        $companyId = $this->queryInteger('company_id');
+        $userId = $this->queryInteger('user_id');
+        $target = $this->companyUserPasswordResets->target(
+            $companyId,
+            $userId,
+            (int) ($_SESSION['auth']['user_id'] ?? 0)
+        );
+        if ($target === null) {
+            $this->notFound();
+        }
+
+        \view('layouts.app', [
+            'applicationName' => \config('name', 'OfficeApp ERP'),
+            'environment' => \config('environment', 'unknown'),
+            'pageTitle' => 'Reset Company User Password',
+            'pageDescription' =>
+                'Issue a one-time credential for a user in this customer workspace.',
+            'contentView' =>
+                'administration.companies.reset-user-password',
+            'user' => $_SESSION['auth'],
+            'company' => $target['company'],
+            'targetUser' => $target['targetUser'],
+            'errors' => \getFlash(
+                'company_user_password_reset_errors',
+                []
+            ),
+        ]);
+    }
+
+    public function resetCompanyUserPassword(): void
+    {
+        $this->authorization->requirePlatformAdministrator();
+        $companyId = $this->postInteger('company_id');
+        $userId = $this->postInteger('user_id');
+        $redirect = '/administration/companies/reset-user-password'
+            . '?company_id=' . $companyId . '&user_id=' . $userId;
+
+        if (!\verifyCsrfToken(\postString('_token'))) {
+            \flash('company_user_password_reset_errors', [
+                'form' => 'The form session expired. Please try again.',
+            ]);
+            \redirect($redirect);
+        }
+
+        $result = $this->companyUserPasswordResets->reset(
+            $companyId,
+            $userId,
+            (int) ($_SESSION['auth']['user_id'] ?? 0)
+        );
+        if (!empty($result['notFound'])) {
+            $this->notFound();
+        }
+        if (empty($result['successful'])) {
+            \flash(
+                'company_user_password_reset_errors',
+                $result['errors'] ?? ['form' => 'Password reset failed.']
+            );
+            \redirect($redirect);
+        }
+
+        \flash('company_notice',
+            'The company user password was reset. Transfer the one-time credential securely.'
+        );
+        \flash('company_user_reset_credentials', [
+            'username' => $result['username'],
+            'temporary_password' => $result['temporaryPassword'],
+        ]);
+        \redirect('/administration/companies/view?id=' . $companyId);
     }
 
     public function showOwnerPasswordReset(): void

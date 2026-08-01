@@ -26,6 +26,14 @@ $ownerCredentials = is_array(
 )
     ? $data['ownerCredentials']
     : null;
+$companyUserCredentials = is_array(
+    $data['companyUserCredentials'] ?? null
+)
+    ? $data['companyUserCredentials']
+    : null;
+$companyUsers = is_array($data['companyUsers'] ?? null)
+    ? $data['companyUsers']
+    : [];
 $ownerCredentialPurpose = is_array(
     $ownerCredentials
 )
@@ -58,6 +66,27 @@ $companyInitials = strtoupper(substr(
     <div class="alert alert-success" role="status">
         <?= e($notice) ?>
     </div>
+<?php endif; ?>
+
+<?php if ($companyUserCredentials !== null): ?>
+    <section class="alert alert-success credential-alert" role="status">
+        <strong>Company user password reset</strong>
+        <p>
+            Transfer this credential securely. It is displayed only once.
+        </p>
+        <dl class="credential-list">
+            <div><dt>Username</dt><dd><?= e(
+                $companyUserCredentials['username'] ?? ''
+            ) ?></dd></div>
+            <div><dt>Temporary password</dt><dd><code><?= e(
+                $companyUserCredentials['temporary_password'] ?? ''
+            ) ?></code></dd></div>
+        </dl>
+        <p class="credential-warning">
+            The previous password no longer works. The user must change this
+            temporary password at the next successful sign-in.
+        </p>
+    </section>
 <?php endif; ?>
 
 <?php if ($ownerCredentials !== null): ?>
@@ -168,6 +197,37 @@ $companyInitials = strtoupper(substr(
         </form>
     <?php endif; ?>
 </div>
+
+<section class="card table-card">
+    <div class="table-summary">
+        <div>
+            <strong>Company users</strong>
+            <small class="table-summary-note">
+                Vendor password recovery is audited and company-scoped.
+            </small>
+        </div>
+        <span><?= e(count($companyUsers)) ?> users</span>
+    </div>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Password</th><th>Action</th></tr></thead>
+            <tbody>
+            <?php if ($companyUsers === []): ?>
+                <tr><td colspan="5" class="empty-state">No company users were found.</td></tr>
+            <?php endif; ?>
+            <?php foreach ($companyUsers as $companyUser): ?>
+                <tr>
+                    <td><strong><?= e($companyUser['display_name'] ?? '') ?></strong><small>@<?= e($companyUser['username'] ?? '') ?></small></td>
+                    <td><?= e($companyUser['email'] ?? '') ?></td>
+                    <td><span class="badge <?= !empty($companyUser['active']) ? 'badge-success' : 'badge-muted' ?>"><?= !empty($companyUser['active']) ? 'Active' : 'Inactive' ?></span></td>
+                    <td><?= !empty($companyUser['must_change_password']) ? 'Change required' : 'Updated' ?></td>
+                    <td><a class="table-link" href="/office_app/public/administration/companies/reset-user-password?company_id=<?= e($company['company_id'] ?? 0) ?>&amp;user_id=<?= e($companyUser['user_id'] ?? 0) ?>">Reset password</a></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
 
 <section class="card company-profile-hero">
     <div class="company-profile-identity">

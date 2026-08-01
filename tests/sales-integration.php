@@ -1,0 +1,273 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Repositories\RepositoryFactory;
+use App\Services\SalesService;
+use App\Services\IntegrationDispatcherService;
+
+require_once __DIR__ . '/../app/helpers/bootstrap.php';
+
+$companyId = (int) db()->query(
+    "SELECT company_id FROM companies
+     WHERE code = 'default' LIMIT 1"
+)->fetchColumn();
+$actorId = (int) db()->query(
+    'SELECT user_id FROM users ORDER BY user_id LIMIT 1'
+)->fetchColumn();
+
+if ($companyId < 1 || $actorId < 1) {
+    fwrite(STDERR, 'FAIL Sales fixtures are unavailable.' . PHP_EOL);
+    exit(1);
+}
+
+$_SESSION['auth'] = [
+    'user_id' => $actorId,
+    'company' => ['company_id' => $companyId],
+];
+
+$service = new SalesService();
+$repository = RepositoryFactory::sales();
+$suffix = strtoupper(bin2hex(random_bytes(3)));
+$created = [
+    'territory' => 0,
+    'agent' => 0,
+    'customer' => 0,
+    'products' => [],
+    'target' => 0,
+    'order' => 0,
+];
+$failures = [];
+$check = static function (
+    bool $condition,
+    string $description
+) use (&$failures): void {
+    fwrite(
+        $condition ? STDOUT : STDERR,
+        ($condition ? 'PASS ' : 'FAIL ')
+        . $description . PHP_EOL
+    );
+    if (!$condition) {
+        $failures[] = $description;
+    }
+};
+
+try {
+    $territory = $service->createTerritory([
+        'code' => 'T-' . $suffix,
+        'name' => 'Integration Territory ' . $suffix,
+    ], $actorId);
+    $created['territory'] = (int) ($territory['id'] ?? 0);
+    $check(!empty($territory['successful']), 'Territory is created');
+
+    $agent = $service->createAgent([
+        'agent_code' => 'A-' . $suffix,
+        'name' => 'Integration DSA ' . $suffix,
+        'agent_type' => 'DSA',
+        'territory_id' => $created['territory'],
+        'phone' => '+251900000000',
+    ], $actorId);
+    $created['agent'] = (int) ($agent['id'] ?? 0);
+    $check(!empty($agent['successful']), 'DSA is created in the territory');
+
+    $customer = $service->createCustomer([
+        'customer_number' => 'C-' . $suffix,
+        'name' => 'Integration Customer ' . $suffix,
+        'customer_type' => 'business',
+        'territory_id' => $created['territory'],
+        'credit_limit' => '10000',
+        'payment_terms_days' => '30',
+    ], $actorId);
+    $created['customer'] = (int) ($customer['id'] ?? 0);
+    $check(!empty($customer['successful']), 'Customer is created');
+
+    foreach ([['SIM', 100, 5], ['ROUTER', 500, 2]] as $index => $fixture) {
+        $product = $service->createProduct([
+            'sku' => $fixture[0] . '-' . $suffix,
+            'name' => 'Integration Product ' . ($index + 1),
+            'category' => 'Telecom',
+            'product_type' => 'telecom_product',
+            'unit_of_measure' => 'unit',
+            'unit_price' => (string) $fixture[1],
+            'commission_rate' => (string) $fixture[2],
+            'serial_tracking' => false,
+        ], $actorId);
+        $created['products'][] = (int) ($product['id'] ?? 0);
+        $check(!empty($product['successful']), 'Product line ' . ($index + 1) . ' is created');
+    }
+
+    $target = $service->createTarget([
+        'territory_id' => $created['territory'],
+        'agent_id' => $created['agent'],
+        'period_start' => date('Y-m-01'),
+        'period_end' => date('Y-m-t'),
+        'target_amount' => '5000',
+        'target_quantity' => '20',
+    ], $actorId);
+    $created['target'] = (int) ($target['id'] ?? 0);
+    $check(!empty($target['successful']), 'Territory and DSA target is created');
+
+    $order = $service->createOrder([
+        'customer_id' => $created['customer'],
+        'territory_id' => $created['territory'],
+        'agent_id' => $created['agent'],
+        'order_date' => date('Y-m-d'),
+        'due_date' => date('Y-m-d', strtotime('+30 days')),
+        'currency' => 'ETB',
+        'confirm' => true,
+        'lines' => [
+            ['product_id' => $created['products'][0], 'quantity' => 2, 'discount_amount' => 0, 'tax_rate' => 15],
+            ['product_id' => $created['products'][1], 'quantity' => 1, 'discount_amount' => 20, 'tax_rate' => 15],
+        ],
+    ], $actorId);
+    $created['order'] = (int) ($order['orderId'] ?? 0);
+    $check(!empty($order['successful']), 'Confirmed multi-line order is created');
+
+    $lineCount = 0;
+    if ($created['order'] > 0) {
+        $lineStatement = db()->prepare(
+            'SELECT COUNT(*) FROM sales_order_lines
+             WHERE company_id = :company_id AND order_id = :order_id'
+        );
+        $lineStatement->execute([
+            'company_id' => $companyId,
+            'order_id' => $created['order'],
+        ]);
+        $lineCount = (int) $lineStatement->fetchColumn();
+    }
+    $check($lineCount === 2, 'Order stores both product lines');
+
+    $payment = $service->recordPayment($created['order'], [
+        'receipt_number' => 'R-' . $suffix,
+        'payment_date' => date('Y-m-d'),
+        'amount' => '300',
+        'payment_method' => 'bank_transfer',
+        'reference_number' => 'BANK-' . $suffix,
+    ], $actorId);
+    $check(!empty($payment['successful']), 'Partial customer payment is recorded');
+
+    $dispatch = (new IntegrationDispatcherService())->dispatch(50);
+    if ($dispatch['failed'] > 0) {
+        $diagnostic = db()->prepare(
+            "SELECT event_type, last_error
+             FROM integration_outbox
+             WHERE company_id = :company_id
+               AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.order_id'))
+                    = :order_id
+             ORDER BY created_at"
+        );
+        $diagnostic->execute([
+            'company_id' => $companyId,
+            'order_id' => (string) $created['order'],
+        ]);
+        foreach ($diagnostic->fetchAll(PDO::FETCH_ASSOC) as $failure) {
+            fwrite(
+                STDERR,
+                'INTEGRATION ' . $failure['event_type'] . ': '
+                . $failure['last_error'] . PHP_EOL
+            );
+        }
+    }
+    $check(
+        $dispatch['processed'] === 2 && $dispatch['failed'] === 0,
+        'Order and payment integration events are dispatched'
+    );
+
+    $receivableStatement = db()->prepare(
+        'SELECT paid_amount, balance_amount, status
+         FROM finance_sales_receivables
+         WHERE company_id = :company_id AND order_id = :order_id'
+    );
+    $receivableStatement->execute([
+        'company_id' => $companyId,
+        'order_id' => $created['order'],
+    ]);
+    $receivable = $receivableStatement->fetch(PDO::FETCH_ASSOC);
+    $check(
+        is_array($receivable)
+        && (float) $receivable['paid_amount'] === 300.0
+        && $receivable['status'] === 'partially_paid',
+        'Finance projection receives the order and payment'
+    );
+
+    $commitmentStatement = db()->prepare(
+        'SELECT COUNT(*) FROM inventory_sales_commitments
+         WHERE company_id = :company_id AND order_id = :order_id
+           AND status = \'reserved\''
+    );
+    $commitmentStatement->execute([
+        'company_id' => $companyId,
+        'order_id' => $created['order'],
+    ]);
+    $check(
+        (int) $commitmentStatement->fetchColumn() === 2,
+        'Inventory projection reserves both product lines'
+    );
+
+    $workspace = $service->workspace();
+    $targetRow = array_values(array_filter(
+        $workspace['targets'],
+        static fn (array $row): bool =>
+            (int) $row['target_id'] === $created['target']
+    ))[0] ?? null;
+    $check(
+        is_array($targetRow)
+        && (float) $targetRow['achieved_amount'] > 0,
+        'Target achievement includes the confirmed order'
+    );
+    $check(
+        (float) $workspace['summary']['receivableTotal'] > 0
+        && (float) $workspace['summary']['commissionTotal'] > 0,
+        'Dashboard reports receivable and commission balances'
+    );
+} catch (Throwable $exception) {
+    $failures[] = $exception::class . ': ' . $exception->getMessage();
+    fwrite(STDERR, 'FAIL ' . end($failures) . PHP_EOL);
+} finally {
+    $deletions = [
+        ['inventory_sales_commitments', 'order_id', $created['order']],
+        ['finance_sales_receipts', 'order_id', $created['order']],
+        ['finance_sales_receivables', 'order_id', $created['order']],
+        ['sales_commissions', 'order_id', $created['order']],
+        ['sales_payments', 'order_id', $created['order']],
+        ['sales_order_lines', 'order_id', $created['order']],
+        ['sales_orders', 'order_id', $created['order']],
+        ['sales_targets', 'target_id', $created['target']],
+        ['sales_agents', 'agent_id', $created['agent']],
+        ['sales_customers', 'customer_id', $created['customer']],
+    ];
+    foreach (array_reverse($created['products']) as $productId) {
+        $deletions[] = ['sales_products', 'product_id', $productId];
+    }
+    $deletions[] = ['sales_territories', 'territory_id', $created['territory']];
+    foreach ($deletions as [$table, $column, $id]) {
+        if ((int) $id < 1) {
+            continue;
+        }
+        $statement = db()->prepare(
+            "DELETE FROM {$table}
+             WHERE company_id = :company_id
+               AND {$column} = :record_id"
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'record_id' => $id,
+        ]);
+    }
+    db()->prepare(
+        "DELETE FROM integration_outbox
+         WHERE company_id = :company_id
+           AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.order_id'))
+                = :order_id"
+    )->execute([
+        'company_id' => $companyId,
+        'order_id' => (string) $created['order'],
+    ]);
+}
+
+fwrite(STDOUT, PHP_EOL . sprintf(
+    'Sales integration: %d failure(s)%s',
+    count($failures),
+    PHP_EOL
+));
+exit($failures === [] ? 0 : 1);

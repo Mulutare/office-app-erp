@@ -69,12 +69,39 @@ use App\Repositories\MySql\OrganizationReadinessRepository
 use App\Repositories\Oracle\OrganizationReadinessRepository
     as OracleOrganizationReadinessRepository;
 use RuntimeException;
+use App\Repositories\MySql\SalesRepository
+    as MySqlSalesRepository;
+use App\Repositories\MySql\IntegrationEventRepository
+    as MySqlIntegrationEventRepository;
 
 /**
  * Selects repository implementations from the allowlisted database driver.
  */
 final class RepositoryFactory
 {
+    public static function integrationEvents():
+        IntegrationEventRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlIntegrationEventRepository();
+        }
+
+        throw new RuntimeException(
+            'No integration-event repository is available for the configured database driver.'
+        );
+    }
+
+    public static function sales(): SalesRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlSalesRepository();
+        }
+
+        throw new RuntimeException(
+            'No sales repository is available for the configured database driver.'
+        );
+    }
+
     public static function attendancePushSubscriptions():
         AttendancePushSubscriptionRepository
     {
