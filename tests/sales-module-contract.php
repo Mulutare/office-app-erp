@@ -104,6 +104,26 @@ $expectContains('database/seeds/020_expand_sales_enterprise_permissions.sql', [
     "'sales.reports.export'", "'sales.integrations.replay'",
 ]);
 
+$expectContains('database/seeds/021_assign_professional_sales_roles.sql', [
+    "'sales_manager'", "'sales_officer'", "'sales_approver'",
+    "'sales_cashier'", "'sales_inventory_controller'",
+    "'sales_commission_officer'", "'sales_credit_controller'",
+    "permissions.code <> 'sales.integrations.replay'",
+]);
+
+$expectContains('app/controllers/SalesController.php', [
+    "'canSubmitOrders' => \$this->can('sales.orders.submit')",
+    "'canFulfillOrders' => \$this->can('sales.orders.confirm')",
+    "'canCancelOrders' => \$this->can('sales.orders.cancel')",
+    "\$this->authorize('sales.reports.export')",
+]);
+
+$expectContains('resources/views/sales/index.php', [
+    "\$data['canSubmitOrders']", "\$data['canApproveOrders']",
+    "\$data['canFulfillOrders']", "\$data['canCancelOrders']",
+    "\$data['canExportReports']",
+]);
+
 if ($failures !== []) {
     foreach ($failures as $failure) {
         fwrite(STDERR, 'FAIL ' . $failure . PHP_EOL);

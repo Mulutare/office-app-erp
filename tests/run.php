@@ -667,8 +667,13 @@ try {
                 AS leave_types_count'
     )->fetch(\PDO::FETCH_ASSOC);
 
+    $expectedReferenceFiles = glob(
+        __DIR__ . '/../database/seeds/*.sql'
+    );
     $check(
-        count($synchronization['files']) === 20
+        is_array($expectedReferenceFiles)
+        && count($synchronization['files'])
+            === count($expectedReferenceFiles)
         && $synchronization['statementCount'] > 20
         && $referenceCountsBefore
             === $referenceCountsAfter,

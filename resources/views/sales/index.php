@@ -18,6 +18,10 @@ $old = is_array($data['old'] ?? null) ? $data['old'] : [];
 $currency = (string) ($data['user']['company']['default_currency'] ?? 'ETB');
 $money = static fn (mixed $amount): string => $currency . ' ' . number_format((float) $amount, 2);
 $today = date('Y-m-d');
+$canOrderActions = !empty($data['canSubmitOrders'])
+    || !empty($data['canApproveOrders'])
+    || !empty($data['canFulfillOrders'])
+    || !empty($data['canCancelOrders']);
 ?>
 
 <?php if ($notice !== null): ?>
@@ -63,8 +67,8 @@ $today = date('Y-m-d');
 <?php endif; ?>
 
 <section class="card table-card">
-    <div class="table-summary"><strong>Recent orders and receivables</strong><span><a class="btn btn-secondary btn-compact" href="/office_app/public/sales/export">Export CSV</a> <?= e(count($orders)) ?> orders</span></div>
-    <div class="table-responsive"><table class="data-table"><thead><tr><th>Order</th><th>Customer</th><th>Date / due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><?php if (!empty($data['canApproveOrders'])): ?><th>Approval action</th><?php endif; ?><?php if (!empty($data['canRecordPayments'])): ?><th>Receipt</th><?php endif; ?></tr></thead><tbody>
+    <div class="table-summary"><strong>Recent orders and receivables</strong><span><?php if (!empty($data['canExportReports'])): ?><a class="btn btn-secondary btn-compact" href="/office_app/public/sales/export">Export CSV</a><?php endif; ?> <?= e(count($orders)) ?> orders</span></div>
+    <div class="table-responsive"><table class="data-table"><thead><tr><th>Order</th><th>Customer</th><th>Date / due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><?php if ($canOrderActions): ?><th>Order action</th><?php endif; ?><?php if (!empty($data['canRecordPayments'])): ?><th>Receipt</th><?php endif; ?></tr></thead><tbody>
     <?php if ($orders === []): ?><tr><td colspan="8" class="empty-state">No sales orders have been created.</td></tr><?php endif; ?>
     <?php foreach ($orders as $order): ?><tr>
         <td><strong><?= e($order['order_number']) ?></strong><small><?= e($order['agent_name'] ?? 'No DSA/DSP') ?></small></td>
@@ -72,7 +76,7 @@ $today = date('Y-m-d');
         <td><?= e($order['order_date']) ?><small>Due <?= e($order['due_date']) ?></small></td>
         <td><?= e($money($order['total_amount'])) ?></td><td><?= e($money($order['paid_amount'])) ?></td><td><strong><?= e($money($order['balance_due'])) ?></strong></td>
         <td><span class="badge badge-<?= e($order['status'] === 'paid' ? 'success' : 'muted') ?>"><?= e(ucwords(str_replace('_', ' ', $order['status']))) ?></span></td>
-        <?php if (!empty($data['canApproveOrders'])): ?><td><form method="post" action="/office_app/public/sales/orders/action"><?= csrfField() ?><input type="hidden" name="order_id" value="<?= e($order['order_id']) ?>"><input type="hidden" name="idempotency_key" value="<?= e(bin2hex(random_bytes(16))) ?>"><?php if ($order['status'] === 'draft'): ?><button class="btn btn-secondary btn-compact" name="action" value="submit">Submit</button><?php elseif ($order['status'] === 'submitted'): ?><button class="btn btn-primary btn-compact" name="action" value="approve">Approve</button><?php elseif (in_array($order['status'], ['approved', 'confirmed'], true)): ?><button class="btn btn-secondary btn-compact" name="action" value="fulfill">Fulfill</button><?php endif; ?><?php if (in_array($order['status'], ['draft', 'submitted', 'approved', 'confirmed'], true)): ?><input name="reason" placeholder="Cancellation reason"><button class="btn btn-secondary btn-compact" name="action" value="cancel">Cancel</button><?php endif; ?></form></td><?php endif; ?>
+        <?php if ($canOrderActions): ?><td><form method="post" action="/office_app/public/sales/orders/action"><?= csrfField() ?><input type="hidden" name="order_id" value="<?= e($order['order_id']) ?>"><input type="hidden" name="idempotency_key" value="<?= e(bin2hex(random_bytes(16))) ?>"><?php if ($order['status'] === 'draft' && !empty($data['canSubmitOrders'])): ?><button class="btn btn-secondary btn-compact" name="action" value="submit">Submit</button><?php elseif ($order['status'] === 'submitted' && !empty($data['canApproveOrders'])): ?><button class="btn btn-primary btn-compact" name="action" value="approve">Approve</button><?php elseif (in_array($order['status'], ['approved', 'confirmed'], true) && !empty($data['canFulfillOrders'])): ?><button class="btn btn-secondary btn-compact" name="action" value="fulfill">Fulfill</button><?php endif; ?><?php if (in_array($order['status'], ['draft', 'submitted', 'approved', 'confirmed'], true) && !empty($data['canCancelOrders'])): ?><input name="reason" placeholder="Cancellation reason"><button class="btn btn-secondary btn-compact" name="action" value="cancel">Cancel</button><?php endif; ?></form></td><?php endif; ?>
         <?php if (!empty($data['canRecordPayments'])): ?><td><?php if (in_array($order['status'], ['approved', 'confirmed', 'fulfilled', 'partially_paid'], true)): ?><form method="post" action="/office_app/public/sales/payments"><?= csrfField() ?><input type="hidden" name="order_id" value="<?= e($order['order_id']) ?>"><input name="receipt_number" placeholder="Receipt #" maxlength="50" required><input name="payment_date" type="date" value="<?= e($today) ?>" required><input name="amount" type="number" min="0.01" max="<?= e($order['balance_due']) ?>" step="0.01" placeholder="Amount" required><select name="payment_method"><option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option><option value="mobile_money">Mobile money</option><option value="card">Card</option></select><input name="reference_number" placeholder="Reference"><button class="btn btn-secondary btn-compact" type="submit">Record</button></form><?php else: ?>-<?php endif; ?></td><?php endif; ?>
     </tr><?php endforeach; ?></tbody></table></div>
 </section>

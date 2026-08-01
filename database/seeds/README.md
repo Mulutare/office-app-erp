@@ -44,3 +44,6 @@ Future modules should:
 | `finance_approver` | Dashboard plus Finance view and approval |
 | `business_development_officer` | Dashboard plus Business view and management |
 | `auditor` | Dashboard, audit logs, and read-only access to HR, IT, Finance, and Business records |
+
+Sales roles and their least-privilege permission matrix are documented in
+`docs/sales-access-control.md` and provisioned by seed `021`.

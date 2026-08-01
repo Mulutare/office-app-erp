@@ -18,7 +18,7 @@ This is the mandatory pre-implementation audit. Status reflects verified behavio
 | Sales dashboard | ToR 111 | Five totals, order list, targets; no filters, margin, aging buckets or branch/product/customer analysis | repository `dashboard()`, view | Partial | Add indexed, filtered KPI/report queries, drill-down and authorized export | Filter isolation, totals, pagination, CSV/PDF authorization |
 | Receivables tracking | ToR 112 | Order-level balance, partial/full payments, basic overdue total and Finance projection | payments and Finance handler | Partial | Add allocations, reversals, refunds, credit notes, write-off, statements and aging | Overpayment, duplicate, reversal, reconciliation, aging |
 | Multi-branch operation | ToR 29, 181 | Branch columns exist on territory/order but service always writes `branch_id = null`; no branch scoping | service create methods and local DB (zero branches) | Incorrect | Require valid tenant branch when configured and enforce branch visibility | Foreign branch selection and visibility denial |
-| RBAC / segregation | ToR 183 | Eight broad permissions; owners/admins receive all; creator can approve own order | seeds 018/019, controller | Unsafe | Add task-level permissions and professional Sales roles; enforce creator/approver segregation | 403 matrix and self-approval denial |
+| RBAC / segregation | ToR 183 | Task-level permissions, seven professional Sales roles, licensed-module enforcement, protected export, and creator/approver segregation | seeds 018-021, controller/view | Implemented baseline | Add HTTP-level denial coverage for every role/action combination | 403 matrix, UI visibility, and self-approval denial |
 | Audit trail | ToR 184 | Creation/transitions/payments audited after repository commit; before-state and branch/request metadata absent | `SalesService` audit calls | Partial | Persist immutable business history in transaction and enrich audit context | Before/after, actor, tenant, branch, reason and failure cases |
 | Order numbering | Professional control | Timestamp plus random 4 digits; unique constraint catches collision | `SalesService::createOrder()` | Unsafe | Add locked tenant/branch document sequences | Concurrency, retry and tenant collision tests |
 | Calculations | Professional control | Server recalculates product price, line discount/tax and totals; UI only renders 3 lines; controller accepts 20 | service and view | Partial | Remove UI cap; centralize reusable calculator; add order discount, inclusive tax, charges, FX, cost/margin | Unlimited lines, rounding, tax, discounts and totals |
@@ -42,7 +42,7 @@ This is the mandatory pre-implementation audit. Status reflects verified behavio
 - Two companies and no organization branches exist locally.
 - Sales sample data: one territory, one customer, one product, two agents; no orders, payments, commissions, targets or serials.
 - The integration outbox is empty.
-- Eight Sales permissions exist. Company owner and system administrator hold all eight; executive viewer holds view only.
+- Sixteen Sales permissions and seven least-privilege Sales roles exist. Company owner and system administrator retain full access; executive viewer remains read-only.
 - Local Git `main` is clean but one commit ahead of `origin/main` at audit start.
 
 ## Phase 1 conclusion

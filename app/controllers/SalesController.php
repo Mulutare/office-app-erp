@@ -37,9 +37,13 @@ final class SalesController
             'canCreateOrders' => $this->can('sales.orders.create'),
             'canRecordPayments' => $this->can('sales.payments.record'),
             'canManageTargets' => $this->can('sales.targets.manage'),
+            'canSubmitOrders' => $this->can('sales.orders.submit'),
             'canApproveOrders' => $this->can('sales.orders.approve'),
+            'canFulfillOrders' => $this->can('sales.orders.confirm'),
+            'canCancelOrders' => $this->can('sales.orders.cancel'),
             'canManageSerials' => $this->can('sales.serials.manage'),
             'canManageCommissions' => $this->can('sales.commissions.manage'),
+            'canExportReports' => $this->can('sales.reports.export'),
         ] + $workspace);
     }
 
@@ -188,7 +192,7 @@ final class SalesController
 
     public function export(): void
     {
-        $this->authorize('sales.view');
+        $this->authorize('sales.reports.export');
         $workspace = $this->sales->workspace();
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="sales-orders-' . date('Y-m-d') . '.csv"');
