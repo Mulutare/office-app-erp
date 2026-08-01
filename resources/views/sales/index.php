@@ -24,6 +24,8 @@ $canOrderActions = !empty($data['canSubmitOrders'])
     || !empty($data['canCancelOrders']);
 ?>
 
+<div class="sales-workspace">
+
 <?php if ($notice !== null): ?>
     <div class="alert alert-success" role="status"><?= e($notice['message'] ?? '') ?></div>
 <?php endif; ?>
@@ -34,16 +36,16 @@ $canOrderActions = !empty($data['canSubmitOrders'])
     </div>
 <?php endif; ?>
 
-<section class="finance-summary-grid" aria-label="Sales summary">
-    <article class="card finance-summary-card"><span>Orders</span><strong><?= e($summary['orderCount'] ?? 0) ?></strong></article>
-    <article class="card finance-summary-card"><span>Total sales</span><strong><?= e($money($summary['salesTotal'] ?? 0)) ?></strong></article>
-    <article class="card finance-summary-card"><span>Receivables</span><strong><?= e($money($summary['receivableTotal'] ?? 0)) ?></strong></article>
-    <article class="card finance-summary-card"><span>Overdue</span><strong><?= e($money($summary['overdueTotal'] ?? 0)) ?></strong></article>
-    <article class="card finance-summary-card"><span>Accrued commission</span><strong><?= e($money($summary['commissionTotal'] ?? 0)) ?></strong></article>
+<section class="finance-summary-grid sales-summary-grid" aria-label="Sales summary">
+    <article class="card finance-summary-card sales-summary-card"><span>Orders</span><strong><?= e($summary['orderCount'] ?? 0) ?></strong></article>
+    <article class="card finance-summary-card sales-summary-card"><span>Total sales</span><strong><?= e($money($summary['salesTotal'] ?? 0)) ?></strong></article>
+    <article class="card finance-summary-card sales-summary-card"><span>Receivables</span><strong><?= e($money($summary['receivableTotal'] ?? 0)) ?></strong></article>
+    <article class="card finance-summary-card sales-summary-card"><span>Overdue</span><strong><?= e($money($summary['overdueTotal'] ?? 0)) ?></strong></article>
+    <article class="card finance-summary-card sales-summary-card"><span>Accrued commission</span><strong><?= e($money($summary['commissionTotal'] ?? 0)) ?></strong></article>
 </section>
 
 <?php if (!empty($data['canCreateOrders'])): ?>
-<section class="card finance-filter-panel">
+<section class="card finance-filter-panel sales-order-composer">
     <h2>Create sales order</h2>
     <p class="page-description">Add up to three product lines per order. Prices and commissions are taken from the controlled product catalogue.</p>
     <form method="post" action="/office_app/public/sales/orders" class="finance-filter-form">
@@ -82,7 +84,7 @@ $canOrderActions = !empty($data['canSubmitOrders'])
 </section>
 
 <?php if (!empty($data['canManageCatalogue'])): ?>
-<section class="finance-summary-grid">
+<section class="finance-summary-grid sales-management-grid">
     <article class="card"><h2>Add territory</h2><form method="post" action="/office_app/public/sales/territories"><?= csrfField() ?><div class="form-field"><label>Code</label><input name="code" maxlength="40" required></div><div class="form-field"><label>Name</label><input name="name" maxlength="120" required></div><button class="btn btn-primary" type="submit">Add territory</button></form></article>
     <article class="card"><h2>Add DSA / DSP</h2><form method="post" action="/office_app/public/sales/agents"><?= csrfField() ?><div class="form-field"><label>Code</label><input name="agent_code" maxlength="40" required></div><div class="form-field"><label>Name</label><input name="name" maxlength="160" required></div><div class="form-field"><label>Type</label><select name="agent_type"><option value="DSA">DSA</option><option value="DSP">DSP</option></select></div><div class="form-field"><label>Territory</label><select name="territory_id"><option value="">Not assigned</option><?php foreach ($territories as $territory): ?><option value="<?= e($territory['territory_id']) ?>"><?= e($territory['name']) ?></option><?php endforeach; ?></select></div><div class="form-field"><label>Phone</label><input name="phone" maxlength="40"></div><button class="btn btn-primary" type="submit">Add DSA/DSP</button></form></article>
     <article class="card"><h2>Add customer</h2><form method="post" action="/office_app/public/sales/customers"><?= csrfField() ?><div class="form-field"><label>Customer number</label><input name="customer_number" maxlength="40" required></div><div class="form-field"><label>Name</label><input name="name" maxlength="160" required></div><div class="form-field"><label>Type</label><select name="customer_type"><option value="business">Business</option><option value="individual">Individual</option><option value="agent">Agent</option><option value="government">Government</option></select></div><div class="form-field"><label>Email</label><input name="email" type="email"></div><div class="form-field"><label>Phone</label><input name="phone"></div><div class="form-field"><label>Preferred currency</label><input name="preferred_currency" maxlength="3" value="<?= e($currency) ?>" required></div><div class="form-field"><label>Credit policy</label><select name="credit_mode"><option value="no_credit">No credit allowed</option><option value="fixed">Fixed credit limit</option><option value="unlimited">Unlimited credit</option></select></div><div class="form-field"><label>Credit limit</label><input name="credit_limit" type="number" min="0" step="0.01" value="0"></div><div class="form-field"><label>Payment terms (days)</label><input name="payment_terms_days" type="number" min="0" value="0"></div><button class="btn btn-primary" type="submit">Add customer</button></form></article>
@@ -103,3 +105,4 @@ $canOrderActions = !empty($data['canSubmitOrders'])
 <?php endif; ?>
 
 <section class="card table-card"><div class="table-summary"><strong>Target performance</strong><span><?= e(count($targets)) ?> targets</span></div><div class="table-responsive"><table class="data-table"><thead><tr><th>Scope</th><th>Period</th><th>Target</th><th>Achieved</th><th>Completion</th></tr></thead><tbody><?php if ($targets === []): ?><tr><td colspan="5" class="empty-state">No sales targets have been set.</td></tr><?php endif; ?><?php foreach ($targets as $target): ?><?php $targetAmount = (float) $target['target_amount']; $achieved = (float) $target['achieved_amount']; $completion = $targetAmount > 0 ? min(999.9, $achieved * 100 / $targetAmount) : 0; ?><tr><td><strong><?= e($target['territory_name'] ?? 'All territories') ?></strong><small><?= e($target['agent_name'] ?? 'All DSA/DSP') ?></small></td><td><?= e($target['period_start']) ?> to <?= e($target['period_end']) ?></td><td><?= e($money($targetAmount)) ?><small><?= e($target['target_quantity']) ?> units</small></td><td><?= e($money($achieved)) ?></td><td><strong><?= e(number_format($completion, 1)) ?>%</strong></td></tr><?php endforeach; ?></tbody></table></div></section>
+</div>
