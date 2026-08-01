@@ -132,6 +132,11 @@ final class SalesService
     /** @param array<string, mixed> $input @return array<string, mixed> */
     public function createCustomer(array $input, int $actorId): array
     {
+        $creditLimit = $this->money($input['credit_limit'] ?? 0);
+        $creditMode = trim((string) ($input['credit_mode'] ?? ''));
+        if ($creditMode === '') {
+            $creditMode = $creditLimit > 0 ? 'fixed' : 'unlimited';
+        }
         $values = [
             'territory_id' => $this->optionalId($input['territory_id'] ?? null),
             'customer_number' => strtoupper(trim((string) ($input['customer_number'] ?? ''))),
@@ -141,7 +146,10 @@ final class SalesService
             'email' => $this->nullable($input['email'] ?? null),
             'phone' => $this->nullable($input['phone'] ?? null),
             'address' => $this->nullable($input['address'] ?? null),
-            'credit_limit' => $this->money($input['credit_limit'] ?? 0),
+            'preferred_currency' => strtoupper(trim((string) ($input['preferred_currency'] ?? 'ETB'))),
+            'credit_mode' => $creditMode,
+            'credit_limit' => $creditLimit,
+            'credit_status' => 'active',
             'payment_terms_days' => max(0, (int) ($input['payment_terms_days'] ?? 0)),
         ];
         $errors = [];
@@ -156,6 +164,15 @@ final class SalesService
         }
         if ($values['credit_limit'] < 0) {
             $errors['credit_limit'] = 'Credit limit cannot be negative.';
+        }
+        if (!in_array($values['credit_mode'], ['no_credit', 'unlimited', 'fixed'], true)) {
+            $errors['credit_mode'] = 'Select no credit, unlimited credit or a fixed credit limit.';
+        }
+        if ($values['credit_mode'] === 'fixed' && $values['credit_limit'] <= 0) {
+            $errors['credit_limit'] = 'A fixed credit policy requires a positive limit.';
+        }
+        if (preg_match('/^[A-Z]{3}$/', $values['preferred_currency']) !== 1) {
+            $errors['preferred_currency'] = 'Preferred currency must be a three-letter ISO code.';
         }
         if ($values['email'] !== null && filter_var($values['email'], FILTER_VALIDATE_EMAIL) === false) {
             $errors['email'] = 'Enter a valid email address.';
@@ -311,7 +328,15 @@ final class SalesService
         $status = !empty($input['confirm']) ? 'submitted' : 'draft';
         $customer = $customers[$customerId];
         $creditLimit = (float) ($customer['credit_limit'] ?? 0);
-        if ($status === 'submitted' && $creditLimit > 0) {
+        $creditMode = (string) ($customer['credit_mode'] ?? ($creditLimit > 0 ? 'fixed' : 'unlimited'));
+        $creditStatus = (string) ($customer['credit_status'] ?? 'active');
+        if ($status === 'submitted' && $creditStatus !== 'active') {
+            return ['successful' => false, 'errors' => ['credit_status' => 'This customer is on credit hold.']];
+        }
+        if ($status === 'submitted' && $creditMode === 'no_credit') {
+            return ['successful' => false, 'errors' => ['credit_limit' => 'This customer is not authorized for credit sales.']];
+        }
+        if ($status === 'submitted' && $creditMode === 'fixed') {
             $outstanding = $this->sales->customerOutstanding($companyId, $customerId);
             if (round($outstanding + $total, 2) > $creditLimit) {
                 return ['successful' => false, 'errors' => [
@@ -322,7 +347,12 @@ final class SalesService
                 ]];
             }
         }
-        $orderNumber = sprintf('SO-%s-%04d', date('YmdHis'), random_int(1, 9999));
+        try {
+            $orderNumber = $this->sales->reserveDocumentNumber($companyId, null, 'order');
+        } catch (Throwable $exception) {
+            error_log('Sales order numbering failed: ' . $exception->getMessage());
+            return ['successful' => false, 'errors' => ['form' => 'A Sales order number could not be reserved. Please retry.']];
+        }
         $order = [
             'branch_id' => null,
             'customer_id' => $customerId,
@@ -395,17 +425,34 @@ final class SalesService
     }
 
     /** @return array<string, mixed> */
-    public function transitionOrder(int $orderId, string $action, ?string $reason, int $actorId): array
+    public function transitionOrder(
+        int $orderId,
+        string $action,
+        ?string $reason,
+        int $actorId,
+        ?string $idempotencyKey = null
+    ): array
     {
         $companyId = $this->tenant->companyId();
         try {
-            $this->sales->transitionOrder($companyId, $orderId, $action, $reason, $actorId);
+            $key = trim((string) $idempotencyKey);
+            if ($key === '' || strlen($key) > 100) {
+                $key = bin2hex(random_bytes(16));
+            }
+            $transition = $this->sales->transitionOrder(
+                $companyId, $orderId, $action, $reason, $actorId, $key
+            );
+            if (!empty($transition['replayed'])) {
+                return ['successful' => true, 'replayed' => true];
+            }
             $this->audit->record($actorId, 'TRANSITION_SALES_ORDER', 'sales', 'sales_orders', (string) $orderId, null, [
                 'action' => $action, 'reason' => $reason,
             ], $companyId);
             return ['successful' => true];
         } catch (Throwable $exception) {
-            error_log('Sales order transition failed: ' . $exception->getMessage());
+            if (!$exception instanceof \RuntimeException) {
+                error_log('Sales order transition failed: ' . $exception->getMessage());
+            }
             return ['successful' => false, 'errors' => ['form' => $exception->getMessage()]];
         }
     }

@@ -9,6 +9,16 @@
 5. Restore the pre-deployment backup or follow the reviewed migration recovery
    procedure.
 
+## Workforce calendar shows missing scan-window warnings
+
+Calendar creation and weekly schedule saving must always provide
+`scan_open_before_minutes` and `scan_close_after_minutes`. Current builds seed
+working days with 120/240 minutes and non-working days with zero. If an older
+deployment shows an undefined-array-key warning, confirm migration 025 is
+recorded, deploy the current service/repository code, and rerun the isolated
+regression suite. Do not suppress PHP warnings or edit calendar rows manually;
+warnings can send output before a redirect and cause a secondary header error.
+
 ## Module unavailable
 
 Confirm all three controls:

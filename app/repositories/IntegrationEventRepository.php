@@ -7,13 +7,14 @@ namespace App\Repositories;
 interface IntegrationEventRepository
 {
     /** @return list<array<string, mixed>> */
-    public function pending(int $limit): array;
+    public function claimPending(int $limit, string $workerId): array;
 
-    public function markProcessed(string $eventId): void;
+    public function markProcessed(string $eventId, string $workerId): void;
 
     public function markFailed(
         string $eventId,
         string $error,
-        bool $retry
+        bool $retry,
+        string $workerId
     ): void;
 }

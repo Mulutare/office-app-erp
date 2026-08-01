@@ -63,7 +63,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
     public function customers(int $companyId): array
     {
         return $this->catalogue(
-            'SELECT customer_id, customer_number, name, customer_type, phone, credit_limit, payment_terms_days
+            'SELECT customer_id, customer_number, name, customer_type, phone,
+                    preferred_currency, credit_mode, credit_limit, credit_status, payment_terms_days
              FROM sales_customers WHERE company_id = :company_id AND active = TRUE AND deleted_at IS NULL ORDER BY name',
             $companyId
         );
@@ -168,13 +169,69 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         return (float) $statement->fetchColumn();
     }
 
+    public function reserveDocumentNumber(
+        int $companyId,
+        ?int $branchId,
+        string $documentType
+    ): string {
+        $prefixes = ['order' => 'SO', 'quotation' => 'QT', 'invoice' => 'INV', 'receipt' => 'RCPT', 'credit_note' => 'CN', 'return' => 'RTN'];
+        if (!isset($prefixes[$documentType])) {
+            throw new RuntimeException('Unsupported Sales document type.');
+        }
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $branchScope = $branchId ?? 0;
+            $insert = $connection->prepare(
+                'INSERT IGNORE INTO sales_document_sequences
+                    (company_id, branch_id, branch_scope, document_type, prefix, next_number)
+                 VALUES (:company_id, :branch_id, :branch_scope, :document_type, :prefix, 1)'
+            );
+            $insert->execute([
+                'company_id' => $companyId, 'branch_id' => $branchId,
+                'branch_scope' => $branchScope, 'document_type' => $documentType,
+                'prefix' => $prefixes[$documentType],
+            ]);
+            $select = $connection->prepare(
+                'SELECT prefix, next_number FROM sales_document_sequences
+                 WHERE company_id = :company_id AND branch_scope = :branch_scope
+                   AND document_type = :document_type FOR UPDATE'
+            );
+            $select->execute([
+                'company_id' => $companyId, 'branch_scope' => $branchScope,
+                'document_type' => $documentType,
+            ]);
+            $sequence = $select->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($sequence)) {
+                throw new RuntimeException('Sales document sequence could not be reserved.');
+            }
+            $number = (int) $sequence['next_number'];
+            $update = $connection->prepare(
+                'UPDATE sales_document_sequences SET next_number = :next_number
+                 WHERE company_id = :company_id AND branch_scope = :branch_scope
+                   AND document_type = :document_type'
+            );
+            $update->execute([
+                'next_number' => $number + 1, 'company_id' => $companyId,
+                'branch_scope' => $branchScope, 'document_type' => $documentType,
+            ]);
+            $connection->commit();
+            return sprintf('%s-%08d', (string) $sequence['prefix'], $number);
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
     public function createCustomer(int $companyId, array $values, int $actorId): int
     {
         $statement = $this->connection()->prepare(
             'INSERT INTO sales_customers
-                (company_id, territory_id, customer_number, name, customer_type, tax_number, email, phone, address, credit_limit, payment_terms_days, created_by)
+                (company_id, territory_id, customer_number, name, customer_type, tax_number, email, phone, address, preferred_currency, credit_mode, credit_limit, credit_status, payment_terms_days, created_by)
              VALUES
-                (:company_id, :territory_id, :customer_number, :name, :customer_type, :tax_number, :email, :phone, :address, :credit_limit, :payment_terms_days, :created_by)'
+                (:company_id, :territory_id, :customer_number, :name, :customer_type, :tax_number, :email, :phone, :address, :preferred_currency, :credit_mode, :credit_limit, :credit_status, :payment_terms_days, :created_by)'
         );
         $statement->execute($values + ['company_id' => $companyId, 'created_by' => $actorId]);
 
@@ -266,7 +323,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         int $orderId,
         string $action,
         ?string $reason,
-        int $actorId
+        int $actorId,
+        string $idempotencyKey
     ): array {
         $connection = $this->connection();
         $connection->beginTransaction();
@@ -285,6 +343,16 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 throw new RuntimeException('Sales order was not found.');
             }
             $current = (string) $order['status'];
+            $existing = $connection->prepare(
+                'SELECT from_status, to_status FROM sales_order_status_history
+                 WHERE company_id = :company_id AND idempotency_key = :idempotency_key'
+            );
+            $existing->execute(['company_id' => $companyId, 'idempotency_key' => $idempotencyKey]);
+            $prior = $existing->fetch(PDO::FETCH_ASSOC);
+            if (is_array($prior)) {
+                $connection->commit();
+                return ['oldStatus' => $prior['from_status'], 'newStatus' => $prior['to_status'], 'replayed' => true];
+            }
             $allowed = [
                 'submit' => ['draft'],
                 'approve' => ['submitted'],
@@ -301,6 +369,9 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             }
             if ($action === 'cancel' && ($reason === null || mb_strlen($reason) < 10)) {
                 throw new RuntimeException('Provide a cancellation reason of at least 10 characters.');
+            }
+            if ($action === 'approve' && (int) ($order['created_by'] ?? 0) === $actorId) {
+                throw new RuntimeException('The order creator cannot approve the same order.');
             }
             $newStatus = match ($action) {
                 'submit' => 'submitted',
@@ -339,6 +410,20 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 $this->accrueCommission($connection, $companyId, $orderId, $order);
                 $this->enqueueOrderConfirmed($connection, $companyId, $orderId, $order);
             }
+            $history = $connection->prepare(
+                'INSERT INTO sales_order_status_history
+                    (company_id, order_id, from_status, to_status, action, reason,
+                     actor_id, occurred_at, idempotency_key)
+                 VALUES
+                    (:company_id, :order_id, :from_status, :to_status, :action, :reason,
+                     :actor_id, NOW(), :idempotency_key)'
+            );
+            $history->execute([
+                'company_id' => $companyId, 'order_id' => $orderId,
+                'from_status' => $current, 'to_status' => $newStatus,
+                'action' => $action, 'reason' => $reason, 'actor_id' => $actorId,
+                'idempotency_key' => $idempotencyKey,
+            ]);
             $connection->commit();
             return ['oldStatus' => $current, 'newStatus' => $newStatus];
         } catch (Throwable $exception) {
@@ -409,6 +494,20 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'updated_by' => $actorId,
             ]);
             $orderId = (int) $connection->lastInsertId();
+            $history = $connection->prepare(
+                'INSERT INTO sales_order_status_history
+                    (company_id, order_id, from_status, to_status, action, reason,
+                     actor_id, occurred_at, idempotency_key)
+                 VALUES
+                    (:company_id, :order_id, NULL, :to_status, :action, NULL,
+                     :actor_id, NOW(), :idempotency_key)'
+            );
+            $history->execute([
+                'company_id' => $companyId, 'order_id' => $orderId,
+                'to_status' => $order['status'], 'action' => 'create',
+                'actor_id' => $actorId,
+                'idempotency_key' => 'order-create-' . $orderId,
+            ]);
             $lineStatement = $connection->prepare(
                 'INSERT INTO sales_order_lines
                     (company_id, order_id, product_id, description, quantity, unit_price, discount_amount, tax_rate, line_total, commission_rate)

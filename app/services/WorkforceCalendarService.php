@@ -1049,6 +1049,12 @@ final class WorkforceCalendarService
                 'flex_start_minutes' => $working
                     ? 30
                     : 0,
+                'scan_open_before_minutes' => $working
+                    ? 120
+                    : 0,
+                'scan_close_after_minutes' => $working
+                    ? 240
+                    : 0,
             ];
         }
 

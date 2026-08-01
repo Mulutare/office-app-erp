@@ -38,6 +38,12 @@ interface SalesRepository
         int $customerId
     ): float;
 
+    public function reserveDocumentNumber(
+        int $companyId,
+        ?int $branchId,
+        string $documentType
+    ): string;
+
     /** @param array<string, mixed> $values */
     public function createCustomer(int $companyId, array $values, int $actorId): int;
 
@@ -67,7 +73,8 @@ interface SalesRepository
         int $orderId,
         string $action,
         ?string $reason,
-        int $actorId
+        int $actorId,
+        string $idempotencyKey
     ): array;
 
     /** @return array<string, mixed> */

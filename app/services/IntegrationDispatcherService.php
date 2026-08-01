@@ -31,7 +31,8 @@ final class IntegrationDispatcherService
     {
         $processed = 0;
         $failed = 0;
-        foreach ($this->events->pending($limit) as $event) {
+        $workerId = gethostname() . '-' . getmypid() . '-' . bin2hex(random_bytes(4));
+        foreach ($this->events->claimPending($limit, $workerId) as $event) {
             try {
                 $payload = json_decode(
                     (string) $event['payload_json'],
@@ -53,13 +54,14 @@ final class IntegrationDispatcherService
                 if (!$handled) {
                     throw new RuntimeException('No integration handler is registered.');
                 }
-                $this->events->markProcessed((string) $event['event_id']);
+                $this->events->markProcessed((string) $event['event_id'], $workerId);
                 $processed++;
             } catch (Throwable $exception) {
                 $this->events->markFailed(
                     (string) $event['event_id'],
                     $exception::class . ': ' . $exception->getMessage(),
-                    (int) $event['attempts'] < 9
+                    (int) $event['attempts'] < 9,
+                    $workerId
                 );
                 $failed++;
             }

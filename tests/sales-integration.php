@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Repositories\RepositoryFactory;
 use App\Services\SalesService;
 use App\Services\IntegrationDispatcherService;
+use App\Services\IntegrationEventHandler;
 
 require_once __DIR__ . '/../app/helpers/bootstrap.php';
 
@@ -15,8 +16,11 @@ $companyId = (int) db()->query(
 $actorId = (int) db()->query(
     'SELECT user_id FROM users ORDER BY user_id LIMIT 1'
 )->fetchColumn();
+$approverId = (int) db()->query(
+    'SELECT user_id FROM users WHERE user_id <> ' . $actorId . ' ORDER BY user_id LIMIT 1'
+)->fetchColumn();
 
-if ($companyId < 1 || $actorId < 1) {
+if ($companyId < 1 || $actorId < 1 || $approverId < 1) {
     fwrite(STDERR, 'FAIL Sales fixtures are unavailable.' . PHP_EOL);
     exit(1);
 }
@@ -36,6 +40,7 @@ $created = [
     'products' => [],
     'target' => 0,
     'order' => 0,
+    'reliability_events' => [],
 ];
 $failures = [];
 $check = static function (
@@ -122,9 +127,32 @@ try {
     ], $actorId);
     $created['order'] = (int) ($order['orderId'] ?? 0);
     $check(!empty($order['successful']), 'Multi-line order is submitted for approval');
+    $check(
+        preg_match('/^SO-[0-9]{8}$/', (string) ($order['orderNumber'] ?? '')) === 1,
+        'Order uses the controlled tenant document sequence'
+    );
 
-    $approval = $service->transitionOrder($created['order'], 'approve', null, $actorId);
+    $selfApproval = $service->transitionOrder(
+        $created['order'], 'approve', null, $actorId, 'sales-test-self-' . $suffix
+    );
+    $check(empty($selfApproval['successful']), 'Order creator cannot approve the same order');
+
+    $approvalKey = 'sales-test-approve-' . $suffix;
+    $approval = $service->transitionOrder(
+        $created['order'], 'approve', null, $approverId, $approvalKey
+    );
     $check(!empty($approval['successful']), 'Submitted order is approved');
+    $approvalReplay = $service->transitionOrder(
+        $created['order'], 'approve', null, $approverId, $approvalKey
+    );
+    $check(!empty($approvalReplay['successful']), 'Repeated approval request is idempotent');
+
+    $historyStatement = db()->prepare(
+        'SELECT COUNT(*) FROM sales_order_status_history
+         WHERE company_id = :company_id AND order_id = :order_id'
+    );
+    $historyStatement->execute(['company_id' => $companyId, 'order_id' => $created['order']]);
+    $check((int) $historyStatement->fetchColumn() === 2, 'Order creation and approval have immutable transition history');
 
     $serials = $service->registerSerialNumbers([
         'product_id' => $created['products'][0],
@@ -235,6 +263,56 @@ try {
         && (float) $workspace['summary']['commissionTotal'] > 0,
         'Dashboard reports receivable and commission balances'
     );
+
+    $eventInsert = db()->prepare(
+        "INSERT INTO integration_outbox
+            (event_id, company_id, event_type, aggregate_type, aggregate_id,
+             payload_json, status, attempts, available_at)
+         VALUES
+            (:event_id, :company_id, 'sales.test.failure', 'sales_order',
+             :aggregate_id, '{}', 'pending', 0, NOW())"
+    );
+    foreach (['1', '2'] as $position) {
+        $eventId = strtolower(sprintf(
+            '%s-%s000-4000-8000-%012d',
+            substr($suffix, 0, 6), $position, (int) $position
+        ));
+        $created['reliability_events'][] = $eventId;
+        $eventInsert->execute([
+            'event_id' => $eventId,
+            'company_id' => $companyId,
+            'aggregate_id' => 'ordering-' . $suffix,
+        ]);
+    }
+    $failingHandler = new class implements IntegrationEventHandler {
+        public function supports(string $eventType): bool
+        {
+            return $eventType === 'sales.test.failure';
+        }
+
+        public function handle(array $event): void
+        {
+            throw new RuntimeException('Intentional ordering fixture failure.');
+        }
+    };
+    $failureDispatch = (new IntegrationDispatcherService(null, [$failingHandler]))->dispatch(10);
+    $eventStates = db()->prepare(
+        'SELECT status, attempts FROM integration_outbox
+         WHERE event_id IN (:first_event, :second_event)
+         ORDER BY outbox_sequence'
+    );
+    $eventStates->execute([
+        'first_event' => $created['reliability_events'][0],
+        'second_event' => $created['reliability_events'][1],
+    ]);
+    $states = $eventStates->fetchAll(PDO::FETCH_ASSOC);
+    $check(
+        $failureDispatch['failed'] === 1
+        && ($states[0]['status'] ?? null) === 'failed'
+        && (int) ($states[0]['attempts'] ?? 0) === 1
+        && ($states[1]['status'] ?? null) === 'pending',
+        'Failed predecessor is retried and blocks later aggregate events'
+    );
 } catch (Throwable $exception) {
     $failures[] = $exception::class . ': ' . $exception->getMessage();
     fwrite(STDERR, 'FAIL ' . end($failures) . PHP_EOL);
@@ -244,6 +322,7 @@ try {
         ['finance_sales_receipts', 'order_id', $created['order']],
         ['finance_sales_receivables', 'order_id', $created['order']],
         ['sales_commissions', 'order_id', $created['order']],
+        ['sales_order_status_history', 'order_id', $created['order']],
         ['sales_serial_numbers', 'product_id', $created['products'][0] ?? 0],
         ['sales_payments', 'order_id', $created['order']],
         ['sales_order_lines', 'order_id', $created['order']],
@@ -279,6 +358,11 @@ try {
         'company_id' => $companyId,
         'order_id' => (string) $created['order'],
     ]);
+    foreach ($created['reliability_events'] as $eventId) {
+        db()->prepare(
+            'DELETE FROM integration_outbox WHERE event_id = :event_id'
+        )->execute(['event_id' => $eventId]);
+    }
 }
 
 fwrite(STDOUT, PHP_EOL . sprintf(

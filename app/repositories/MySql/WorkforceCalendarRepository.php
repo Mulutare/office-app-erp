@@ -271,9 +271,9 @@ final class WorkforceCalendarRepository extends MySqlRepository
             'flex_start_minutes' =>
                 $values['flex_start_minutes'],
             'scan_open_before_minutes' =>
-                $values['scan_open_before_minutes'],
+                $values['scan_open_before_minutes'] ?? 120,
             'scan_close_after_minutes' =>
-                $values['scan_close_after_minutes'],
+                $values['scan_close_after_minutes'] ?? 240,
         ]);
     }
 

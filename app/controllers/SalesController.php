@@ -94,7 +94,7 @@ final class SalesController
         $input = $this->input([
             'customer_number', 'name', 'customer_type', 'territory_id',
             'tax_number', 'email', 'phone', 'address', 'credit_limit',
-            'payment_terms_days',
+            'payment_terms_days', 'preferred_currency', 'credit_mode',
         ]);
         $this->finish($this->sales->createCustomer($input, $this->actorId()), 'customer', 'Customer created successfully.', $input);
     }
@@ -144,11 +144,22 @@ final class SalesController
 
     public function transitionOrder(): void
     {
-        $this->authorize('sales.orders.approve');
+        $action = \postString('action');
+        $permission = match ($action) {
+            'submit' => 'sales.orders.submit',
+            'approve' => 'sales.orders.approve',
+            'fulfill' => 'sales.orders.confirm',
+            'cancel' => 'sales.orders.cancel',
+            default => 'sales.orders.approve',
+        };
+        $this->authorize($permission);
         $this->requireCsrf('order_action');
-        $input = $this->input(['order_id', 'action', 'reason']);
+        $input = $this->input(['order_id', 'action', 'reason', 'idempotency_key']);
         $this->finish(
-            $this->sales->transitionOrder((int) $input['order_id'], $input['action'], $input['reason'] ?: null, $this->actorId()),
+            $this->sales->transitionOrder(
+                (int) $input['order_id'], $input['action'],
+                $input['reason'] ?: null, $this->actorId(), $input['idempotency_key']
+            ),
             'order_action', 'Order status updated successfully.', $input
         );
     }

@@ -92,6 +92,18 @@ $expectContains('database/seeds/019_assign_sales_control_permissions.sql', [
     "'sales.commissions.manage'",
 ]);
 
+$expectContains('database/migrations/mysql/030_harden_sales_enterprise_controls.php', [
+    'CREATE TABLE sales_document_sequences',
+    'CREATE TABLE sales_order_status_history',
+    "'credit_mode'", "'claimed_by'", "'dead_lettered_at'",
+]);
+
+$expectContains('database/seeds/020_expand_sales_enterprise_permissions.sql', [
+    "'sales.orders.submit'", "'sales.orders.confirm'", "'sales.orders.cancel'",
+    "'sales.credit.manage'", "'sales.credit.release'",
+    "'sales.reports.export'", "'sales.integrations.replay'",
+]);
+
 if ($failures !== []) {
     foreach ($failures as $failure) {
         fwrite(STDERR, 'FAIL ' . $failure . PHP_EOL);

@@ -526,6 +526,7 @@ try {
                 '027',
                 '028',
                 '029',
+                '030',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -549,13 +550,14 @@ try {
                 \'026\',
                 \'027\',
                 \'028\',
-                \'029\'
+                \'029\',
+                \'030\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 15,
+        $migrationLedgerCount === 16,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -666,8 +668,8 @@ try {
     )->fetch(\PDO::FETCH_ASSOC);
 
     $check(
-        count($synchronization['files']) === 19
-        && $synchronization['statementCount'] > 19
+        count($synchronization['files']) === 20
+        && $synchronization['statementCount'] > 20
         && $referenceCountsBefore
             === $referenceCountsAfter,
         'MySQL reference-data synchronization is repeatable without duplicate grants'
@@ -736,8 +738,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 52,
-        'All 52 application tables were created'
+        $tableCount === 54,
+        'All 54 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -749,8 +751,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 162,
-        'All 162 foreign-key relationships were created'
+        $foreignKeyCount === 169,
+        'All 169 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -2778,6 +2780,25 @@ try {
     $calendarId = (int) (
         $createdCalendar['calendarId'] ?? 0
     );
+    $createdDayDefaults = db()->prepare(
+        'SELECT COUNT(*)
+         FROM workforce_calendar_days
+         WHERE calendar_id = :calendar_id
+           AND (
+                (working_day = 1
+                 AND scan_open_before_minutes = 120
+                 AND scan_close_after_minutes = 240)
+                OR
+                (working_day = 0
+                 AND scan_open_before_minutes = 0
+                 AND scan_close_after_minutes = 0)
+           )'
+    );
+    $createdDayDefaults->execute([
+        'calendar_id' => $calendarId,
+    ]);
+    $createdDayDefaultCount = (int) $createdDayDefaults
+        ->fetchColumn();
     $savedWeek = $workforceCalendars->saveWeek(
         $calendarId,
         [
@@ -2899,6 +2920,7 @@ try {
     $check(
         $createdCalendar['successful'] === true
         && $calendarId > 0
+        && $createdDayDefaultCount === 7
         && !empty(
             $calendarWorkspace['selected'][
                 'is_default'
@@ -3361,6 +3383,24 @@ try {
             'attendance/me'
         ),
         'Device notification service worker displays background push and returns users to personal attendance'
+    );
+
+    $applicationCss = file_get_contents(
+        __DIR__ . '/../public/assets/css/app.css'
+    );
+    $check(
+        is_string($applicationCss)
+        && str_contains(
+            $applicationCss,
+            '.calendar-day-row .form-field'
+        )
+        && str_contains(
+            $applicationCss,
+            '.calendar-day-row .form-field input,'
+        )
+        && str_contains($applicationCss, 'min-width: 0;')
+        && str_contains($applicationCss, 'max-width: 100%;'),
+        'Workforce calendar controls remain contained within responsive grid columns'
     );
 
     $overnightSettings =
