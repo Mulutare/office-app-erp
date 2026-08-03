@@ -1088,6 +1088,12 @@ final class WorkforceCalendarService
             'flex_start_minutes' => (int) (
                 $day['flex_start_minutes'] ?? 0
             ),
+            'scan_open_before_minutes' => (int) (
+                $day['scan_open_before_minutes'] ?? 120
+            ),
+            'scan_close_after_minutes' => (int) (
+                $day['scan_close_after_minutes'] ?? 240
+            ),
         ];
     }
 

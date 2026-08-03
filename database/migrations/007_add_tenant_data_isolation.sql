@@ -103,6 +103,13 @@ ALTER TABLE hr_departments
         deleted_at
     );
 
+-- MySQL 8 will not drop uq_hr_employees_user while it is the only
+-- supporting index for fk_hr_employees_user. Rebuild the foreign key
+-- around the tenant-scoped uniqueness change and retain an explicit
+-- leftmost user_id index for deterministic cross-engine behavior.
+ALTER TABLE hr_employees
+    DROP FOREIGN KEY fk_hr_employees_user;
+
 ALTER TABLE hr_employees
     MODIFY company_id BIGINT UNSIGNED NOT NULL,
     DROP INDEX uq_hr_employees_number,
@@ -118,6 +125,7 @@ ALTER TABLE hr_employees
         FOREIGN KEY (company_id)
         REFERENCES companies(company_id)
         ON DELETE RESTRICT,
+    ADD INDEX fk_hr_employees_user (user_id),
     ADD INDEX idx_hr_employees_company_status (
         company_id,
         employment_status,
@@ -128,6 +136,12 @@ ALTER TABLE hr_employees
         department_id,
         employment_status
     );
+
+ALTER TABLE hr_employees
+    ADD CONSTRAINT fk_hr_employees_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(user_id)
+        ON DELETE SET NULL;
 
 ALTER TABLE finance_expense_categories
     MODIFY company_id BIGINT UNSIGNED NOT NULL,
