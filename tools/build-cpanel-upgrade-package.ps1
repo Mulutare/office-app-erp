@@ -145,6 +145,11 @@ foreach ($change in $changes) {
         continue
     }
 
+    if ($path.StartsWith('database/seeds/')) {
+        $privateFiles.Add($path)
+        continue
+    }
+
     if (
         $path.StartsWith('app/') -or
         $path.StartsWith('bin/') -or
@@ -264,8 +269,13 @@ try {
             $relative -match '\.(dump|bak|backup|log)$' -or
             (
                 $relative.EndsWith('.sql') -and
-                -not $relative.StartsWith(
-                    'application-private/database/migrations/'
+                -not (
+                    $relative.StartsWith(
+                        'application-private/database/migrations/'
+                    ) -or
+                    $relative.StartsWith(
+                        'application-private/database/seeds/'
+                    )
                 )
             )
         }
