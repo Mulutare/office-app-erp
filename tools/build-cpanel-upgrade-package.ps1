@@ -103,7 +103,13 @@ $allowedNewMigrations = @(
     'database/migrations/mysql/025_attendance_scan_events.php',
     'database/migrations/oracle/230_attendance_web_push.php',
     'database/migrations/oracle/240_attendance_sessions.php',
-    'database/migrations/oracle/250_attendance_scan_events.php'
+    'database/migrations/oracle/250_attendance_scan_events.php',
+    'database/migrations/mysql/026_create_sales_core.php',
+    'database/migrations/mysql/027_create_module_integration_core.php',
+    'database/migrations/mysql/028_add_integration_event_sequence.php',
+    'database/migrations/mysql/029_complete_sales_controls.php',
+    'database/migrations/mysql/030_harden_sales_enterprise_controls.php',
+    'database/migrations/mysql/031_create_third_party_api.php'
 )
 
 $privateFiles = New-Object System.Collections.Generic.List[string]
