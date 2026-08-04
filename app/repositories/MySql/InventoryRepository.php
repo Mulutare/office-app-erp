@@ -1307,6 +1307,23 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 ]);
             }
 
+            if ($movementCount > 0) {
+                $this->enqueueIntegrationEvent(
+                    $connection,
+                    $companyId,
+                    'inventory.sales-order.fulfilled',
+                    'sales_order',
+                    (string) $orderId,
+                    [
+                        'order_id' => $orderId,
+                        'actor_id' => $actorId,
+                        'inventory_cost' =>
+                            round($inventoryCost, 2),
+                        'fulfilled_at' => $fulfilledAt,
+                    ]
+                );
+            }
+
             if ($ownsTransaction) {
                 $connection->commit();
             }
@@ -1329,6 +1346,63 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
 
             throw $exception;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function enqueueIntegrationEvent(
+        PDO $connection,
+        int $companyId,
+        string $eventType,
+        string $aggregateType,
+        string $aggregateId,
+        array $payload
+    ): void {
+        $eventId = sprintf(
+            '%s-%s-4%s-%s%s-%s',
+            bin2hex(random_bytes(4)),
+            bin2hex(random_bytes(2)),
+            bin2hex(random_bytes(2)),
+            dechex(random_int(8, 11)),
+            bin2hex(random_bytes(1)),
+            bin2hex(random_bytes(6))
+        );
+
+        $statement = $connection->prepare(
+            "INSERT INTO integration_outbox (
+                event_id,
+                company_id,
+                event_type,
+                aggregate_type,
+                aggregate_id,
+                payload_json,
+                status,
+                available_at
+             ) VALUES (
+                :event_id,
+                :company_id,
+                :event_type,
+                :aggregate_type,
+                :aggregate_id,
+                :payload_json,
+                'pending',
+                NOW()
+             )"
+        );
+
+        $statement->execute([
+            'event_id' => $eventId,
+            'company_id' => $companyId,
+            'event_type' => $eventType,
+            'aggregate_type' => $aggregateType,
+            'aggregate_id' => $aggregateId,
+            'payload_json' => json_encode(
+                $payload,
+                JSON_THROW_ON_ERROR
+                    | JSON_UNESCAPED_SLASHES
+            ),
+        ]);
     }
 
     public function markGoodsReceiptPosted(
