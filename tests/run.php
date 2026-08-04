@@ -3406,58 +3406,59 @@ try {
     $scanService = new AttendanceSelfServiceService();
     $firstScan = $scanService->scan(
         910004,
-        'scan-test-20260803-first-000001',
+        'scan-test-20260817-first-000001',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-03 08:20:00',
+            '2026-08-17 08:20:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
     $secondScan = $scanService->scan(
         910004,
-        'scan-test-20260803-second-00002',
+        'scan-test-20260817-second-00002',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-03 17:00:00',
+            '2026-08-17 17:00:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
     $latestScan = $scanService->scan(
         910004,
-        'scan-test-20260803-latest-00003',
+        'scan-test-20260817-latest-00003',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-03 17:15:00',
+            '2026-08-17 17:15:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
     $duplicateLatestScan = $scanService->scan(
         910004,
-        'scan-test-20260803-latest-00003',
+        'scan-test-20260817-latest-00003',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-03 17:16:00',
+            '2026-08-17 17:16:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
     $outsideWindowScan = $scanService->scan(
         910004,
-        'scan-test-20260803-outside-0004',
+        'scan-test-20260817-outside-0004',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-03 05:00:00',
+            '2026-08-17 05:00:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
     $nextDayScan = $scanService->scan(
         910004,
-        'scan-test-20260804-first-000005',
+        'scan-test-20260818-first-000005',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-04 08:25:00',
+            '2026-08-18 08:25:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
+
     $scanRecordStatement = db()->prepare(
         'SELECT
             attendance_id,
@@ -3483,7 +3484,7 @@ try {
     $scanRecordStatement->execute([
         'company_id' => $tenantACompanyId,
         'employee_id' => 920001,
-        'attendance_date' => '2026-08-03',
+        'attendance_date' => '2026-08-17',
     ]);
     $scanRecord = $scanRecordStatement->fetch(
         \PDO::FETCH_ASSOC
@@ -3499,7 +3500,7 @@ try {
     $scanEventStatement->execute([
         'company_id' => $tenantACompanyId,
         'employee_id' => 920001,
-        'attendance_date' => '2026-08-03',
+        'attendance_date' => '2026-08-17',
     ]);
     $scanEvents = $scanEventStatement->fetchAll(
         \PDO::FETCH_ASSOC
@@ -3540,12 +3541,12 @@ try {
             (string) $scanRecord['check_in_at'],
             0,
             19
-        ) === '2026-08-03 08:20:00'
+        ) === '2026-08-17 08:20:00'
         && substr(
             (string) $scanRecord['check_out_at'],
             0,
             19
-        ) === '2026-08-03 17:15:00'
+        ) === '2026-08-17 17:15:00'
         && count($calculatedSessions) === 1
         && substr(
             (string) $calculatedSessions[0][
@@ -3553,14 +3554,14 @@ try {
             ],
             0,
             19
-        ) === '2026-08-03 08:20:00'
+        ) === '2026-08-17 08:20:00'
         && substr(
             (string) $calculatedSessions[0][
                 'check_out_at'
             ],
             0,
             19
-        ) === '2026-08-03 17:15:00',
+        ) === '2026-08-17 17:15:00',
         'Calculated attendance preserves the first clock-in and latest clock-out'
     );
     $check(
@@ -3712,7 +3713,7 @@ try {
             ],
             0,
             19
-        ) === '2026-08-03 08:30:00'
+        ) === '2026-08-17 08:30:00'
         && is_array($historicalSchedule)
         && ($historicalSchedule['startTime'] ?? null)
             === '08:30',
