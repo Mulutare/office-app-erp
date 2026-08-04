@@ -7,9 +7,154 @@ namespace App\Repositories\MySql;
 use App\Repositories\InventoryRepository as InventoryRepositoryContract;
 use PDO;
 use RuntimeException;
+use Throwable;
 
 final class InventoryRepository extends MySqlRepository implements InventoryRepositoryContract
 {
+    public function postGoodsReceipt(
+        int $companyId,
+        int $goodsReceiptId,
+        int $actorId,
+        string $postedAt
+    ): array {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+
+        try {
+            $receipt = $this->goodsReceiptForUpdate(
+                $companyId,
+                $goodsReceiptId
+            );
+
+            $status = (string) ($receipt['status'] ?? '');
+
+            if ($status === 'posted') {
+                $connection->commit();
+
+                return [
+                    'goodsReceiptId' => $goodsReceiptId,
+                    'status' => 'posted',
+                    'replayed' => true,
+                    'movementCount' => 0,
+                ];
+            }
+
+            if ($status !== 'approved') {
+                throw new RuntimeException(
+                    'Only an approved goods receipt can be posted.'
+                );
+            }
+
+            $lines = $this->goodsReceiptLines(
+                $companyId,
+                $goodsReceiptId
+            );
+
+            if ($lines === []) {
+                throw new RuntimeException(
+                    'The goods receipt must contain at least one line.'
+                );
+            }
+
+            $movementCount = 0;
+
+            foreach ($lines as $line) {
+                $warehouseId = (int) $line['warehouse_id'];
+                $locationId = (int) $line['location_id'];
+                $productId = (int) $line['product_id'];
+                $quantity = (float) $line['quantity'];
+                $unitCost = (float) $line['unit_cost'];
+                $lineId = (int) $line['goods_receipt_line_id'];
+
+                if ($quantity <= 0) {
+                    throw new RuntimeException(
+                        'Goods receipt quantities must be positive.'
+                    );
+                }
+
+                if ($unitCost < 0) {
+                    throw new RuntimeException(
+                        'Goods receipt unit costs cannot be negative.'
+                    );
+                }
+
+                $balance = $this->stockBalanceForUpdate(
+                    $companyId,
+                    $warehouseId,
+                    $locationId,
+                    $productId
+                );
+
+                if ($balance === null) {
+                    $stockBalanceId = $this->createStockBalance(
+                        $companyId,
+                        $warehouseId,
+                        $locationId,
+                        $productId
+                    );
+                } else {
+                    $stockBalanceId = (int) $balance['stock_balance_id'];
+                }
+
+                $this->applyReceiptToBalance(
+                    $companyId,
+                    $stockBalanceId,
+                    $quantity,
+                    $unitCost,
+                    $postedAt
+                );
+
+                $this->recordStockMovement(
+                    $companyId,
+                    $warehouseId,
+                    $locationId,
+                    $productId,
+                    'receipt',
+                    $quantity,
+                    $unitCost,
+                    (string) ($receipt['currency'] ?? 'ETB'),
+                    'goods_receipt',
+                    $goodsReceiptId,
+                    (string) ($receipt['receipt_number'] ?? ''),
+                    sprintf(
+                        'goods-receipt:%d:line:%d',
+                        $goodsReceiptId,
+                        $lineId
+                    ),
+                    isset($line['notes'])
+                        ? (string) $line['notes']
+                        : null,
+                    $postedAt,
+                    $actorId
+                );
+
+                $movementCount++;
+            }
+
+            $this->markGoodsReceiptPosted(
+                $companyId,
+                $goodsReceiptId,
+                $actorId,
+                $postedAt
+            );
+
+            $connection->commit();
+
+            return [
+                'goodsReceiptId' => $goodsReceiptId,
+                'status' => 'posted',
+                'replayed' => false,
+                'movementCount' => $movementCount,
+            ];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+
+            throw $exception;
+        }
+    }
+
     public function goodsReceiptForUpdate(
         int $companyId,
         int $goodsReceiptId

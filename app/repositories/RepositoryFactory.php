@@ -71,6 +71,8 @@ use App\Repositories\Oracle\OrganizationReadinessRepository
 use RuntimeException;
 use App\Repositories\MySql\SalesRepository
     as MySqlSalesRepository;
+use App\Repositories\MySql\InventoryRepository
+    as MySqlInventoryRepository;
 use App\Repositories\MySql\IntegrationEventRepository
     as MySqlIntegrationEventRepository;
 
@@ -99,6 +101,16 @@ final class RepositoryFactory
 
         throw new RuntimeException(
             'No sales repository is available for the configured database driver.'
+        );
+    }
+    public static function inventory(): InventoryRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlInventoryRepository();
+        }
+
+        throw new RuntimeException(
+            'No inventory repository is available for the configured database driver.'
         );
     }
 

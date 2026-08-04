@@ -7,6 +7,14 @@ namespace App\Repositories;
 interface InventoryRepository
 {
     /** @return array<string, mixed> */
+    public function postGoodsReceipt(
+        int $companyId,
+        int $goodsReceiptId,
+        int $actorId,
+        string $postedAt
+    ): array;
+
+    /** @return array<string, mixed> */
     public function goodsReceiptForUpdate(
         int $companyId,
         int $goodsReceiptId
