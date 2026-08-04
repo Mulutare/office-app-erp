@@ -67,6 +67,34 @@ interface InventoryRepository
         int $actorId
     ): int;
 
+    /**
+     * @param list<array<string, mixed>> $lines
+     * @return array<string, mixed>
+     */
+    public function reserveSalesOrder(
+        int $companyId,
+        int $orderId,
+        ?int $branchId,
+        array $lines,
+        string $reservedAt
+    ): array;
+
+
+    /** @return array<string, mixed> */
+    public function releaseSalesOrderReservation(
+        int $companyId,
+        int $orderId,
+        string $releasedAt
+    ): array;
+
+    /** @return array<string, mixed> */
+    public function fulfilSalesOrder(
+        int $companyId,
+        int $orderId,
+        int $actorId,
+        string $fulfilledAt
+    ): array;
+
     public function markGoodsReceiptPosted(
         int $companyId,
         int $goodsReceiptId,

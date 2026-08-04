@@ -414,7 +414,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'submit' => 'sales.order.submitted',
                 'approve' => 'sales.order.approved',
                 'cancel' => 'sales.order.cancelled',
-                'fulfill' => 'sales.order.confirmed',
+                'fulfill' => 'sales.order.fulfilled',
             };
             if (!($action === 'approve' && $webhookEvent === 'sales.order.confirmed')) {
                 $this->enqueue(
@@ -426,8 +426,12 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                     [
                         'order_id' => $orderId,
                         'order_number' => $order['order_number'],
+                        'branch_id' => isset($order['branch_id'])
+                            ? (int) $order['branch_id']
+                            : null,
                         'status' => $newStatus,
                         'reason' => $reason,
+                        'actor_id' => $actorId,
                     ]
                 );
             }
@@ -561,6 +565,9 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                     [
                         'order_id' => $orderId,
                         'order_number' => $order['order_number'],
+                        'branch_id' => isset($order['branch_id'])
+                            ? (int) $order['branch_id']
+                            : null,
                         'customer_id' => $order['customer_id'],
                         'currency' => $order['currency'],
                         'total_amount' => $order['total_amount'],
@@ -745,6 +752,9 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             [
                 'order_id' => $orderId,
                 'order_number' => $order['order_number'],
+                'branch_id' => isset($order['branch_id'])
+                    ? (int) $order['branch_id']
+                    : null,
                 'customer_id' => $order['customer_id'],
                 'currency' => $order['currency'],
                 'total_amount' => $order['total_amount'],
