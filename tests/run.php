@@ -46,6 +46,7 @@ use App\Services\CompanyUpdateService;
 use App\Services\DashboardService;
 use App\Services\DepartmentCatalogueService;
 use App\Services\DevelopmentSampleCompanyService;
+use App\Services\InventoryService;
 use App\Services\EmployeeActivityService;
 use App\Services\EmployeeDirectoryService;
 use App\Services\EmployeePositionAssignmentService;
@@ -1157,6 +1158,426 @@ try {
         'Tenant A administrator has tenant user-management permissions'
     );
 
+    $inventoryWarehouseCode = 'TEST-WH';
+    $inventoryLocationCode = 'TEST-BIN';
+    $inventoryProductSku = 'TEST-INVENTORY-PRODUCT';
+    $inventoryReceiptNumber = 'TEST-GR-0001';
+
+    $inventoryWarehouseStatement = db()->prepare(
+        'INSERT INTO inventory_warehouses (
+            company_id,
+            code,
+            name,
+            warehouse_type,
+            is_default,
+            active,
+            created_by
+         ) VALUES (
+            :company_id,
+            :code,
+            :name,
+            \'standard\',
+            FALSE,
+            TRUE,
+            :created_by
+         )
+         ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            active = TRUE'
+    );
+    $inventoryWarehouseStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'code' => $inventoryWarehouseCode,
+        'name' => 'Integration Test Warehouse',
+        'created_by' => $tenantAActorId,
+    ]);
+
+    $inventoryWarehouseIdStatement = db()->prepare(
+        'SELECT warehouse_id
+         FROM inventory_warehouses
+         WHERE company_id = :company_id
+           AND code = :code'
+    );
+    $inventoryWarehouseIdStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'code' => $inventoryWarehouseCode,
+    ]);
+    $inventoryWarehouseId = (int)
+        $inventoryWarehouseIdStatement->fetchColumn();
+
+    $inventoryLocationStatement = db()->prepare(
+        'INSERT INTO inventory_warehouse_locations (
+            company_id,
+            warehouse_id,
+            code,
+            name,
+            location_type,
+            receiving_allowed,
+            picking_allowed,
+            active,
+            created_by
+         ) VALUES (
+            :company_id,
+            :warehouse_id,
+            :code,
+            :name,
+            \'bin\',
+            TRUE,
+            TRUE,
+            TRUE,
+            :created_by
+         )
+         ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            active = TRUE'
+    );
+    $inventoryLocationStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+        'code' => $inventoryLocationCode,
+        'name' => 'Integration Test Bin',
+        'created_by' => $tenantAActorId,
+    ]);
+
+    $inventoryLocationIdStatement = db()->prepare(
+        'SELECT location_id
+         FROM inventory_warehouse_locations
+         WHERE company_id = :company_id
+           AND warehouse_id = :warehouse_id
+           AND code = :code'
+    );
+    $inventoryLocationIdStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+        'code' => $inventoryLocationCode,
+    ]);
+    $inventoryLocationId = (int)
+        $inventoryLocationIdStatement->fetchColumn();
+
+    $inventoryProductStatement = db()->prepare(
+        'INSERT INTO sales_products (
+            company_id,
+            sku,
+            name,
+            product_type,
+            unit_of_measure,
+            unit_price,
+            serial_tracking,
+            active,
+            created_by
+         ) VALUES (
+            :company_id,
+            :sku,
+            :name,
+            \'telecom_product\',
+            \'unit\',
+            100.00,
+            FALSE,
+            TRUE,
+            :created_by
+         )
+         ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            active = TRUE'
+    );
+    $inventoryProductStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'sku' => $inventoryProductSku,
+        'name' => 'Integration Inventory Product',
+        'created_by' => $tenantAActorId,
+    ]);
+
+    $inventoryProductIdStatement = db()->prepare(
+        'SELECT product_id
+         FROM sales_products
+         WHERE company_id = :company_id
+           AND sku = :sku'
+    );
+    $inventoryProductIdStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'sku' => $inventoryProductSku,
+    ]);
+    $inventoryProductId = (int)
+        $inventoryProductIdStatement->fetchColumn();
+
+    $existingReceiptStatement = db()->prepare(
+        'SELECT goods_receipt_id
+         FROM inventory_goods_receipts
+         WHERE company_id = :company_id
+           AND receipt_number = :receipt_number'
+    );
+    $existingReceiptStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'receipt_number' => $inventoryReceiptNumber,
+    ]);
+    $existingReceiptId = (int)
+        $existingReceiptStatement->fetchColumn();
+
+    if ($existingReceiptId > 0) {
+        $deleteMovements = db()->prepare(
+            'DELETE FROM inventory_stock_movements
+             WHERE company_id = :company_id
+               AND reference_type = \'goods_receipt\'
+               AND reference_id = :reference_id'
+        );
+        $deleteMovements->execute([
+            'company_id' => $tenantACompanyId,
+            'reference_id' => $existingReceiptId,
+        ]);
+
+        $deleteReceipt = db()->prepare(
+            'DELETE FROM inventory_goods_receipts
+             WHERE company_id = :company_id
+               AND goods_receipt_id = :goods_receipt_id'
+        );
+        $deleteReceipt->execute([
+            'company_id' => $tenantACompanyId,
+            'goods_receipt_id' => $existingReceiptId,
+        ]);
+    }
+
+    $deleteBalance = db()->prepare(
+        'DELETE FROM inventory_stock_balances
+         WHERE company_id = :company_id
+           AND warehouse_id = :warehouse_id
+           AND location_id = :location_id
+           AND product_id = :product_id'
+    );
+    $deleteBalance->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+        'location_id' => $inventoryLocationId,
+        'product_id' => $inventoryProductId,
+    ]);
+
+    $inventoryReceiptStatement = db()->prepare(
+        'INSERT INTO inventory_goods_receipts (
+            company_id,
+            warehouse_id,
+            receipt_number,
+            supplier_name,
+            receipt_date,
+            currency,
+            status,
+            created_by,
+            approved_by,
+            approved_at
+         ) VALUES (
+            :company_id,
+            :warehouse_id,
+            :receipt_number,
+            :supplier_name,
+            \'2026-08-04\',
+            \'ETB\',
+            \'approved\',
+            :created_by,
+            :approved_by,
+            \'2026-08-04 08:00:00\'
+         )'
+    );
+    $inventoryReceiptStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+        'receipt_number' => $inventoryReceiptNumber,
+        'supplier_name' => 'Integration Supplier',
+        'created_by' => $tenantAActorId,
+        'approved_by' => $tenantAActorId,
+    ]);
+    $inventoryReceiptId = (int) db()->lastInsertId();
+
+    $inventoryLineStatement = db()->prepare(
+        'INSERT INTO inventory_goods_receipt_lines (
+            company_id,
+            goods_receipt_id,
+            warehouse_id,
+            location_id,
+            product_id,
+            quantity,
+            unit_cost,
+            notes
+         ) VALUES (
+            :company_id,
+            :goods_receipt_id,
+            :warehouse_id,
+            :location_id,
+            :product_id,
+            10.000,
+            25.000000,
+            :notes
+         )'
+    );
+    $inventoryLineStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'goods_receipt_id' => $inventoryReceiptId,
+        'warehouse_id' => $inventoryWarehouseId,
+        'location_id' => $inventoryLocationId,
+        'product_id' => $inventoryProductId,
+        'notes' => 'Integration goods receipt line',
+    ]);
+    $inventoryService = new InventoryService();
+
+    $inventoryPostResult =
+        $inventoryService->postGoodsReceipt(
+            $inventoryReceiptId,
+            $tenantAActorId
+        );
+
+    $inventoryReplayResult =
+        $inventoryService->postGoodsReceipt(
+            $inventoryReceiptId,
+            $tenantAActorId
+        );
+
+    $inventoryBalanceStatement = db()->prepare(
+        'SELECT
+            quantity_on_hand,
+            quantity_reserved,
+            quantity_available,
+            average_unit_cost,
+            inventory_value,
+            version_number
+         FROM inventory_stock_balances
+         WHERE company_id = :company_id
+           AND warehouse_id = :warehouse_id
+           AND location_id = :location_id
+           AND product_id = :product_id'
+    );
+    $inventoryBalanceStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+        'location_id' => $inventoryLocationId,
+        'product_id' => $inventoryProductId,
+    ]);
+    $inventoryBalance = $inventoryBalanceStatement->fetch(
+        \PDO::FETCH_ASSOC
+    );
+
+    $inventoryMovementStatement = db()->prepare(
+        'SELECT
+            COUNT(*) AS movement_count,
+            SUM(quantity_delta) AS quantity_total,
+            SUM(movement_value) AS value_total
+         FROM inventory_stock_movements
+         WHERE company_id = :company_id
+           AND reference_type = \'goods_receipt\'
+           AND reference_id = :reference_id'
+    );
+    $inventoryMovementStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'reference_id' => $inventoryReceiptId,
+    ]);
+    $inventoryMovement = $inventoryMovementStatement->fetch(
+        \PDO::FETCH_ASSOC
+    );
+
+    $inventoryReceiptStatusStatement = db()->prepare(
+        'SELECT status, posted_by, posted_at
+         FROM inventory_goods_receipts
+         WHERE company_id = :company_id
+           AND goods_receipt_id = :goods_receipt_id'
+    );
+    $inventoryReceiptStatusStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'goods_receipt_id' => $inventoryReceiptId,
+    ]);
+    $inventoryReceiptStatus =
+        $inventoryReceiptStatusStatement->fetch(
+            \PDO::FETCH_ASSOC
+        );
+
+    $check(
+        $inventoryPostResult['successful'] === true
+        && (
+            $inventoryPostResult['result']['status']
+            ?? null
+        ) === 'posted'
+        && (
+            $inventoryPostResult['result'][
+                'movementCount'
+            ] ?? null
+        ) === 1
+        && (
+            $inventoryPostResult['result']['replayed']
+            ?? null
+        ) === false,
+        'Approved goods receipt posts successfully'
+    );
+
+    $check(
+        is_array($inventoryBalance)
+        && (float) (
+            $inventoryBalance['quantity_on_hand']
+            ?? 0
+        ) === 10.0
+        && (float) (
+            $inventoryBalance['quantity_reserved']
+            ?? 0
+        ) === 0.0
+        && (float) (
+            $inventoryBalance['quantity_available']
+            ?? 0
+        ) === 10.0
+        && (float) (
+            $inventoryBalance['average_unit_cost']
+            ?? 0
+        ) === 25.0
+        && (float) (
+            $inventoryBalance['inventory_value']
+            ?? 0
+        ) === 250.0,
+        'Goods receipt updates stock quantity, availability and weighted cost'
+    );
+
+    $check(
+        is_array($inventoryMovement)
+        && (int) (
+            $inventoryMovement['movement_count']
+            ?? 0
+        ) === 1
+        && (float) (
+            $inventoryMovement['quantity_total']
+            ?? 0
+        ) === 10.0
+        && (float) (
+            $inventoryMovement['value_total']
+            ?? 0
+        ) === 250.0,
+        'Goods receipt records one idempotent stock movement'
+    );
+
+    $check(
+        is_array($inventoryReceiptStatus)
+        && (
+            $inventoryReceiptStatus['status']
+            ?? null
+        ) === 'posted'
+        && (int) (
+            $inventoryReceiptStatus['posted_by']
+            ?? 0
+        ) === $tenantAActorId
+        && !empty(
+            $inventoryReceiptStatus['posted_at']
+        ),
+        'Goods receipt is marked as posted with actor and timestamp'
+    );
+
+    $check(
+        $inventoryReplayResult['successful'] === true
+        && (
+            $inventoryReplayResult['result']['status']
+            ?? null
+        ) === 'posted'
+        && (
+            $inventoryReplayResult['result']['replayed']
+            ?? null
+        ) === true
+        && (
+            $inventoryReplayResult['result'][
+                'movementCount'
+            ] ?? null
+        ) === 0,
+        'Repeated goods receipt posting is safely replayed'
+    );
     $ownerRecovery =
         new CompanyOwnerPasswordResetService();
     $ownerRecoveryTarget = $ownerRecovery
