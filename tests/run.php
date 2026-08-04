@@ -3678,7 +3678,7 @@ try {
          WHERE company_id = '
             . (int) $tenantACompanyId
             . ' AND employee_id = 920001
-                AND attendance_date = \'2026-08-03\''
+                AND attendance_date = \'2026-08-17\''
     )->fetch(\PDO::FETCH_ASSOC);
 
     $check(
