@@ -29,7 +29,36 @@ $goodsReceipts = is_array(
 )
     ? $data['goodsReceipts']
     : [];
-?>
+
+$inventoryDashboardUser = is_array(
+    $data['user'] ?? null
+)
+    ? $data['user']
+    : [];
+$inventoryDashboardPermissions = is_array(
+    $inventoryDashboardUser['permissions'] ?? null
+)
+    ? $inventoryDashboardUser['permissions']
+    : [];
+$canViewInventoryWarehouses = in_array(
+    'inventory.warehouses.view',
+    $inventoryDashboardPermissions,
+    true
+) || in_array(
+    'inventory.warehouses.manage',
+    $inventoryDashboardPermissions,
+    true
+);?>
+<?php if ($canViewInventoryWarehouses): ?>
+    <div class="details-toolbar">
+        <a
+            href="/office_app/public/inventory/warehouses"
+            class="btn btn-primary"
+        >
+            Manage warehouses
+        </a>
+    </div>
+<?php endif; ?>
 
 <section class="page-section">
     <div class="section-heading">
@@ -195,7 +224,7 @@ $goodsReceipts = is_array(
 
                             <td>
                                 <?= e((string) (
-                                    $stock['sku'] ?? '—'
+                                    $stock['sku'] ?? 'ΓÇö'
                                 )) ?>
                             </td>
 
@@ -221,7 +250,7 @@ $goodsReceipts = is_array(
                                     $stock['location_name']
                                     ?? (
                                         $stock['location_id']
-                                        ?? '—'
+                                        ?? 'ΓÇö'
                                     )
                                 )) ?>
                             </td>
@@ -368,7 +397,7 @@ $goodsReceipts = is_array(
                                         $receipt[
                                             'receipt_number'
                                         ]
-                                        ?? '—'
+                                        ?? 'ΓÇö'
                                     )) ?>
                                 </strong>
                             </td>
@@ -378,14 +407,14 @@ $goodsReceipts = is_array(
                                     $receipt[
                                         'receipt_date'
                                     ]
-                                    ?? '—'
+                                    ?? 'ΓÇö'
                                 )) ?>
                             </td>
 
                             <td>
                                 <?= e((string) (
                                     $receipt['currency']
-                                    ?? '—'
+                                    ?? 'ΓÇö'
                                 )) ?>
                             </td>
 

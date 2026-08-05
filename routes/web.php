@@ -16,6 +16,7 @@ use App\Controllers\EmployeeActivityController;
 use App\Controllers\EmployeePositionController;
 use App\Controllers\FinanceController;
 use App\Controllers\InventoryController;
+use App\Controllers\WarehouseController;
 use App\Controllers\SalesController;
 use App\Controllers\ApiV1SalesController;
 use App\Controllers\HomeController;
@@ -60,6 +61,7 @@ $employeePositionController =
     new EmployeePositionController();
 $financeController = new FinanceController();
 $inventoryController = new InventoryController();
+$warehouseController = new WarehouseController();
 $salesController = new SalesController();
 $apiV1SalesController = new ApiV1SalesController();
 $moduleAdministrationController =
@@ -238,6 +240,18 @@ $router->get(
 $router->get(
     '/inventory',
     [$inventoryController, 'index']
+);
+$router->get(
+    '/inventory/warehouses',
+    [$warehouseController, 'index']
+);
+$router->get(
+    '/inventory/warehouses/create',
+    [$warehouseController, 'create']
+);
+$router->post(
+    '/inventory/warehouses',
+    [$warehouseController, 'store']
 );
 $router->get('/sales', [$salesController, 'index']);
 $router->post('/sales/customers', [$salesController, 'storeCustomer']);

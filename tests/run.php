@@ -29,6 +29,7 @@ use App\Repositories\MySql\AttendancePushSubscriptionRepository
 use App\Repositories\Oracle\DashboardStatisticsRepository
     as OracleDashboardStatisticsRepository;
 use App\Repositories\RepositoryFactory;
+use App\Repositories\WarehouseRepository;
 use App\Services\AuthService;
 use App\Services\AttendanceManagementService;
 use App\Services\AttendanceReminderService;
@@ -47,6 +48,7 @@ use App\Services\DashboardService;
 use App\Services\DepartmentCatalogueService;
 use App\Services\DevelopmentSampleCompanyService;
 use App\Services\InventoryService;
+use App\Services\WarehouseManagementService;
 use App\Services\EmployeeActivityService;
 use App\Services\EmployeeDirectoryService;
 use App\Services\EmployeePositionAssignmentService;
@@ -1171,54 +1173,38 @@ try {
     $inventoryProductSku = 'TEST-INVENTORY-PRODUCT';
     $inventoryReceiptNumber = 'TEST-GR-0001';
 
-    $inventoryWarehouseStatement = db()->prepare(
-        'INSERT INTO inventory_warehouses (
-            company_id,
-            code,
-            name,
-            warehouse_type,
-            is_default,
-            active,
-            created_by
-         ) VALUES (
-            :company_id,
-            :code,
-            :name,
-            \'standard\',
-            FALSE,
-            TRUE,
-            :created_by
-         )
-         ON DUPLICATE KEY UPDATE
-            name = VALUES(name),
-            active = TRUE'
-    );
-    $inventoryWarehouseStatement->execute([
-        'company_id' => $tenantACompanyId,
+    $warehouseManagement = new WarehouseManagementService();
+    $warehouseInput = [
         'code' => $inventoryWarehouseCode,
         'name' => 'Integration Test Warehouse',
-        'created_by' => $tenantAActorId,
-    ]);
-
-    $inventoryWarehouseIdStatement = db()->prepare(
-        'SELECT warehouse_id
-         FROM inventory_warehouses
-         WHERE company_id = :company_id
-           AND code = :code'
+        'warehouse_type' => 'standard',
+        'branch_id' => null,
+        'manager_user_id' => null,
+        'address' => 'Integration Test Address',
+        'phone' => null,
+        'email' => null,
+        'allow_negative_stock' => false,
+        'is_default' => true,
+        'active' => true,
+    ];
+    $createdInventoryWarehouse =
+        $warehouseManagement->create(
+            $warehouseInput,
+            $tenantAActorId
+        );
+    $inventoryWarehouseId = (int) (
+        $createdInventoryWarehouse['warehouseId'] ?? 0
     );
-    $inventoryWarehouseIdStatement->execute([
-        'company_id' => $tenantACompanyId,
-        'code' => $inventoryWarehouseCode,
-    ]);
-    $inventoryWarehouseId = (int)
-        $inventoryWarehouseIdStatement->fetchColumn();
+
+    $check(
+        $createdInventoryWarehouse['successful'] === true
+        && $inventoryWarehouseId > 0,
+        'Tenant warehouse creation succeeds with valid data'
+    );
 
     $inventoryOperationTypesStatement = db()->prepare(
-        'INSERT INTO inventory_operation_types (
-            company_id,
-            warehouse_id,
+        'SELECT
             code,
-            name,
             operation_kind,
             requires_approval,
             auto_reserve,
@@ -1226,35 +1212,425 @@ try {
             create_backorder,
             is_default,
             active
-         ) VALUES
-            (?, ?, \'RCPT\', \'Receipts\', \'receipt\',
-                TRUE, FALSE, TRUE, TRUE, TRUE, TRUE),
-            (?, ?, \'INT\', \'Internal Transfers\', \'internal_transfer\',
-                FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
-            (?, ?, \'DLV\', \'Delivery Orders\', \'delivery\',
-                FALSE, TRUE, TRUE, TRUE, TRUE, TRUE),
-            (?, ?, \'ADJ\', \'Inventory Adjustments\', \'adjustment\',
-                TRUE, FALSE, FALSE, FALSE, TRUE, TRUE)
-         ON DUPLICATE KEY UPDATE
-            name = VALUES(name),
-            operation_kind = VALUES(operation_kind),
-            requires_approval = VALUES(requires_approval),
-            auto_reserve = VALUES(auto_reserve),
-            allow_partial = VALUES(allow_partial),
-            create_backorder = VALUES(create_backorder),
-            is_default = TRUE,
-            active = TRUE'
+         FROM inventory_operation_types
+         WHERE company_id = :company_id
+           AND warehouse_id = :warehouse_id
+         ORDER BY code'
     );
     $inventoryOperationTypesStatement->execute([
-        $tenantACompanyId,
-        $inventoryWarehouseId,
-        $tenantACompanyId,
-        $inventoryWarehouseId,
-        $tenantACompanyId,
-        $inventoryWarehouseId,
-        $tenantACompanyId,
-        $inventoryWarehouseId,
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
     ]);
+    $inventoryOperationTypes =
+        $inventoryOperationTypesStatement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+    $inventoryOperationTypeByCode = [];
+
+    foreach ($inventoryOperationTypes as $operationType) {
+        $inventoryOperationTypeByCode[
+            (string) ($operationType['code'] ?? '')
+        ] = $operationType;
+    }
+
+    $check(
+        count($inventoryOperationTypes) === 4
+        && array_keys($inventoryOperationTypeByCode)
+            === ['ADJ', 'DLV', 'INT', 'RCPT'],
+        'Warehouse creation provisions exactly ADJ, DLV, INT and RCPT'
+    );
+
+    $expectedOperationTypes = [
+        'ADJ' => [
+            'kind' => 'adjustment',
+            'approval' => 1,
+            'reserve' => 0,
+            'partial' => 0,
+            'backorder' => 0,
+        ],
+        'DLV' => [
+            'kind' => 'delivery',
+            'approval' => 0,
+            'reserve' => 1,
+            'partial' => 1,
+            'backorder' => 1,
+        ],
+        'INT' => [
+            'kind' => 'internal_transfer',
+            'approval' => 0,
+            'reserve' => 0,
+            'partial' => 1,
+            'backorder' => 1,
+        ],
+        'RCPT' => [
+            'kind' => 'receipt',
+            'approval' => 1,
+            'reserve' => 0,
+            'partial' => 1,
+            'backorder' => 1,
+        ],
+    ];
+    $operationControlsMatch = true;
+
+    foreach ($expectedOperationTypes as $code => $expected) {
+        $actual = $inventoryOperationTypeByCode[$code]
+            ?? null;
+
+        if (
+            !is_array($actual)
+            || ($actual['operation_kind'] ?? null)
+                !== $expected['kind']
+            || (int) ($actual['requires_approval'] ?? -1)
+                !== $expected['approval']
+            || (int) ($actual['auto_reserve'] ?? -1)
+                !== $expected['reserve']
+            || (int) ($actual['allow_partial'] ?? -1)
+                !== $expected['partial']
+            || (int) ($actual['create_backorder'] ?? -1)
+                !== $expected['backorder']
+            || (int) ($actual['is_default'] ?? 0) !== 1
+            || (int) ($actual['active'] ?? 0) !== 1
+        ) {
+            $operationControlsMatch = false;
+        }
+    }
+
+    $check(
+        $operationControlsMatch,
+        'Warehouse operation-type controls match the locked definitions'
+    );
+
+    $duplicateWarehouse = $warehouseManagement->create(
+        $warehouseInput,
+        $tenantAActorId
+    );
+    $check(
+        $duplicateWarehouse['successful'] === false
+        && isset($duplicateWarehouse['errors']['code']),
+        'Warehouse creation rejects duplicate tenant codes'
+    );
+
+    $secondDefaultWarehouse = $warehouseManagement->create(
+        array_merge($warehouseInput, [
+            'code' => 'TEST-WH-SECOND',
+            'name' => 'Second Default Warehouse',
+        ]),
+        $tenantAActorId
+    );
+    $check(
+        $secondDefaultWarehouse['successful'] === false
+        && isset(
+            $secondDefaultWarehouse['errors']['is_default']
+        ),
+        'Warehouse rules enforce one default warehouse per company'
+    );
+
+    $foreignBranchId = (int) db()->query(
+        'SELECT branch_id
+         FROM organization_branches
+         WHERE company_id <> ' . $tenantACompanyId . '
+           AND active = TRUE
+           AND deleted_at IS NULL
+         ORDER BY branch_id
+         LIMIT 1'
+    )->fetchColumn();
+    $foreignBranchWarehouse = $warehouseManagement->create(
+        array_merge($warehouseInput, [
+            'code' => 'TEST-WH-FOREIGN-BRANCH',
+            'name' => 'Foreign Branch Warehouse',
+            'branch_id' => $foreignBranchId,
+            'is_default' => false,
+        ]),
+        $tenantAActorId
+    );
+    $check(
+        $foreignBranchId > 0
+        && $foreignBranchWarehouse['successful'] === false
+        && isset(
+            $foreignBranchWarehouse['errors']['branch_id']
+        ),
+        'Warehouse creation rejects foreign-company branches'
+    );
+
+    $foreignManagerId = (int) db()->query(
+        'SELECT memberships.user_id
+         FROM company_users memberships
+         INNER JOIN users
+           ON users.user_id = memberships.user_id
+         WHERE memberships.company_id <> ' . $tenantACompanyId . '
+           AND memberships.active = TRUE
+           AND users.active = TRUE
+           AND users.deleted_at IS NULL
+           AND NOT EXISTS (
+                SELECT 1
+                FROM company_users tenant_memberships
+                WHERE tenant_memberships.company_id = '
+                    . $tenantACompanyId . '
+                  AND tenant_memberships.user_id =
+                    memberships.user_id
+                  AND tenant_memberships.active = TRUE
+           )
+         ORDER BY memberships.user_id
+         LIMIT 1'
+    )->fetchColumn();
+    $foreignManagerWarehouse = $warehouseManagement->create(
+        array_merge($warehouseInput, [
+            'code' => 'TEST-WH-FOREIGN-MANAGER',
+            'name' => 'Foreign Manager Warehouse',
+            'manager_user_id' => $foreignManagerId,
+            'is_default' => false,
+        ]),
+        $tenantAActorId
+    );
+    $check(
+        $foreignManagerId > 0
+        && $foreignManagerWarehouse['successful'] === false
+        && isset(
+            $foreignManagerWarehouse['errors'][
+                'manager_user_id'
+            ]
+        ),
+        'Warehouse creation rejects foreign-company managers'
+    );
+
+    $foreignManagerNameLeaked = false;
+
+    if ($foreignManagerId > 0) {
+        $foreignManagerLeakUpdate = db()->prepare(
+            'UPDATE inventory_warehouses
+             SET manager_user_id = :manager_user_id
+             WHERE company_id = :company_id
+               AND warehouse_id = :warehouse_id'
+        );
+        $foreignManagerLeakUpdate->execute([
+            'manager_user_id' => $foreignManagerId,
+            'company_id' => $tenantACompanyId,
+            'warehouse_id' => $inventoryWarehouseId,
+        ]);
+
+        $foreignManagerLeakListing =
+            $warehouseManagement->listing();
+
+        foreach (
+            $foreignManagerLeakListing['warehouses']
+            as $listedWarehouse
+        ) {
+            if (
+                (int) (
+                    $listedWarehouse['warehouse_id'] ?? 0
+                ) === $inventoryWarehouseId
+                && trim((string) (
+                    $listedWarehouse['manager_name'] ?? ''
+                )) !== ''
+            ) {
+                $foreignManagerNameLeaked = true;
+            }
+        }
+
+        $foreignManagerLeakRestore = db()->prepare(
+            'UPDATE inventory_warehouses
+             SET manager_user_id = NULL
+             WHERE company_id = :company_id
+               AND warehouse_id = :warehouse_id'
+        );
+        $foreignManagerLeakRestore->execute([
+            'company_id' => $tenantACompanyId,
+            'warehouse_id' => $inventoryWarehouseId,
+        ]);
+    } else {
+        $foreignManagerNameLeaked = true;
+    }
+
+    $check(
+        !$foreignManagerNameLeaked,
+        'Warehouse listing does not expose foreign-company manager identities'
+    );
+    $warehouseListing = $warehouseManagement->listing();
+    $listingIsTenantScoped = true;
+
+    foreach ($warehouseListing['warehouses'] as $warehouse) {
+        if (
+            (int) ($warehouse['company_id'] ?? 0)
+            !== $tenantACompanyId
+        ) {
+            $listingIsTenantScoped = false;
+        }
+    }
+
+    $check(
+        $listingIsTenantScoped,
+        'Warehouse listing excludes other tenant warehouses'
+    );
+
+    $warehouseAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND user_id = :user_id
+           AND action = \'CREATE\'
+           AND module = \'inventory\'
+           AND table_name = \'inventory_warehouses\'
+           AND record_id = :record_id'
+    );
+    $warehouseAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'user_id' => $tenantAActorId,
+        'record_id' => (string) $inventoryWarehouseId,
+    ]);
+    $check(
+        (int) $warehouseAuditStatement->fetchColumn() === 1,
+        'Warehouse creation records a company-scoped audit event'
+    );
+
+    $atomicWarehouseCode = 'ROLLBACK-WH-'
+        . strtoupper(bin2hex(random_bytes(3)));
+    $atomicDelegate = RepositoryFactory::warehouses();
+    $atomicRepository = new class($atomicDelegate)
+        implements WarehouseRepository {
+        private WarehouseRepository $delegate;
+
+        public function __construct(
+            WarehouseRepository $delegate
+        ) {
+            $this->delegate = $delegate;
+        }
+
+        public function lockCompany(int $companyId): void
+        {
+            $this->delegate->lockCompany($companyId);
+        }
+
+        public function listForCompany(int $companyId): array
+        {
+            return $this->delegate->listForCompany($companyId);
+        }
+
+        public function codeExists(
+            int $companyId,
+            string $code
+        ): bool {
+            return $this->delegate->codeExists(
+                $companyId,
+                $code
+            );
+        }
+
+        public function defaultWarehouseId(
+            int $companyId,
+            bool $lock = false
+        ): ?int {
+            return $this->delegate->defaultWarehouseId(
+                $companyId,
+                $lock
+            );
+        }
+
+        public function branchBelongsToCompany(
+            int $companyId,
+            int $branchId
+        ): bool {
+            return $this->delegate->branchBelongsToCompany(
+                $companyId,
+                $branchId
+            );
+        }
+
+        public function managerBelongsToCompany(
+            int $companyId,
+            int $userId
+        ): bool {
+            return $this->delegate->managerBelongsToCompany(
+                $companyId,
+                $userId
+            );
+        }
+
+        public function activeBranchesForCompany(
+            int $companyId
+        ): array {
+            return $this->delegate->activeBranchesForCompany(
+                $companyId
+            );
+        }
+
+        public function activeManagersForCompany(
+            int $companyId
+        ): array {
+            return $this->delegate->activeManagersForCompany(
+                $companyId
+            );
+        }
+
+        public function create(
+            int $companyId,
+            array $values,
+            int $createdBy
+        ): int {
+            return $this->delegate->create(
+                $companyId,
+                $values,
+                $createdBy
+            );
+        }
+
+        public function createDefaultOperationTypes(
+            int $companyId,
+            int $warehouseId
+        ): void {
+            throw new \RuntimeException(
+                'Deliberate operation-type provisioning failure.'
+            );
+        }
+    };
+    $atomicWarehouseService =
+        new WarehouseManagementService($atomicRepository);
+    $atomicFailureThrown = false;
+
+    try {
+        $atomicWarehouseService->create(
+            array_merge($warehouseInput, [
+                'code' => $atomicWarehouseCode,
+                'name' => 'Rollback Warehouse',
+                'is_default' => false,
+            ]),
+            $tenantAActorId
+        );
+    } catch (\RuntimeException $exception) {
+        $atomicFailureThrown = true;
+    }
+
+    $atomicWarehouseStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM inventory_warehouses
+         WHERE company_id = :company_id
+           AND code = :code'
+    );
+    $atomicWarehouseStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'code' => $atomicWarehouseCode,
+    ]);
+    $atomicAuditStatement = db()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE company_id = :company_id
+           AND module = \'inventory\'
+           AND table_name = \'inventory_warehouses\'
+           AND new_values LIKE :code_pattern'
+    );
+    $atomicAuditStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'code_pattern' => '%'
+            . $atomicWarehouseCode
+            . '%',
+    ]);
+    $check(
+        $atomicFailureThrown
+        && (int) $atomicWarehouseStatement
+            ->fetchColumn() === 0
+        && (int) $atomicAuditStatement
+            ->fetchColumn() === 0,
+        'Warehouse and audit writes roll back when operation provisioning fails'
+    );
 
     $inventoryReceiptOperationTypeStatement = db()->prepare(
         'SELECT operation_type_id

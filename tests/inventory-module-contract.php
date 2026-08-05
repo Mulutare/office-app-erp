@@ -39,7 +39,6 @@ $contents = static function (
 $migrationPath =
     'database/migrations/mysql/'
     . '039_professionalize_inventory_operations.php';
-
 $migration = require
     $root
     . DIRECTORY_SEPARATOR
@@ -54,7 +53,6 @@ $check(
 );
 
 $migrationSource = $contents($migrationPath);
-
 $requiredMigrationTokens = [
     'CREATE TABLE inventory_operation_types',
     "'receipt'",
@@ -84,7 +82,175 @@ foreach ($requiredMigrationTokens as $token) {
     );
 }
 
+$warehouseContractPath =
+    'app/repositories/WarehouseRepository.php';
+$warehouseMySqlPath =
+    'app/repositories/MySql/WarehouseRepository.php';
+$warehouseServicePath =
+    'app/services/WarehouseManagementService.php';
+$warehouseControllerPath =
+    'app/controllers/WarehouseController.php';
+
+foreach ([
+    $warehouseContractPath,
+    $warehouseMySqlPath,
+    $warehouseServicePath,
+    $warehouseControllerPath,
+    'resources/views/inventory/index.php',
+    'resources/views/inventory/warehouses/index.php',
+    'resources/views/inventory/warehouses/form.php',
+] as $path) {
+    $check(
+        is_file($root . DIRECTORY_SEPARATOR . $path),
+        'Warehouse slice contains: ' . $path
+    );
+}
+
+$warehouseContractSource = $contents(
+    $warehouseContractPath
+);
+$warehouseMySqlSource = $contents($warehouseMySqlPath);
+$warehouseServiceSource = $contents($warehouseServicePath);
+$warehouseControllerSource = $contents(
+    $warehouseControllerPath
+);
+$factorySource = $contents(
+    'app/repositories/RepositoryFactory.php'
+);
+$routeSource = $contents('routes/web.php');
 $testRunnerSource = $contents('tests/run.php');
+
+$check(
+    str_contains(
+        $warehouseMySqlSource,
+        'implements WarehouseRepositoryContract'
+    ),
+    'MySQL WarehouseRepository implements its contract'
+);
+
+$check(
+    str_contains(
+        $warehouseMySqlSource,
+        'company_users manager_memberships'
+    )
+    && str_contains(
+        $warehouseMySqlSource,
+        'manager_memberships.company_id'
+    )
+    && str_contains(
+        $warehouseMySqlSource,
+        'manager_memberships.user_id'
+    ),
+    'Warehouse listing company-scopes manager identities'
+);
+foreach ([
+    'lockCompany',
+    'listForCompany',
+    'codeExists',
+    'defaultWarehouseId',
+    'branchBelongsToCompany',
+    'managerBelongsToCompany',
+    'activeBranchesForCompany',
+    'activeManagersForCompany',
+    'createDefaultOperationTypes',
+] as $method) {
+    $check(
+        str_contains(
+            $warehouseContractSource,
+            'function ' . $method
+        ),
+        'WarehouseRepository exposes ' . $method
+    );
+}
+
+$check(
+    str_contains(
+        $factorySource,
+        'function warehouses()'
+    )
+    && str_contains(
+        $factorySource,
+        'new MySqlWarehouseRepository()'
+    ),
+    'RepositoryFactory exposes MySQL warehouse repositories'
+);
+
+foreach ([
+    "'/inventory/warehouses'",
+    "'/inventory/warehouses/create'",
+    "[\$warehouseController, 'index']",
+    "[\$warehouseController, 'create']",
+    "[\$warehouseController, 'store']",
+] as $token) {
+    $check(
+        str_contains($routeSource, $token),
+        'Warehouse routes contain: ' . $token
+    );
+}
+
+$check(
+    str_contains(
+        $warehouseControllerSource,
+        "'inventory.warehouses.view'"
+    ),
+    'Warehouse listing requires inventory.warehouses.view'
+);
+
+$check(
+    substr_count(
+        $warehouseControllerSource,
+        "'inventory.warehouses.manage'"
+    ) >= 2,
+    'Warehouse creation requires inventory.warehouses.manage'
+);
+
+foreach (['RCPT', 'INT', 'DLV', 'ADJ'] as $code) {
+    $check(
+        str_contains($warehouseServiceSource, "'{$code}'")
+        || str_contains($warehouseMySqlSource, "'{$code}'"),
+        'Warehouse provisioning contains operation code ' . $code
+    );
+}
+
+foreach ([
+    'receipt',
+    'internal_transfer',
+    'delivery',
+    'adjustment',
+] as $kind) {
+    $check(
+        str_contains($warehouseMySqlSource, $kind),
+        'Warehouse provisioning contains operation kind ' . $kind
+    );
+}
+
+$check(
+    str_contains(
+        $warehouseServiceSource,
+        "'inventory_warehouses'"
+    )
+    && str_contains(
+        $warehouseServiceSource,
+        "'CREATE'"
+    ),
+    'Warehouse creation writes a company-scoped audit record'
+);
+
+$check(
+    str_contains(
+        $testRunnerSource,
+        'new WarehouseManagementService()'
+    ),
+    'Main test runner creates receipt warehouses through the service'
+);
+
+$check(
+    !str_contains(
+        $testRunnerSource,
+        'INSERT INTO inventory_operation_types'
+    ),
+    'Main receipt fixture no longer inserts operation types directly'
+);
 
 $check(
     substr_count(
