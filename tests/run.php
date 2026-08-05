@@ -536,6 +536,7 @@ try {
                 '036',
                 '037',
                 '038',
+                '039',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -568,13 +569,14 @@ try {
                 \'035\',
                 \'036\',
                 \'037\',
-                \'038\'
+                \'038\',
+                \'039\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 24,
+        $migrationLedgerCount === 25,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -760,8 +762,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 76,
-        'All 76 application tables were created'
+        $tableCount === 77,
+        'All 77 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -773,8 +775,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 252,
-        'All 252 foreign-key relationships were created'
+        $foreignKeyCount === 259,
+        'All 259 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -1211,6 +1213,70 @@ try {
     $inventoryWarehouseId = (int)
         $inventoryWarehouseIdStatement->fetchColumn();
 
+    $inventoryOperationTypesStatement = db()->prepare(
+        'INSERT INTO inventory_operation_types (
+            company_id,
+            warehouse_id,
+            code,
+            name,
+            operation_kind,
+            requires_approval,
+            auto_reserve,
+            allow_partial,
+            create_backorder,
+            is_default,
+            active
+         ) VALUES
+            (?, ?, \'RCPT\', \'Receipts\', \'receipt\',
+                TRUE, FALSE, TRUE, TRUE, TRUE, TRUE),
+            (?, ?, \'INT\', \'Internal Transfers\', \'internal_transfer\',
+                FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
+            (?, ?, \'DLV\', \'Delivery Orders\', \'delivery\',
+                FALSE, TRUE, TRUE, TRUE, TRUE, TRUE),
+            (?, ?, \'ADJ\', \'Inventory Adjustments\', \'adjustment\',
+                TRUE, FALSE, FALSE, FALSE, TRUE, TRUE)
+         ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            operation_kind = VALUES(operation_kind),
+            requires_approval = VALUES(requires_approval),
+            auto_reserve = VALUES(auto_reserve),
+            allow_partial = VALUES(allow_partial),
+            create_backorder = VALUES(create_backorder),
+            is_default = TRUE,
+            active = TRUE'
+    );
+    $inventoryOperationTypesStatement->execute([
+        $tenantACompanyId,
+        $inventoryWarehouseId,
+        $tenantACompanyId,
+        $inventoryWarehouseId,
+        $tenantACompanyId,
+        $inventoryWarehouseId,
+        $tenantACompanyId,
+        $inventoryWarehouseId,
+    ]);
+
+    $inventoryReceiptOperationTypeStatement = db()->prepare(
+        'SELECT operation_type_id
+         FROM inventory_operation_types
+         WHERE company_id = :company_id
+           AND warehouse_id = :warehouse_id
+           AND operation_kind = \'receipt\'
+           AND is_default = TRUE
+           AND active = TRUE
+         LIMIT 1'
+    );
+    $inventoryReceiptOperationTypeStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+    ]);
+    $inventoryReceiptOperationTypeId = (int)
+        $inventoryReceiptOperationTypeStatement->fetchColumn();
+
+    $check(
+        $inventoryReceiptOperationTypeId > 0,
+        'Inventory warehouse has a default receipt operation type'
+    );
     $inventoryLocationStatement = db()->prepare(
         'INSERT INTO inventory_warehouse_locations (
             company_id,
@@ -1360,6 +1426,7 @@ try {
         'INSERT INTO inventory_goods_receipts (
             company_id,
             warehouse_id,
+            operation_type_id,
             receipt_number,
             supplier_name,
             receipt_date,
@@ -1371,6 +1438,7 @@ try {
          ) VALUES (
             :company_id,
             :warehouse_id,
+            :operation_type_id,
             :receipt_number,
             :supplier_name,
             \'2026-08-04\',
@@ -1384,6 +1452,7 @@ try {
     $inventoryReceiptStatement->execute([
         'company_id' => $tenantACompanyId,
         'warehouse_id' => $inventoryWarehouseId,
+        'operation_type_id' => $inventoryReceiptOperationTypeId,
         'receipt_number' => $inventoryReceiptNumber,
         'supplier_name' => 'Integration Supplier',
         'created_by' => $tenantAActorId,
