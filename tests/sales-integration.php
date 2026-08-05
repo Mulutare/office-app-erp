@@ -38,8 +38,12 @@ $created = [
     'agent' => 0,
     'customer' => 0,
     'products' => [],
+    'warehouse' => 0,
+    'location' => 0,
+    'stock_balances' => [],
     'target' => 0,
     'order' => 0,
+    'cancelled_order' => 0,
     'reliability_events' => [],
 ];
 $failures = [];
@@ -101,6 +105,113 @@ try {
         $check(!empty($product['successful']), 'Product line ' . ($index + 1) . ' is created');
     }
 
+    $warehouseStatement = db()->prepare(
+        "INSERT INTO inventory_warehouses (
+            company_id,
+            code,
+            name,
+            allow_negative_stock,
+            is_default,
+            active,
+            created_by,
+            updated_by
+        ) VALUES (
+            :company_id,
+            :code,
+            :name,
+            0,
+            1,
+            1,
+            :created_by,
+            :updated_by
+        )"
+    );
+    $warehouseStatement->execute([
+        'company_id' => $companyId,
+        'code' => 'TEST-WH-' . $suffix,
+        'name' => 'Integration Warehouse ' . $suffix,
+        'created_by' => $actorId,
+        'updated_by' => $actorId,
+    ]);
+    $created['warehouse'] = (int)
+        db()->lastInsertId();
+
+    $locationStatement = db()->prepare(
+        "INSERT INTO inventory_warehouse_locations (
+            company_id,
+            warehouse_id,
+            code,
+            name,
+            location_type,
+            pick_priority,
+            receiving_allowed,
+            picking_allowed,
+            active,
+            created_by,
+            updated_by
+        ) VALUES (
+            :company_id,
+            :warehouse_id,
+            :code,
+            :name,
+            'bin',
+            1,
+            1,
+            1,
+            1,
+            :created_by,
+            :updated_by
+        )"
+    );
+    $locationStatement->execute([
+        'company_id' => $companyId,
+        'warehouse_id' => $created['warehouse'],
+        'code' => 'PICK-' . $suffix,
+        'name' => 'Integration Picking Location',
+        'created_by' => $actorId,
+        'updated_by' => $actorId,
+    ]);
+    $created['location'] = (int)
+        db()->lastInsertId();
+
+    $stockStatement = db()->prepare(
+        "INSERT INTO inventory_stock_balances (
+            company_id,
+            warehouse_id,
+            location_id,
+            product_id,
+            quantity_on_hand,
+            quantity_reserved,
+            average_unit_cost
+        ) VALUES (
+            :company_id,
+            :warehouse_id,
+            :location_id,
+            :product_id,
+            100,
+            0,
+            10
+        )"
+    );
+
+    foreach ($created['products'] as $productId) {
+        $stockStatement->execute([
+            'company_id' => $companyId,
+            'warehouse_id' => $created['warehouse'],
+            'location_id' => $created['location'],
+            'product_id' => $productId,
+        ]);
+
+        $created['stock_balances'][] = (int)
+            db()->lastInsertId();
+    }
+
+    $check(
+        $created['warehouse'] > 0
+        && $created['location'] > 0
+        && count($created['stock_balances']) === 2,
+        'Inventory picking fixtures are created'
+    );
     $target = $service->createTarget([
         'territory_id' => $created['territory'],
         'agent_id' => $created['agent'],
@@ -336,6 +447,27 @@ try {
         ['sales_targets', 'target_id', $created['target']],
         ['sales_agents', 'agent_id', $created['agent']],
         ['sales_customers', 'customer_id', $created['customer']],
+    ];
+    foreach (
+        array_reverse($created['stock_balances'])
+        as $stockBalanceId
+    ) {
+        $deletions[] = [
+            'inventory_stock_balances',
+            'stock_balance_id',
+            $stockBalanceId,
+        ];
+    }
+
+    $deletions[] = [
+        'inventory_warehouse_locations',
+        'location_id',
+        $created['location'],
+    ];
+    $deletions[] = [
+        'inventory_warehouses',
+        'warehouse_id',
+        $created['warehouse'],
     ];
     foreach (array_reverse($created['products']) as $productId) {
         $deletions[] = ['sales_products', 'product_id', $productId];

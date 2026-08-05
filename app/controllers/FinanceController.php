@@ -33,7 +33,17 @@ final class FinanceController
         $dashboard = $this->finance->dashboard(
             $this->queryString('search'),
             $this->queryString('status'),
-            $this->queryInteger('page', 1)
+            $this->queryInteger('page', 1),
+            $this->queryString(
+                'receivable_search'
+            ),
+            $this->queryString(
+                'receivable_status'
+            ),
+            $this->queryInteger(
+                'receivable_page',
+                1
+            )
         );
 
         \view('layouts.app', [
@@ -47,9 +57,31 @@ final class FinanceController
             ),
             'pageTitle' => 'Finance',
             'pageDescription' =>
-                'Expense request monitoring and financial workflow visibility.',
+                'Sales receivables, receipts, journal postings and expense workflow visibility.',
             'contentView' => 'finance.index',
             'user' => $_SESSION['auth'],
+            'receivableSummary' =>
+                $dashboard['receivableSummary'],
+            'receivables' =>
+                $dashboard['receivables'],
+            'receivableTotal' =>
+                $dashboard['receivableTotal'],
+            'receivableStatusOptions' =>
+                $dashboard[
+                    'receivableStatusOptions'
+                ],
+            'receivableFilters' =>
+                $dashboard[
+                    'receivableFilters'
+                ],
+            'receivablePagination' =>
+                $dashboard[
+                    'receivablePagination'
+                ],
+            'recentReceipts' =>
+                $dashboard['recentReceipts'],
+            'recentJournals' =>
+                $dashboard['recentJournals'],
             'requests' => $dashboard['requests'],
             'summary' => $dashboard['summary'],
             'statusOptions' =>

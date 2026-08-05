@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\ExpenseRequest;
+use App\Repositories\FinanceRepository;
+use App\Repositories\MySql\FinanceRepository
+    as MySqlFinanceRepository;
 
 final class FinanceDashboardService
 {
@@ -19,12 +22,20 @@ final class FinanceDashboardService
         'cancelled' => 'Cancelled',
     ];
 
+    private const RECEIVABLE_STATUSES = [
+        'open' => 'Open',
+        'overdue' => 'Overdue',
+        'paid' => 'Paid',
+    ];
+
     private ExpenseRequest $requests;
+    private FinanceRepository $repository;
     private TenantContext $tenant;
 
     public function __construct()
     {
         $this->requests = new ExpenseRequest();
+        $this->repository = new MySqlFinanceRepository();
         $this->tenant = new TenantContext();
     }
 
@@ -34,7 +45,10 @@ final class FinanceDashboardService
     public function dashboard(
         string $search,
         string $status,
-        int $page
+        int $page,
+        string $receivableSearch = '',
+        string $receivableStatus = '',
+        int $receivablePage = 1
     ): array {
         $search = mb_substr(
             trim($search),
@@ -53,6 +67,67 @@ final class FinanceDashboardService
         ];
         $page = max(1, $page);
         $companyId = $this->tenant->companyId();
+
+        $receivableSearch = mb_substr(
+            trim($receivableSearch),
+            0,
+            100
+        );
+        $receivableStatus = array_key_exists(
+            $receivableStatus,
+            self::RECEIVABLE_STATUSES
+        )
+            ? $receivableStatus
+            : '';
+        $receivableFilters = [
+            'search' => $receivableSearch,
+            'status' => $receivableStatus,
+        ];
+        $receivablePage = max(
+            1,
+            $receivablePage
+        );
+        $receivableTotal =
+            $this->repository->countSalesReceivables(
+                $companyId,
+                $receivableFilters
+            );
+        $receivableLastPage = max(
+            1,
+            (int) ceil(
+                $receivableTotal
+                / self::PAGE_SIZE
+            )
+        );
+        $receivablePage = min(
+            $receivablePage,
+            $receivableLastPage
+        );
+        $receivableOffset =
+            ($receivablePage - 1)
+            * self::PAGE_SIZE;
+        $receivables =
+            $this->repository->salesReceivables(
+                $companyId,
+                $receivableFilters,
+                self::PAGE_SIZE,
+                $receivableOffset
+            );
+        $receivableSummary =
+            $this->repository->salesReceivableSummary(
+                $companyId
+            );
+        $recentReceipts =
+            $this->repository->recentSalesReceipts(
+                $companyId,
+                10
+            );
+        $recentJournals =
+            $this->repository->recentJournalBatches(
+                $companyId,
+                10
+            );
+
         $total = $this->requests->count(
             $companyId,
             $filters
@@ -77,6 +152,33 @@ final class FinanceDashboardService
         unset($request);
 
         return [
+            'receivableSummary' => $receivableSummary,
+            'receivables' => $receivables,
+            'receivableTotal' => $receivableTotal,
+            'receivableStatusOptions' =>
+                self::RECEIVABLE_STATUSES,
+            'receivableFilters' =>
+                $receivableFilters,
+            'receivablePagination' => [
+                'page' => $receivablePage,
+                'lastPage' =>
+                    $receivableLastPage,
+                'pageSize' =>
+                    self::PAGE_SIZE,
+                'total' =>
+                    $receivableTotal,
+                'from' =>
+                    $receivableTotal === 0
+                        ? 0
+                        : $receivableOffset + 1,
+                'to' => min(
+                    $receivableOffset
+                    + self::PAGE_SIZE,
+                    $receivableTotal
+                ),
+            ],
+            'recentReceipts' => $recentReceipts,
+            'recentJournals' => $recentJournals,
             'requests' => $requests,
             'summary' =>
                 $this->requests->statusSummary(

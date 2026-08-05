@@ -691,6 +691,341 @@ final class FinanceRepository extends MySqlRepository
         }
     }
 
+    public function salesReceivableSummary(
+        int $companyId
+    ): array {
+        if ($companyId <= 0) {
+            throw new RuntimeException(
+                'A valid company is required.'
+            );
+        }
+
+        $statement = $this->connection()->prepare(
+            "SELECT
+                currency,
+                COUNT(*) AS total_count,
+                SUM(
+                    CASE
+                        WHEN status = 'open'
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS open_count,
+                SUM(
+                    CASE
+                        WHEN status = 'paid'
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS paid_count,
+                SUM(
+                    CASE
+                        WHEN balance_amount > 0
+                         AND due_date < CURRENT_DATE
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS overdue_count,
+                COALESCE(
+                    SUM(original_amount),
+                    0
+                ) AS total_original,
+                COALESCE(
+                    SUM(paid_amount),
+                    0
+                ) AS total_paid,
+                COALESCE(
+                    SUM(balance_amount),
+                    0
+                ) AS total_outstanding
+             FROM finance_sales_receivables
+             WHERE company_id = :company_id
+             GROUP BY currency
+             ORDER BY currency"
+        );
+
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+
+        $rows = $statement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+        return is_array($rows) ? $rows : [];
+    }
+    public function countSalesReceivables(
+        int $companyId,
+        array $filters
+    ): int {
+        if ($companyId <= 0) {
+            throw new RuntimeException(
+                'A valid company is required.'
+            );
+        }
+
+        $search = mb_substr(
+            trim((string) (
+                $filters['search'] ?? ''
+            )),
+            0,
+            100
+        );
+        $status = trim((string) (
+            $filters['status'] ?? ''
+        ));
+
+        $where = [
+            'r.company_id = :company_id',
+        ];
+        $parameters = [
+            'company_id' => $companyId,
+        ];
+
+        if ($search !== '') {
+            $where[] = '(
+                r.order_number LIKE :search_order
+                OR c.customer_number
+                    LIKE :search_customer_number
+                OR c.name LIKE :search_customer_name
+            )';
+
+            $like = '%' . $search . '%';
+            $parameters['search_order'] = $like;
+            $parameters['search_customer_number'] =
+                $like;
+            $parameters['search_customer_name'] =
+                $like;
+        }
+
+        if ($status === 'overdue') {
+            $where[] = 'r.balance_amount > 0
+                AND r.due_date < CURRENT_DATE';
+        } elseif (in_array(
+            $status,
+            ['open', 'paid'],
+            true
+        )) {
+            $where[] = 'r.status = :status';
+            $parameters['status'] = $status;
+        }
+
+        $statement = $this->connection()->prepare(
+            'SELECT COUNT(*)
+             FROM finance_sales_receivables r
+             LEFT JOIN sales_customers c
+               ON c.customer_id = r.customer_id
+              AND c.company_id = r.company_id
+              AND c.deleted_at IS NULL
+             WHERE ' . implode(
+                ' AND ',
+                $where
+            )
+        );
+
+        $statement->execute($parameters);
+
+        return (int) $statement->fetchColumn();
+    }
+    public function salesReceivables(
+        int $companyId,
+        array $filters,
+        int $limit,
+        int $offset
+    ): array {
+        if ($companyId <= 0) {
+            throw new RuntimeException(
+                'A valid company is required.'
+            );
+        }
+
+        $limit = max(1, min(100, $limit));
+        $offset = max(0, $offset);
+
+        $search = mb_substr(
+            trim((string) (
+                $filters['search'] ?? ''
+            )),
+            0,
+            100
+        );
+        $status = trim((string) (
+            $filters['status'] ?? ''
+        ));
+
+        $where = [
+            'r.company_id = :company_id',
+        ];
+        $parameters = [
+            'company_id' => $companyId,
+        ];
+
+        if ($search !== '') {
+            $where[] = '(
+                r.order_number LIKE :search_order
+                OR c.customer_number
+                    LIKE :search_customer_number
+                OR c.name LIKE :search_customer_name
+            )';
+
+            $like = '%' . $search . '%';
+            $parameters['search_order'] = $like;
+            $parameters['search_customer_number'] =
+                $like;
+            $parameters['search_customer_name'] =
+                $like;
+        }
+
+        if ($status === 'overdue') {
+            $where[] = 'r.balance_amount > 0
+                AND r.due_date < CURRENT_DATE';
+        } elseif (in_array(
+            $status,
+            ['open', 'paid'],
+            true
+        )) {
+            $where[] = 'r.status = :status';
+            $parameters['status'] = $status;
+        }
+
+        $statement = $this->connection()->prepare(
+            'SELECT
+                r.receivable_id,
+                r.order_id,
+                r.customer_id,
+                r.order_number,
+                r.currency,
+                r.original_amount,
+                r.paid_amount,
+                r.balance_amount,
+                r.due_date,
+                r.status,
+                r.created_at,
+                r.updated_at,
+                c.customer_number,
+                c.name AS customer_name,
+                CASE
+                    WHEN r.balance_amount > 0
+                     AND r.due_date < CURRENT_DATE
+                    THEN 1
+                    ELSE 0
+                END AS is_overdue
+             FROM finance_sales_receivables r
+             LEFT JOIN sales_customers c
+               ON c.customer_id = r.customer_id
+              AND c.company_id = r.company_id
+              AND c.deleted_at IS NULL
+             WHERE ' . implode(
+                ' AND ',
+                $where
+            ) . '
+             ORDER BY
+                is_overdue DESC,
+                r.due_date ASC,
+                r.receivable_id DESC
+             LIMIT ' . $limit . '
+             OFFSET ' . $offset
+        );
+
+        $statement->execute($parameters);
+
+        $rows = $statement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+        return is_array($rows) ? $rows : [];
+    }
+    public function recentSalesReceipts(
+        int $companyId,
+        int $limit
+    ): array {
+        if ($companyId <= 0) {
+            throw new RuntimeException(
+                'A valid company is required.'
+            );
+        }
+
+        $limit = max(1, min(100, $limit));
+
+        $statement = $this->connection()->prepare(
+            'SELECT
+                sr.posting_id,
+                sr.payment_id,
+                sr.order_id,
+                sr.receipt_number,
+                sr.amount,
+                sr.payment_date,
+                sr.payment_method,
+                sr.reference_number,
+                sr.posted_at,
+                r.order_number,
+                r.currency
+             FROM finance_sales_receipts sr
+             LEFT JOIN finance_sales_receivables r
+               ON r.company_id = sr.company_id
+              AND r.order_id = sr.order_id
+             WHERE sr.company_id = :company_id
+             ORDER BY
+                sr.payment_date DESC,
+                sr.posting_id DESC
+             LIMIT ' . $limit
+        );
+
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+
+        $rows = $statement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+        return is_array($rows) ? $rows : [];
+    }
+    public function recentJournalBatches(
+        int $companyId,
+        int $limit
+    ): array {
+        if ($companyId <= 0) {
+            throw new RuntimeException(
+                'A valid company is required.'
+            );
+        }
+
+        $limit = max(1, min(100, $limit));
+
+        $statement = $this->connection()->prepare(
+            'SELECT
+                journal_batch_id,
+                batch_number,
+                source_type,
+                source_id,
+                source_number,
+                posting_date,
+                currency,
+                description,
+                status,
+                total_debit,
+                total_credit,
+                posted_at,
+                created_at
+             FROM finance_journal_batches
+             WHERE company_id = :company_id
+             ORDER BY
+                posting_date DESC,
+                journal_batch_id DESC
+             LIMIT ' . $limit
+        );
+
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+
+        $rows = $statement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+        return is_array($rows) ? $rows : [];
+    }
     public function trialBalance(
         int $companyId,
         string $currency

@@ -48,4 +48,45 @@ interface FinanceRepository
         int $companyId,
         string $systemKey
     ): ?array;
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function salesReceivableSummary(
+        int $companyId
+    ): array;
+
+    /**
+     * @param array<string, mixed> $filters
+     */
+    public function countSalesReceivables(
+        int $companyId,
+        array $filters
+    ): int;
+
+    /**
+     * @param array<string, mixed> $filters
+     * @return list<array<string, mixed>>
+     */
+    public function salesReceivables(
+        int $companyId,
+        array $filters,
+        int $limit,
+        int $offset
+    ): array;
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function recentSalesReceipts(
+        int $companyId,
+        int $limit
+    ): array;
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function recentJournalBatches(
+        int $companyId,
+        int $limit
+    ): array;
 }
