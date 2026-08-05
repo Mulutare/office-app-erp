@@ -60,6 +60,44 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  integration-worker:
+    build:
+      context: .
+      target: development
+    command:
+      - php
+      - bin/run-integration-worker.php
+    environment:
+      APP_NAME: ${APP_NAME:-OfficeApp ERP}
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_TIMEZONE: ${APP_TIMEZONE:-Africa/Nairobi}
+      APP_COMPANY_CODE: ${APP_COMPANY_CODE:-default}
+      SESSION_NAME: ${SESSION_NAME:-office_app_session}
+      SESSION_COOKIE_SECURE: "false"
+      SESSION_COOKIE_SAMESITE: ${SESSION_COOKIE_SAMESITE:-Lax}
+      DB_DRIVER: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: ${DB_DATABASE:-office_app_dev}
+      DB_USERNAME: ${DB_USERNAME:-officeapp}
+      DB_PASSWORD: ${DB_PASSWORD:-change-this-development-password}
+      WEB_PUSH_ENABLED: ${WEB_PUSH_ENABLED:-false}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-mailto:erp-admin@example.com}
+      WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
+      WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
+      API_WEBHOOK_ENCRYPTION_KEY: ${API_WEBHOOK_ENCRYPTION_KEY:-}
+      WEB_PUSH_ALLOWED_HOSTS: ${WEB_PUSH_ALLOWED_HOSTS:-fcm.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,web.push.apple.com,*.notify.windows.com}
+      INTEGRATION_WORKER_BATCH_SIZE: ${INTEGRATION_WORKER_BATCH_SIZE:-200}
+      INTEGRATION_WORKER_IDLE_SECONDS: ${INTEGRATION_WORKER_IDLE_SECONDS:-5}
+      INTEGRATION_WORKER_ERROR_SECONDS: ${INTEGRATION_WORKER_ERROR_SECONDS:-15}
+    volumes:
+      - .:/var/www/html/office_app
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 20s
   db:
     image: mariadb:10.11.18
     environment:

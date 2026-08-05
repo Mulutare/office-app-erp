@@ -124,6 +124,21 @@ $expectContains('resources/views/sales/index.php', [
     "\$data['canExportReports']",
 ]);
 
+$expectContains('bin/run-integration-worker.php', [
+    'IntegrationDispatcherService',
+    'INTEGRATION_WORKER_BATCH_SIZE',
+    'INTEGRATION_WORKER_IDLE_SECONDS',
+    'INTEGRATION_WORKER_ERROR_SECONDS',
+    'while ($running)',
+]);
+
+$expectContains('compose.yaml', [
+    'integration-worker:',
+    'bin/run-integration-worker.php',
+    'condition: service_healthy',
+    'restart: unless-stopped',
+    'stop_grace_period: 20s',
+]);
 if ($failures !== []) {
     foreach ($failures as $failure) {
         fwrite(STDERR, 'FAIL ' . $failure . PHP_EOL);
