@@ -28,8 +28,8 @@ $canManage = !empty($data['canManage']);
             <span class="eyebrow">Inventory</span>
             <h2>Warehouse network</h2>
             <p>
-                Every warehouse is tenant-scoped and must have
-                four active default operation types.
+                Every warehouse is tenant-scoped and should have
+                six operational locations plus four mapped operation types.
             </p>
         </div>
 
@@ -39,6 +39,12 @@ $canManage = !empty($data['canManage']);
                 class="btn btn-secondary"
             >
                 Inventory dashboard
+            </a>
+            <a
+                href="/office_app/public/inventory/locations"
+                class="btn btn-secondary"
+            >
+                Warehouse locations
             </a>
             <?php if ($canManage): ?>
                 <a
@@ -106,7 +112,7 @@ $canManage = !empty($data['canManage']);
                 <?php foreach ($warehouses as $warehouse): ?>
                     <?php
                     $ready = !empty(
-                        $warehouse['operation_types_ready']
+                        $warehouse['operational_ready']
                     );
                     ?>
                     <tr>
@@ -156,9 +162,15 @@ $canManage = !empty($data['canManage']);
                                 : 'badge-muted' ?>">
                                 <?= e((int) (
                                     $warehouse[
-                                        'active_default_operation_type_count'
+                                        'operational_location_count'
                                     ] ?? 0
-                                )) ?>/4 configured
+                                )) ?>/6 locations
+                                &middot;
+                                <?= e((int) (
+                                    $warehouse[
+                                        'mapped_operation_type_count'
+                                    ] ?? 0
+                                )) ?>/4 routes
                             </span>
                         </td>
                     </tr>

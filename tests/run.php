@@ -1300,6 +1300,191 @@ try {
         'Warehouse operation-type controls match the locked definitions'
     );
 
+    $operationalLocationStatement = db()->prepare(
+        'SELECT
+            locations.location_id,
+            locations.parent_location_id,
+            locations.code,
+            locations.location_type,
+            locations.receiving_allowed,
+            locations.picking_allowed,
+            locations.active,
+            parents.code AS parent_code
+         FROM inventory_warehouse_locations locations
+         LEFT JOIN inventory_warehouse_locations parents
+           ON parents.company_id = locations.company_id
+          AND parents.warehouse_id = locations.warehouse_id
+          AND parents.location_id = locations.parent_location_id
+          AND parents.deleted_at IS NULL
+         WHERE locations.company_id = :company_id
+           AND locations.warehouse_id = :warehouse_id
+           AND locations.deleted_at IS NULL
+         ORDER BY locations.code'
+    );
+    $operationalLocationStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+    ]);
+    $operationalLocationRows =
+        $operationalLocationStatement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+    $operationalLocationsByCode = [];
+
+    foreach ($operationalLocationRows as $locationRow) {
+        $operationalLocationsByCode[
+            (string) ($locationRow['code'] ?? '')
+        ] = $locationRow;
+    }
+
+    $warehouseCode = (string) $warehouseInput['code'];
+    $expectedOperationalLocations = [
+        $warehouseCode => [
+            'type' => 'zone',
+            'parent' => null,
+            'receiving' => 0,
+            'picking' => 0,
+        ],
+        $warehouseCode . '/INPUT' => [
+            'type' => 'receiving',
+            'parent' => $warehouseCode,
+            'receiving' => 1,
+            'picking' => 1,
+        ],
+        $warehouseCode . '/STOCK' => [
+            'type' => 'zone',
+            'parent' => $warehouseCode,
+            'receiving' => 1,
+            'picking' => 1,
+        ],
+        $warehouseCode . '/OUTPUT' => [
+            'type' => 'dispatch',
+            'parent' => $warehouseCode,
+            'receiving' => 1,
+            'picking' => 1,
+        ],
+        $warehouseCode . '/RETURNS' => [
+            'type' => 'returns',
+            'parent' => $warehouseCode,
+            'receiving' => 1,
+            'picking' => 1,
+        ],
+        $warehouseCode . '/QUARANTINE' => [
+            'type' => 'quarantine',
+            'parent' => $warehouseCode,
+            'receiving' => 1,
+            'picking' => 0,
+        ],
+    ];
+    $operationalLocationsMatch =
+        count($operationalLocationRows) === 6;
+
+    foreach (
+        $expectedOperationalLocations
+        as $code => $expectedLocation
+    ) {
+        $actualLocation =
+            $operationalLocationsByCode[$code] ?? null;
+
+        if (
+            !is_array($actualLocation)
+            || (string) (
+                $actualLocation['location_type'] ?? ''
+            ) !== $expectedLocation['type']
+            || (
+                $actualLocation['parent_code'] ?? null
+            ) !== $expectedLocation['parent']
+            || (int) (
+                $actualLocation['receiving_allowed'] ?? -1
+            ) !== $expectedLocation['receiving']
+            || (int) (
+                $actualLocation['picking_allowed'] ?? -1
+            ) !== $expectedLocation['picking']
+            || (int) ($actualLocation['active'] ?? 0) !== 1
+        ) {
+            $operationalLocationsMatch = false;
+        }
+    }
+
+    $check(
+        $operationalLocationsMatch,
+        'Warehouse creation provisions six Odoo-style operational locations'
+    );
+
+    $operationLocationStatement = db()->prepare(
+        'SELECT
+            operation_types.operation_kind,
+            source_locations.code AS source_code,
+            destination_locations.code AS destination_code
+         FROM inventory_operation_types operation_types
+         LEFT JOIN inventory_warehouse_locations source_locations
+           ON source_locations.company_id =
+                operation_types.company_id
+          AND source_locations.warehouse_id =
+                operation_types.warehouse_id
+          AND source_locations.location_id =
+                operation_types.default_source_location_id
+         LEFT JOIN inventory_warehouse_locations
+            destination_locations
+           ON destination_locations.company_id =
+                operation_types.company_id
+          AND destination_locations.warehouse_id =
+                operation_types.warehouse_id
+          AND destination_locations.location_id =
+                operation_types.default_destination_location_id
+         WHERE operation_types.company_id = :company_id
+           AND operation_types.warehouse_id = :warehouse_id
+           AND operation_types.is_default = TRUE
+           AND operation_types.active = TRUE
+         ORDER BY operation_types.operation_kind'
+    );
+    $operationLocationStatement->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+    ]);
+    $operationLocationRows =
+        $operationLocationStatement->fetchAll(
+            \PDO::FETCH_ASSOC
+        );
+    $actualOperationRoutes = [];
+
+    foreach ($operationLocationRows as $routeRow) {
+        $actualOperationRoutes[
+            (string) ($routeRow['operation_kind'] ?? '')
+        ] = [
+            'source' => $routeRow['source_code'] ?? null,
+            'destination' =>
+                $routeRow['destination_code'] ?? null,
+        ];
+    }
+
+    $expectedOperationRoutes = [
+        'receipt' => [
+            'source' => null,
+            'destination' => $warehouseCode . '/INPUT',
+        ],
+        'internal_transfer' => [
+            'source' => $warehouseCode . '/STOCK',
+            'destination' => $warehouseCode . '/OUTPUT',
+        ],
+        'delivery' => [
+            'source' => $warehouseCode . '/STOCK',
+            'destination' => $warehouseCode . '/OUTPUT',
+        ],
+        'adjustment' => [
+            'source' => $warehouseCode . '/STOCK',
+            'destination' => $warehouseCode . '/STOCK',
+        ],
+    ];
+
+    ksort($actualOperationRoutes);
+    ksort($expectedOperationRoutes);
+
+    $check(
+        $actualOperationRoutes === $expectedOperationRoutes,
+        'Warehouse operation types use the operational location routes'
+    );
+
     $duplicateWarehouse = $warehouseManagement->create(
         $warehouseInput,
         $tenantAActorId

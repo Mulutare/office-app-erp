@@ -57,6 +57,12 @@ $canViewInventoryWarehouses = in_array(
         >
             Manage warehouses
         </a>
+        <a
+            href="/office_app/public/inventory/locations"
+            class="btn btn-secondary"
+        >
+            Manage locations
+        </a>
     </div>
 <?php endif; ?>
 

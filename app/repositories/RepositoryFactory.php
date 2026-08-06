@@ -75,6 +75,8 @@ use App\Repositories\MySql\InventoryRepository
     as MySqlInventoryRepository;
 use App\Repositories\MySql\WarehouseRepository
     as MySqlWarehouseRepository;
+use App\Repositories\MySql\WarehouseLocationRepository
+    as MySqlWarehouseLocationRepository;
 use App\Repositories\MySql\FinanceRepository
     as MySqlFinanceRepository;
 use App\Repositories\MySql\IntegrationEventRepository
@@ -126,6 +128,17 @@ final class RepositoryFactory
 
         throw new RuntimeException(
             'No warehouse repository is available for the configured database driver.'
+        );
+    }
+    public static function warehouseLocations():
+        WarehouseLocationRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlWarehouseLocationRepository();
+        }
+
+        throw new RuntimeException(
+            'No warehouse-location repository is available for the configured database driver.'
         );
     }
     public static function finance(): FinanceRepository

@@ -90,15 +90,29 @@ $warehouseServicePath =
     'app/services/WarehouseManagementService.php';
 $warehouseControllerPath =
     'app/controllers/WarehouseController.php';
+$locationContractPath =
+    'app/repositories/WarehouseLocationRepository.php';
+$locationMySqlPath =
+    'app/repositories/MySql/WarehouseLocationRepository.php';
+$locationServicePath =
+    'app/services/WarehouseLocationManagementService.php';
+$locationControllerPath =
+    'app/controllers/WarehouseLocationController.php';
 
 foreach ([
     $warehouseContractPath,
     $warehouseMySqlPath,
     $warehouseServicePath,
     $warehouseControllerPath,
+    $locationContractPath,
+    $locationMySqlPath,
+    $locationServicePath,
+    $locationControllerPath,
     'resources/views/inventory/index.php',
     'resources/views/inventory/warehouses/index.php',
     'resources/views/inventory/warehouses/form.php',
+    'resources/views/inventory/locations/index.php',
+    'resources/views/inventory/locations/form.php',
 ] as $path) {
     $check(
         is_file($root . DIRECTORY_SEPARATOR . $path),
@@ -113,6 +127,14 @@ $warehouseMySqlSource = $contents($warehouseMySqlPath);
 $warehouseServiceSource = $contents($warehouseServicePath);
 $warehouseControllerSource = $contents(
     $warehouseControllerPath
+);
+$locationContractSource = $contents(
+    $locationContractPath
+);
+$locationMySqlSource = $contents($locationMySqlPath);
+$locationServiceSource = $contents($locationServicePath);
+$locationControllerSource = $contents(
+    $locationControllerPath
 );
 $factorySource = $contents(
     'app/repositories/RepositoryFactory.php'
@@ -165,6 +187,63 @@ foreach ([
 
 $check(
     str_contains(
+        $locationMySqlSource,
+        'implements WarehouseLocationRepositoryContract'
+    ),
+    'MySQL WarehouseLocationRepository implements its contract'
+);
+
+foreach ([
+    'warehouseForUpdate',
+    'activeWarehousesForCompany',
+    'warehouseBelongsToCompany',
+    'listForCompany',
+    'codeExists',
+    'barcodeExists',
+    'parentBelongsToWarehouse',
+    'provisionOperationalDefaults',
+    'configureDefaultOperationLocations',
+    'readinessForCompany',
+] as $method) {
+    $check(
+        str_contains(
+            $locationContractSource,
+            'function ' . $method
+        ),
+        'WarehouseLocationRepository exposes ' . $method
+    );
+}
+
+foreach ([
+    "'ROOT'",
+    "'INPUT'",
+    "'STOCK'",
+    "'OUTPUT'",
+    "'RETURNS'",
+    "'QUARANTINE'",
+] as $token) {
+    $check(
+        str_contains($locationMySqlSource, $token),
+        'Operational location provisioning contains: ' . $token
+    );
+}
+
+foreach ([
+    'receipt',
+    'internal_transfer',
+    'delivery',
+    'adjustment',
+    'default_source_location_id',
+    'default_destination_location_id',
+] as $token) {
+    $check(
+        str_contains($locationMySqlSource, $token),
+        'Operation location mapping contains: ' . $token
+    );
+}
+
+$check(
+    str_contains(
         $factorySource,
         'function warehouses()'
     )
@@ -175,12 +254,31 @@ $check(
     'RepositoryFactory exposes MySQL warehouse repositories'
 );
 
+$check(
+    str_contains(
+        $factorySource,
+        'function warehouseLocations()'
+    )
+    && str_contains(
+        $factorySource,
+        'new MySqlWarehouseLocationRepository()'
+    ),
+    'RepositoryFactory exposes MySQL warehouse-location repositories'
+);
+
 foreach ([
     "'/inventory/warehouses'",
     "'/inventory/warehouses/create'",
     "[\$warehouseController, 'index']",
     "[\$warehouseController, 'create']",
     "[\$warehouseController, 'store']",
+    "'/inventory/locations'",
+    "'/inventory/locations/create'",
+    "'/inventory/locations/provision'",
+    "[\$warehouseLocationController, 'index']",
+    "[\$warehouseLocationController, 'create']",
+    "[\$warehouseLocationController, 'store']",
+    "[\$warehouseLocationController, 'provision']",
 ] as $token) {
     $check(
         str_contains($routeSource, $token),
@@ -202,6 +300,46 @@ $check(
         "'inventory.warehouses.manage'"
     ) >= 2,
     'Warehouse creation requires inventory.warehouses.manage'
+);
+
+$check(
+    str_contains(
+        $locationControllerSource,
+        "'inventory.warehouses.view'"
+    ),
+    'Location listing requires inventory.warehouses.view'
+);
+
+$check(
+    substr_count(
+        $locationControllerSource,
+        "'inventory.warehouses.manage'"
+    ) >= 3,
+    'Location creation and provisioning require inventory.warehouses.manage'
+);
+
+$check(
+    str_contains(
+        $warehouseServiceSource,
+        'provisionOperationalDefaults'
+    )
+    && str_contains(
+        $warehouseServiceSource,
+        'configureDefaultOperationLocations'
+    ),
+    'Warehouse creation provisions and maps operational locations'
+);
+
+$check(
+    str_contains(
+        $locationServiceSource,
+        "'inventory_warehouse_locations'"
+    )
+    && str_contains(
+        $locationServiceSource,
+        "'CREATE'"
+    ),
+    'Location creation writes a company-scoped audit record'
 );
 
 foreach (['RCPT', 'INT', 'DLV', 'ADJ'] as $code) {
@@ -250,6 +388,22 @@ $check(
         'INSERT INTO inventory_operation_types'
     ),
     'Main receipt fixture no longer inserts operation types directly'
+);
+
+$check(
+    str_contains(
+        $testRunnerSource,
+        'Warehouse creation provisions six Odoo-style operational locations'
+    ),
+    'Main test runner verifies operational location provisioning'
+);
+
+$check(
+    str_contains(
+        $testRunnerSource,
+        'Warehouse operation types use the operational location routes'
+    ),
+    'Main test runner verifies operation location mappings'
 );
 
 $check(

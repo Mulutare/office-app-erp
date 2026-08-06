@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Repositories\AuditLogWriter;
 use App\Repositories\RepositoryFactory;
 use App\Repositories\WarehouseRepository;
+use App\Repositories\WarehouseLocationRepository;
 use PDOException;
 use Throwable;
 
@@ -29,16 +30,20 @@ final class WarehouseManagementService
     ];
 
     private WarehouseRepository $warehouses;
+    private WarehouseLocationRepository $locations;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
 
     public function __construct(
         ?WarehouseRepository $warehouses = null,
         ?AuditLogWriter $auditLogs = null,
-        ?TenantContext $tenant = null
+        ?TenantContext $tenant = null,
+        ?WarehouseLocationRepository $locations = null
     ) {
         $this->warehouses = $warehouses
             ?? RepositoryFactory::warehouses();
+        $this->locations = $locations
+            ?? RepositoryFactory::warehouseLocations();
         $this->auditLogs = $auditLogs
             ?? RepositoryFactory::auditLogs();
         $this->tenant = $tenant
@@ -58,9 +63,20 @@ final class WarehouseManagementService
      */
     public function listing(): array
     {
+        $companyId = $this->tenant->companyId();
         $warehouses = $this->warehouses->listForCompany(
-            $this->tenant->companyId()
+            $companyId
         );
+        $readinessRows = $this->locations
+            ->readinessForCompany($companyId);
+        $readinessByWarehouse = [];
+
+        foreach ($readinessRows as $readinessRow) {
+            $readinessByWarehouse[
+                (int) ($readinessRow['warehouse_id'] ?? 0)
+            ] = $readinessRow;
+        }
+
         $active = 0;
         $defaults = 0;
         $ready = 0;
@@ -94,15 +110,39 @@ final class WarehouseManagementService
                     'active_default_operation_type_count'
                 ] ?? 0
             );
+            $warehouseReadiness =
+                $readinessByWarehouse[
+                    $warehouse['warehouse_id']
+                ] ?? [];
+            $warehouse['operational_location_count'] =
+                (int) (
+                    $warehouseReadiness[
+                        'operational_location_count'
+                    ] ?? 0
+                );
+            $warehouse['mapped_operation_type_count'] =
+                (int) (
+                    $warehouseReadiness[
+                        'mapped_operation_type_count'
+                    ] ?? 0
+                );
             $warehouse['operation_types_ready'] =
                 $warehouse['active_operation_type_count'] === 4
                 && $warehouse[
                     'active_default_operation_type_count'
                 ] === 4;
+            $warehouse['operational_ready'] =
+                $warehouse['operation_types_ready']
+                && $warehouse[
+                    'operational_location_count'
+                ] === 6
+                && $warehouse[
+                    'mapped_operation_type_count'
+                ] === 4;
 
             $active += $warehouse['active'] ? 1 : 0;
             $defaults += $warehouse['is_default'] ? 1 : 0;
-            $ready += $warehouse['operation_types_ready'] ? 1 : 0;
+            $ready += $warehouse['operational_ready'] ? 1 : 0;
         }
 
         unset($warehouse);
@@ -170,7 +210,8 @@ final class WarehouseManagementService
      *     successful: bool,
      *     errors: array<string, string>,
      *     warehouseId?: int,
-     *     warehouseName?: string
+     *     warehouseName?: string,
+     *     defaultLocationCount?: int
      * }
      */
     public function create(
@@ -237,6 +278,20 @@ final class WarehouseManagementService
                 $companyId,
                 $warehouseId
             );
+            $defaultLocations = $this->locations
+                ->provisionOperationalDefaults(
+                    $companyId,
+                    $warehouseId,
+                    (string) $values['code'],
+                    (string) $values['name'],
+                    $createdBy
+                );
+            $this->locations
+                ->configureDefaultOperationLocations(
+                    $companyId,
+                    $warehouseId,
+                    $defaultLocations
+                );
             $this->auditLogs->record(
                 $createdBy,
                 'CREATE',
@@ -280,6 +335,8 @@ final class WarehouseManagementService
             'errors' => [],
             'warehouseId' => $warehouseId,
             'warehouseName' => (string) $values['name'],
+            'defaultLocationCount' =>
+                count($defaultLocations),
         ];
     }
 
@@ -551,9 +608,19 @@ final class WarehouseManagementService
      */
     private function auditValues(array $values): array
     {
+        $warehouseCode = (string) ($values['code'] ?? '');
+
         return $values + [
             'operation_type_codes' =>
                 self::OPERATION_TYPE_CODES,
+            'operational_location_codes' => [
+                $warehouseCode,
+                $warehouseCode . '/INPUT',
+                $warehouseCode . '/STOCK',
+                $warehouseCode . '/OUTPUT',
+                $warehouseCode . '/RETURNS',
+                $warehouseCode . '/QUARANTINE',
+            ],
         ];
     }
 

@@ -36,7 +36,7 @@ final class WarehouseController
             ),
             'pageTitle' => 'Warehouses',
             'pageDescription' =>
-                'Manage tenant-scoped warehouses and their operational readiness.',
+                'Manage tenant-scoped warehouses, operational locations and Inventory routes.',
             'contentView' =>
                 'inventory.warehouses.index',
             'user' => $_SESSION['auth'],
@@ -92,7 +92,7 @@ final class WarehouseController
         \flash('warehouse_notice', [
             'type' => 'success',
             'message' => sprintf(
-                'Warehouse %s was created with RCPT, INT, DLV and ADJ operation types.',
+                'Warehouse %s was created with six operational locations and RCPT, INT, DLV and ADJ routes.',
                 (string) $result['warehouseName']
             ),
         ]);
@@ -118,7 +118,7 @@ final class WarehouseController
             ),
             'pageTitle' => 'Create Warehouse',
             'pageDescription' =>
-                'Create a warehouse and provision its four default Inventory operation types atomically.',
+                'Create a warehouse, six operational locations and four Inventory operation routes atomically.',
             'contentView' =>
                 'inventory.warehouses.form',
             'user' => $_SESSION['auth'],
