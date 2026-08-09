@@ -66,6 +66,35 @@ final class InventoryService
             ];
         }
     }
+
+    /** @return array<string, mixed> */
+    public function postTransfer(int $transferId, int $actorId): array
+    {
+        if ($transferId < 1 || $actorId < 1) {
+            return [
+                'successful' => false,
+                'errors' => ['form' => 'A valid transfer and actor are required.'],
+            ];
+        }
+
+        try {
+            return [
+                'successful' => true,
+                'result' => $this->inventory->postTransfer(
+                    $this->tenant->companyId(),
+                    $transferId,
+                    $actorId,
+                    date('Y-m-d H:i:s')
+                ),
+            ];
+        } catch (\Throwable $exception) {
+            return [
+                'successful' => false,
+                'errors' => ['form' => $exception->getMessage()],
+            ];
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -83,16 +112,26 @@ final class InventoryService
                 ) AS warehouse_count,
                 (
                     SELECT COUNT(*)
-                    FROM inventory_stock_balances
-                    WHERE company_id = :balance_company
+                    FROM inventory_stock_balances balances
+                    INNER JOIN inventory_warehouse_locations locations
+                      ON locations.company_id = balances.company_id
+                     AND locations.warehouse_id = balances.warehouse_id
+                     AND locations.location_id = balances.location_id
+                    WHERE balances.company_id = :balance_company
+                      AND locations.location_usage IN ('internal', 'transit')
                 ) AS stock_item_count,
                 (
                     SELECT COALESCE(
                         SUM(quantity_on_hand),
                         0
                     )
-                    FROM inventory_stock_balances
-                    WHERE company_id = :quantity_company
+                    FROM inventory_stock_balances balances
+                    INNER JOIN inventory_warehouse_locations locations
+                      ON locations.company_id = balances.company_id
+                     AND locations.warehouse_id = balances.warehouse_id
+                     AND locations.location_id = balances.location_id
+                    WHERE balances.company_id = :quantity_company
+                      AND locations.location_usage IN ('internal', 'transit')
                 ) AS total_quantity,
                 (
                     SELECT COUNT(*)
@@ -132,15 +171,25 @@ final class InventoryService
                     - balances.quantity_reserved
                 ) AS quantity_available,
                 balances.average_unit_cost,
-                balances.last_movement_at
+                balances.last_movement_at,
+                warehouses.name AS warehouse_name,
+                locations.name AS location_name
              FROM inventory_stock_balances balances
              LEFT JOIN sales_products products
                 ON products.company_id =
                     balances.company_id
                AND products.product_id =
                     balances.product_id
+             LEFT JOIN inventory_warehouses warehouses
+                ON warehouses.company_id = balances.company_id
+               AND warehouses.warehouse_id = balances.warehouse_id
+             LEFT JOIN inventory_warehouse_locations locations
+                ON locations.company_id = balances.company_id
+               AND locations.warehouse_id = balances.warehouse_id
+               AND locations.location_id = balances.location_id
              WHERE balances.company_id =
                 :company_id
+               AND locations.location_usage IN ('internal', 'transit')
              ORDER BY
                 products.name,
                 balances.stock_balance_id
@@ -169,6 +218,42 @@ final class InventoryService
             'company_id' => $companyId,
         ]);
 
+        $movements = $connection->prepare(
+            "SELECT
+                movements.movement_id,
+                movements.reference_number,
+                movements.movement_type,
+                movements.requested_quantity,
+                movements.completed_quantity,
+                movements.status,
+                movements.occurred_at,
+                products.sku,
+                products.name AS product_name,
+                source_locations.name AS source_location_name,
+                destination_locations.name AS destination_location_name,
+                operation_types.name AS operation_type_name
+             FROM inventory_stock_movements movements
+             INNER JOIN sales_products products
+                ON products.company_id = movements.company_id
+               AND products.product_id = movements.product_id
+             LEFT JOIN inventory_warehouse_locations source_locations
+                ON source_locations.company_id = movements.company_id
+               AND source_locations.warehouse_id = movements.source_warehouse_id
+               AND source_locations.location_id = movements.source_location_id
+             LEFT JOIN inventory_warehouse_locations destination_locations
+                ON destination_locations.company_id = movements.company_id
+               AND destination_locations.warehouse_id = movements.destination_warehouse_id
+               AND destination_locations.location_id = movements.destination_location_id
+             LEFT JOIN inventory_operation_types operation_types
+                ON operation_types.company_id = movements.company_id
+               AND operation_types.warehouse_id = movements.warehouse_id
+               AND operation_types.operation_type_id = movements.operation_type_id
+             WHERE movements.company_id = :company_id
+             ORDER BY movements.movement_id DESC
+             LIMIT 50"
+        );
+        $movements->execute(['company_id' => $companyId]);
+
         return [
             'inventorySummary' => [
                 'warehouseCount' => (int) (
@@ -192,6 +277,7 @@ final class InventoryService
             'goodsReceipts' => $receipts->fetchAll(
                 \PDO::FETCH_ASSOC
             ),
+            'stockMovements' => $movements->fetchAll(\PDO::FETCH_ASSOC),
         ];
     }
 }

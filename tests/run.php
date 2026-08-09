@@ -539,6 +539,8 @@ try {
                 '037',
                 '038',
                 '039',
+                '040',
+                '041',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -572,13 +574,15 @@ try {
                 \'036\',
                 \'037\',
                 \'038\',
-                \'039\'
+                \'039\',
+                \'040\',
+                \'041\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 25,
+        $migrationLedgerCount === 27,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -764,8 +768,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 77,
-        'All 77 application tables were created'
+        $tableCount === 81,
+        'All 81 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -777,8 +781,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 259,
-        'All 259 foreign-key relationships were created'
+        $foreignKeyCount === 290,
+        'All 290 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -1306,6 +1310,7 @@ try {
             locations.parent_location_id,
             locations.code,
             locations.location_type,
+            locations.location_usage,
             locations.receiving_allowed,
             locations.picking_allowed,
             locations.active,
@@ -1341,43 +1346,69 @@ try {
     $expectedOperationalLocations = [
         $warehouseCode => [
             'type' => 'zone',
+            'usage' => 'internal',
             'parent' => null,
             'receiving' => 0,
             'picking' => 0,
         ],
         $warehouseCode . '/INPUT' => [
             'type' => 'receiving',
+            'usage' => 'internal',
             'parent' => $warehouseCode,
             'receiving' => 1,
             'picking' => 1,
         ],
         $warehouseCode . '/STOCK' => [
             'type' => 'zone',
+            'usage' => 'internal',
             'parent' => $warehouseCode,
             'receiving' => 1,
             'picking' => 1,
         ],
         $warehouseCode . '/OUTPUT' => [
             'type' => 'dispatch',
+            'usage' => 'internal',
             'parent' => $warehouseCode,
             'receiving' => 1,
             'picking' => 1,
         ],
         $warehouseCode . '/RETURNS' => [
             'type' => 'returns',
+            'usage' => 'internal',
             'parent' => $warehouseCode,
             'receiving' => 1,
             'picking' => 1,
         ],
         $warehouseCode . '/QUARANTINE' => [
             'type' => 'quarantine',
+            'usage' => 'internal',
             'parent' => $warehouseCode,
             'receiving' => 1,
             'picking' => 0,
         ],
+        $warehouseCode . '/VENDOR' => [
+            'type' => 'vendor', 'usage' => 'vendor', 'parent' => $warehouseCode,
+            'receiving' => 1, 'picking' => 1,
+        ],
+        $warehouseCode . '/CUSTOMER' => [
+            'type' => 'customer', 'usage' => 'customer', 'parent' => $warehouseCode,
+            'receiving' => 1, 'picking' => 1,
+        ],
+        $warehouseCode . '/INVENTORY' => [
+            'type' => 'inventory', 'usage' => 'inventory', 'parent' => $warehouseCode,
+            'receiving' => 1, 'picking' => 1,
+        ],
+        $warehouseCode . '/SCRAP' => [
+            'type' => 'scrap', 'usage' => 'scrap', 'parent' => $warehouseCode,
+            'receiving' => 1, 'picking' => 0,
+        ],
+        $warehouseCode . '/TRANSIT' => [
+            'type' => 'transit', 'usage' => 'transit', 'parent' => $warehouseCode,
+            'receiving' => 1, 'picking' => 1,
+        ],
     ];
     $operationalLocationsMatch =
-        count($operationalLocationRows) === 6;
+        count($operationalLocationRows) === 11;
 
     foreach (
         $expectedOperationalLocations
@@ -1391,6 +1422,8 @@ try {
             || (string) (
                 $actualLocation['location_type'] ?? ''
             ) !== $expectedLocation['type']
+            || (string) ($actualLocation['location_usage'] ?? '')
+                !== $expectedLocation['usage']
             || (
                 $actualLocation['parent_code'] ?? null
             ) !== $expectedLocation['parent']
@@ -1408,7 +1441,7 @@ try {
 
     $check(
         $operationalLocationsMatch,
-        'Warehouse creation provisions six Odoo-style operational locations'
+        'Warehouse creation provisions eleven Odoo-style operational and virtual locations'
     );
 
     $operationLocationStatement = db()->prepare(
@@ -1460,7 +1493,7 @@ try {
 
     $expectedOperationRoutes = [
         'receipt' => [
-            'source' => null,
+            'source' => $warehouseCode . '/VENDOR',
             'destination' => $warehouseCode . '/INPUT',
         ],
         'internal_transfer' => [
@@ -1469,11 +1502,11 @@ try {
         ],
         'delivery' => [
             'source' => $warehouseCode . '/STOCK',
-            'destination' => $warehouseCode . '/OUTPUT',
+            'destination' => $warehouseCode . '/CUSTOMER',
         ],
         'adjustment' => [
-            'source' => $warehouseCode . '/STOCK',
-            'destination' => $warehouseCode . '/STOCK',
+            'source' => $warehouseCode . '/INVENTORY',
+            'destination' => $warehouseCode . '/INVENTORY',
         ],
     ];
 
@@ -2091,8 +2124,10 @@ try {
     $inventoryMovementStatement = db()->prepare(
         'SELECT
             COUNT(*) AS movement_count,
-            SUM(quantity_delta) AS quantity_total,
-            SUM(movement_value) AS value_total
+            SUM(completed_quantity) AS quantity_total,
+            SUM(completed_quantity * unit_cost) AS value_total,
+            COUNT(source_location_id) AS source_count,
+            COUNT(destination_location_id) AS destination_count
          FROM inventory_stock_movements
          WHERE company_id = :company_id
            AND reference_type = \'goods_receipt\'
@@ -2177,7 +2212,9 @@ try {
         && (float) (
             $inventoryMovement['value_total']
             ?? 0
-        ) === 250.0,
+        ) === 250.0
+        && (int) ($inventoryMovement['source_count'] ?? 0) === 1
+        && (int) ($inventoryMovement['destination_count'] ?? 0) === 1,
         'Goods receipt records one idempotent stock movement'
     );
 
@@ -2213,6 +2250,183 @@ try {
             ] ?? null
         ) === 0,
         'Repeated goods receipt posting is safely replayed'
+    );
+
+    $transferRoute = db()->prepare(
+        "SELECT
+            operation_types.operation_type_id,
+            operation_types.default_destination_location_id
+         FROM inventory_operation_types operation_types
+         WHERE operation_types.company_id = :company_id
+           AND operation_types.warehouse_id = :warehouse_id
+           AND operation_types.operation_kind = 'internal_transfer'
+           AND operation_types.is_default = TRUE"
+    );
+    $transferRoute->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+    ]);
+    $transferRouteRow = $transferRoute->fetch(\PDO::FETCH_ASSOC);
+    $transferOperationTypeId = (int) (
+        $transferRouteRow['operation_type_id'] ?? 0
+    );
+    $transferDestinationLocationId = (int) (
+        $transferRouteRow['default_destination_location_id'] ?? 0
+    );
+
+    $createTransfer = static function (
+        string $number,
+        string $status,
+        float $quantity
+    ) use (
+        $tenantACompanyId,
+        $inventoryWarehouseId,
+        $transferOperationTypeId,
+        $inventoryLocationId,
+        $transferDestinationLocationId,
+        $inventoryProductId,
+        $tenantAActorId
+    ): int {
+        $header = db()->prepare(
+            'INSERT INTO inventory_transfers (
+                company_id, source_warehouse_id,
+                destination_warehouse_id, operation_type_id,
+                transfer_number, transfer_date, status, created_by
+             ) VALUES (
+                :company_id, :source_warehouse_id,
+                :destination_warehouse_id, :operation_type_id,
+                :transfer_number, CURRENT_DATE, :status, :created_by
+             )'
+        );
+        $header->execute([
+            'company_id' => $tenantACompanyId,
+            'source_warehouse_id' => $inventoryWarehouseId,
+            'destination_warehouse_id' => $inventoryWarehouseId,
+            'operation_type_id' => $transferOperationTypeId,
+            'transfer_number' => $number,
+            'status' => $status,
+            'created_by' => $tenantAActorId,
+        ]);
+        $transferId = (int) db()->lastInsertId();
+        $line = db()->prepare(
+            'INSERT INTO inventory_transfer_lines (
+                company_id, transfer_id, source_warehouse_id,
+                source_location_id, destination_warehouse_id,
+                destination_location_id, product_id, quantity, unit_cost
+             ) VALUES (
+                :company_id, :transfer_id, :source_warehouse_id,
+                :source_location_id, :destination_warehouse_id,
+                :destination_location_id, :product_id, :quantity, 25
+             )'
+        );
+        $line->execute([
+            'company_id' => $tenantACompanyId,
+            'transfer_id' => $transferId,
+            'source_warehouse_id' => $inventoryWarehouseId,
+            'source_location_id' => $inventoryLocationId,
+            'destination_warehouse_id' => $inventoryWarehouseId,
+            'destination_location_id' => $transferDestinationLocationId,
+            'product_id' => $inventoryProductId,
+            'quantity' => $quantity,
+        ]);
+        return $transferId;
+    };
+
+    $inventoryTransferId = $createTransfer(
+        'TEST-TR-0001',
+        'approved',
+        4.0
+    );
+    $inventoryTransferResult = $inventoryService->postTransfer(
+        $inventoryTransferId,
+        $tenantAActorId
+    );
+    $inventoryTransferReplay = $inventoryService->postTransfer(
+        $inventoryTransferId,
+        $tenantAActorId
+    );
+    $transferBalances = db()->prepare(
+        'SELECT location_id, quantity_on_hand
+         FROM inventory_stock_balances
+         WHERE company_id = :company_id
+           AND warehouse_id = :warehouse_id
+           AND product_id = :product_id
+           AND location_id IN (:source_location_id, :destination_location_id)
+         ORDER BY location_id'
+    );
+    $transferBalances->execute([
+        'company_id' => $tenantACompanyId,
+        'warehouse_id' => $inventoryWarehouseId,
+        'product_id' => $inventoryProductId,
+        'source_location_id' => $inventoryLocationId,
+        'destination_location_id' => $transferDestinationLocationId,
+    ]);
+    $quantitiesByLocation = [];
+    foreach ($transferBalances->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $quantitiesByLocation[(int) $row['location_id']] =
+            (float) $row['quantity_on_hand'];
+    }
+    $check(
+        !empty($inventoryTransferResult['successful'])
+        && ($inventoryTransferResult['result']['movementCount'] ?? 0) === 1
+        && ($quantitiesByLocation[$inventoryLocationId] ?? -1) === 6.0
+        && ($quantitiesByLocation[$transferDestinationLocationId] ?? -1) === 4.0
+        && array_sum($quantitiesByLocation) === 10.0,
+        'Internal transfer moves the exact quantity and preserves company stock'
+    );
+    $check(
+        !empty($inventoryTransferReplay['successful'])
+        && !empty($inventoryTransferReplay['result']['replayed'])
+        && ($inventoryTransferReplay['result']['movementCount'] ?? -1) === 0,
+        'Completed transfer cannot move stock twice'
+    );
+
+    $failedTransferId = $createTransfer(
+        'TEST-TR-ROLLBACK',
+        'approved',
+        20.0
+    );
+    $failedTransferResult = $inventoryService->postTransfer(
+        $failedTransferId,
+        $tenantAActorId
+    );
+    $failedTransferStatus = db()->prepare(
+        'SELECT status FROM inventory_transfers
+         WHERE company_id = :company_id AND transfer_id = :transfer_id'
+    );
+    $failedTransferStatus->execute([
+        'company_id' => $tenantACompanyId,
+        'transfer_id' => $failedTransferId,
+    ]);
+    $failedMovementCount = db()->prepare(
+        "SELECT COUNT(*) FROM inventory_stock_movements
+         WHERE company_id = :company_id
+           AND reference_type = 'inventory_transfer'
+           AND reference_id = :transfer_id"
+    );
+    $failedMovementCount->execute([
+        'company_id' => $tenantACompanyId,
+        'transfer_id' => $failedTransferId,
+    ]);
+    $check(
+        empty($failedTransferResult['successful'])
+        && $failedTransferStatus->fetchColumn() === 'approved'
+        && (int) $failedMovementCount->fetchColumn() === 0,
+        'Insufficient transfer stock rolls back status, balances and movement history'
+    );
+
+    $cancelledTransferId = $createTransfer(
+        'TEST-TR-CANCELLED',
+        'cancelled',
+        1.0
+    );
+    $cancelledTransferResult = $inventoryService->postTransfer(
+        $cancelledTransferId,
+        $tenantAActorId
+    );
+    $check(
+        empty($cancelledTransferResult['successful']),
+        'Cancelled transfer cannot affect stock'
     );
     $ownerRecovery =
         new CompanyOwnerPasswordResetService();

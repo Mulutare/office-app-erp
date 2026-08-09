@@ -11,6 +11,301 @@ use Throwable;
 
 final class InventoryRepository extends MySqlRepository implements InventoryRepositoryContract
 {
+    public function completeStockMovement(array $movement): array
+    {
+        $companyId = (int) ($movement['companyId'] ?? 0);
+        $productId = (int) ($movement['productId'] ?? 0);
+        $sourceWarehouseId = $this->positiveOrNull(
+            $movement['sourceWarehouseId'] ?? null
+        );
+        $sourceLocationId = $this->positiveOrNull(
+            $movement['sourceLocationId'] ?? null
+        );
+        $destinationWarehouseId = $this->positiveOrNull(
+            $movement['destinationWarehouseId'] ?? null
+        );
+        $destinationLocationId = $this->positiveOrNull(
+            $movement['destinationLocationId'] ?? null
+        );
+        $quantity = (float) ($movement['quantity'] ?? 0);
+        $unitCost = (float) ($movement['unitCost'] ?? 0);
+        $actorId = (int) ($movement['actorId'] ?? 0);
+        $idempotencyKey = trim((string) (
+            $movement['idempotencyKey'] ?? ''
+        ));
+        $occurredAt = (string) (
+            $movement['occurredAt'] ?? date('Y-m-d H:i:s')
+        );
+
+        if ($companyId < 1 || $productId < 1 || $actorId < 1) {
+            throw new RuntimeException(
+                'A valid company, product and actor are required.'
+            );
+        }
+
+        if ($quantity <= 0 || $unitCost < 0 || $idempotencyKey === '') {
+            throw new RuntimeException(
+                'Movement quantity must be positive and its key is required.'
+            );
+        }
+
+        if (
+            ($sourceLocationId === null) !== ($sourceWarehouseId === null)
+            || ($destinationLocationId === null)
+                !== ($destinationWarehouseId === null)
+            || ($sourceLocationId === null && $destinationLocationId === null)
+        ) {
+            throw new RuntimeException(
+                'Each internal movement endpoint requires a warehouse and location.'
+            );
+        }
+
+        if (
+            $sourceWarehouseId === $destinationWarehouseId
+            && $sourceLocationId === $destinationLocationId
+            && $sourceLocationId !== null
+        ) {
+            throw new RuntimeException(
+                'Source and destination locations must be different.'
+            );
+        }
+
+        $connection = $this->connection();
+        $ownsTransaction = !$connection->inTransaction();
+
+        if ($ownsTransaction) {
+            $connection->beginTransaction();
+        }
+
+        try {
+            $existingStatement = $connection->prepare(
+                "SELECT movement_id, status, completed_quantity
+                 FROM inventory_stock_movements
+                 WHERE company_id = :company_id
+                   AND idempotency_key = :idempotency_key
+                 FOR UPDATE"
+            );
+            $existingStatement->execute([
+                'company_id' => $companyId,
+                'idempotency_key' => $idempotencyKey,
+            ]);
+            $existing = $existingStatement->fetch(PDO::FETCH_ASSOC);
+
+            if (is_array($existing)) {
+                if ((string) $existing['status'] !== 'completed') {
+                    throw new RuntimeException(
+                        'The existing movement is not in a completed state.'
+                    );
+                }
+
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+
+                return [
+                    'movementId' => (int) $existing['movement_id'],
+                    'status' => 'completed',
+                    'completedQuantity' => (float)
+                        $existing['completed_quantity'],
+                    'replayed' => true,
+                ];
+            }
+
+            $productStatement = $connection->prepare(
+                "SELECT product_id
+                 FROM sales_products
+                 WHERE company_id = :company_id
+                   AND product_id = :product_id
+                   AND deleted_at IS NULL
+                 FOR UPDATE"
+            );
+            $productStatement->execute([
+                'company_id' => $companyId,
+                'product_id' => $productId,
+            ]);
+
+            if ($productStatement->fetchColumn() === false) {
+                throw new RuntimeException(
+                    'The product does not belong to the active company.'
+                );
+            }
+
+            $sourceBalance = null;
+            if ($sourceLocationId !== null && $sourceWarehouseId !== null) {
+                $sourceLocation = $this->assertLocation(
+                    $companyId,
+                    $sourceWarehouseId,
+                    $sourceLocationId,
+                    true
+                );
+                $sourceBalance = $this->stockBalanceForUpdate(
+                    $companyId,
+                    $sourceWarehouseId,
+                    $sourceLocationId,
+                    $productId
+                );
+
+                $sourceIsInternal = in_array(
+                    (string) ($sourceLocation['location_usage'] ?? 'internal'),
+                    ['internal', 'transit'],
+                    true
+                );
+                if ($sourceBalance === null && !$sourceIsInternal) {
+                    $sourceBalanceId = $this->createStockBalance(
+                        $companyId,
+                        $sourceWarehouseId,
+                        $sourceLocationId,
+                        $productId
+                    );
+                    $sourceBalance = $this->stockBalanceForUpdate(
+                        $companyId,
+                        $sourceWarehouseId,
+                        $sourceLocationId,
+                        $productId
+                    );
+                }
+
+                if ($sourceBalance === null) {
+                    throw new RuntimeException(
+                        'The source location has no stock for this product.'
+                    );
+                }
+
+                $allowNegative = !empty(
+                    $sourceBalance['allow_negative_stock']
+                );
+                if (
+                    $sourceIsInternal
+                    && !$allowNegative
+                    && (float) $sourceBalance['quantity_on_hand'] + 0.0005
+                        < $quantity
+                ) {
+                    throw new RuntimeException(
+                        'The source location has insufficient stock.'
+                    );
+                }
+
+                if ($sourceIsInternal) {
+                    $unitCost = (float) $sourceBalance['average_unit_cost'];
+                }
+                $this->applyBalanceDelta(
+                    $companyId,
+                    (int) $sourceBalance['stock_balance_id'],
+                    -$quantity,
+                    $unitCost,
+                    $occurredAt
+                );
+            }
+
+            if (
+                $destinationLocationId !== null
+                && $destinationWarehouseId !== null
+            ) {
+                $this->assertLocation(
+                    $companyId,
+                    $destinationWarehouseId,
+                    $destinationLocationId,
+                    false
+                );
+                $destinationBalance = $this->stockBalanceForUpdate(
+                    $companyId,
+                    $destinationWarehouseId,
+                    $destinationLocationId,
+                    $productId
+                );
+                $destinationBalanceId = $destinationBalance === null
+                    ? $this->createStockBalance(
+                        $companyId,
+                        $destinationWarehouseId,
+                        $destinationLocationId,
+                        $productId
+                    )
+                    : (int) $destinationBalance['stock_balance_id'];
+                $this->applyBalanceDelta(
+                    $companyId,
+                    $destinationBalanceId,
+                    $quantity,
+                    $unitCost,
+                    $occurredAt
+                );
+            }
+
+            $anchorWarehouseId = $sourceWarehouseId
+                ?? $destinationWarehouseId;
+            $anchorLocationId = $sourceLocationId
+                ?? $destinationLocationId;
+            $quantityDelta = $sourceLocationId === null
+                ? $quantity
+                : ($destinationLocationId === null ? -$quantity : 0.0);
+            $insert = $connection->prepare(
+                "INSERT INTO inventory_stock_movements (
+                    company_id, warehouse_id, location_id, product_id,
+                    source_warehouse_id, source_location_id,
+                    destination_warehouse_id, destination_location_id,
+                    movement_type, requested_quantity, completed_quantity,
+                    operation_type_id, status, quantity_delta, unit_cost,
+                    currency, reference_type, reference_id,
+                    reference_number, idempotency_key, notes, occurred_at,
+                    recorded_by, completed_at, completed_by
+                 ) VALUES (
+                    :company_id, :warehouse_id, :location_id, :product_id,
+                    :source_warehouse_id, :source_location_id,
+                    :destination_warehouse_id, :destination_location_id,
+                    :movement_type, :requested_quantity, :completed_quantity,
+                    :operation_type_id, 'completed', :quantity_delta,
+                    :unit_cost, :currency, :reference_type, :reference_id,
+                    :reference_number, :idempotency_key, :notes,
+                    :occurred_at, :recorded_by, :completed_at, :completed_by
+                 )"
+            );
+            $insert->execute([
+                'company_id' => $companyId,
+                'warehouse_id' => $anchorWarehouseId,
+                'location_id' => $anchorLocationId,
+                'product_id' => $productId,
+                'source_warehouse_id' => $sourceWarehouseId,
+                'source_location_id' => $sourceLocationId,
+                'destination_warehouse_id' => $destinationWarehouseId,
+                'destination_location_id' => $destinationLocationId,
+                'movement_type' => (string) ($movement['movementType'] ?? 'transfer_in'),
+                'requested_quantity' => $quantity,
+                'completed_quantity' => $quantity,
+                'operation_type_id' => $this->positiveOrNull(
+                    $movement['operationTypeId'] ?? null
+                ),
+                'quantity_delta' => $quantityDelta,
+                'unit_cost' => $unitCost,
+                'currency' => strtoupper((string) ($movement['currency'] ?? 'ETB')),
+                'reference_type' => (string) ($movement['referenceType'] ?? 'manual'),
+                'reference_id' => $this->positiveOrNull($movement['referenceId'] ?? null),
+                'reference_number' => $movement['referenceNumber'] ?? null,
+                'idempotency_key' => $idempotencyKey,
+                'notes' => $movement['notes'] ?? null,
+                'occurred_at' => $occurredAt,
+                'recorded_by' => $actorId,
+                'completed_at' => $occurredAt,
+                'completed_by' => $actorId,
+            ]);
+            $movementId = (int) $connection->lastInsertId();
+
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
+
+            return [
+                'movementId' => $movementId,
+                'status' => 'completed',
+                'completedQuantity' => $quantity,
+                'replayed' => false,
+            ];
+        } catch (Throwable $exception) {
+            if ($ownsTransaction && $connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
     public function postGoodsReceipt(
         int $companyId,
         int $goodsReceiptId,
@@ -78,57 +373,38 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                     );
                 }
 
-                $balance = $this->stockBalanceForUpdate(
-                    $companyId,
-                    $warehouseId,
-                    $locationId,
-                    $productId
-                );
-
-                if ($balance === null) {
-                    $stockBalanceId = $this->createStockBalance(
-                        $companyId,
-                        $warehouseId,
-                        $locationId,
-                        $productId
-                    );
-                } else {
-                    $stockBalanceId = (int) $balance['stock_balance_id'];
-                }
-
-                $this->applyReceiptToBalance(
-                    $companyId,
-                    $stockBalanceId,
-                    $quantity,
-                    $unitCost,
-                    $postedAt
-                );
-
-                $this->recordStockMovement(
-                    $companyId,
-                    $warehouseId,
-                    $locationId,
-                    $productId,
-                    'receipt',
-                    $quantity,
-                    $unitCost,
-                    (string) ($receipt['currency'] ?? 'ETB'),
-                    'goods_receipt',
-                    $goodsReceiptId,
-                    (string) ($receipt['receipt_number'] ?? ''),
-                    sprintf(
+                $result = $this->completeStockMovement([
+                    'companyId' => $companyId,
+                    'productId' => $productId,
+                    'sourceWarehouseId' => $warehouseId,
+                    'sourceLocationId' => (int) (
+                        $receipt['default_source_location_id'] ?? 0
+                    ),
+                    'destinationWarehouseId' => $warehouseId,
+                    'destinationLocationId' => $locationId,
+                    'quantity' => $quantity,
+                    'unitCost' => $unitCost,
+                    'movementType' => 'receipt',
+                    'operationTypeId' => (int) ($receipt['operation_type_id'] ?? 0),
+                    'currency' => (string) ($receipt['currency'] ?? 'ETB'),
+                    'referenceType' => 'goods_receipt',
+                    'referenceId' => $goodsReceiptId,
+                    'referenceNumber' => (string) ($receipt['receipt_number'] ?? ''),
+                    'idempotencyKey' => sprintf(
                         'goods-receipt:%d:line:%d',
                         $goodsReceiptId,
                         $lineId
                     ),
-                    isset($line['notes'])
+                    'notes' => isset($line['notes'])
                         ? (string) $line['notes']
                         : null,
-                    $postedAt,
-                    $actorId
-                );
+                    'occurredAt' => $postedAt,
+                    'actorId' => $actorId,
+                ]);
 
-                $movementCount++;
+                if (empty($result['replayed'])) {
+                    $movementCount++;
+                }
             }
 
             $this->markGoodsReceiptPosted(
@@ -160,10 +436,16 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
         int $goodsReceiptId
     ): array {
         $statement = $this->connection()->prepare(
-            "SELECT *
-             FROM inventory_goods_receipts
-             WHERE company_id = :company_id
-               AND goods_receipt_id = :goods_receipt_id
+            "SELECT receipts.*,
+                    operation_types.default_source_location_id,
+                    operation_types.default_destination_location_id
+             FROM inventory_goods_receipts receipts
+             INNER JOIN inventory_operation_types operation_types
+                ON operation_types.company_id = receipts.company_id
+               AND operation_types.warehouse_id = receipts.warehouse_id
+               AND operation_types.operation_type_id = receipts.operation_type_id
+             WHERE receipts.company_id = :company_id
+               AND receipts.goods_receipt_id = :goods_receipt_id
              FOR UPDATE"
         );
 
@@ -216,12 +498,20 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
         int $productId
     ): ?array {
         $statement = $this->connection()->prepare(
-            "SELECT *
-             FROM inventory_stock_balances
-             WHERE company_id = :company_id
-               AND warehouse_id = :warehouse_id
-               AND location_id = :location_id
-               AND product_id = :product_id
+            "SELECT balances.*, warehouses.allow_negative_stock,
+                    locations.location_usage
+             FROM inventory_stock_balances balances
+             INNER JOIN inventory_warehouses warehouses
+               ON warehouses.company_id = balances.company_id
+               AND warehouses.warehouse_id = balances.warehouse_id
+             INNER JOIN inventory_warehouse_locations locations
+                ON locations.company_id = balances.company_id
+               AND locations.warehouse_id = balances.warehouse_id
+               AND locations.location_id = balances.location_id
+             WHERE balances.company_id = :company_id
+               AND balances.warehouse_id = :warehouse_id
+               AND balances.location_id = :location_id
+               AND balances.product_id = :product_id
              FOR UPDATE"
         );
 
@@ -262,124 +552,6 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             'warehouse_id' => $warehouseId,
             'location_id' => $locationId,
             'product_id' => $productId,
-        ]);
-
-        return (int) $this->connection()->lastInsertId();
-    }
-
-    public function applyReceiptToBalance(
-        int $companyId,
-        int $stockBalanceId,
-        float $quantity,
-        float $unitCost,
-        string $occurredAt
-    ): void {
-        $statement = $this->connection()->prepare(
-            "UPDATE inventory_stock_balances
-             SET average_unit_cost = CASE
-                    WHEN quantity_on_hand + :quantity = 0
-                        THEN :unit_cost
-                    ELSE (
-                        (quantity_on_hand * average_unit_cost)
-                        + (:quantity_for_cost * :unit_cost_for_cost)
-                    ) / (quantity_on_hand + :quantity_for_total)
-                 END,
-                 quantity_on_hand =
-                    quantity_on_hand + :quantity_for_stock,
-                 version_number = version_number + 1,
-                 last_movement_at = :occurred_at
-             WHERE company_id = :company_id
-               AND stock_balance_id = :stock_balance_id"
-        );
-
-        $statement->execute([
-            'quantity' => $quantity,
-            'unit_cost' => $unitCost,
-            'quantity_for_cost' => $quantity,
-            'unit_cost_for_cost' => $unitCost,
-            'quantity_for_total' => $quantity,
-            'quantity_for_stock' => $quantity,
-            'occurred_at' => $occurredAt,
-            'company_id' => $companyId,
-            'stock_balance_id' => $stockBalanceId,
-        ]);
-
-        if ($statement->rowCount() !== 1) {
-            throw new RuntimeException(
-                'The inventory stock balance could not be updated.'
-            );
-        }
-    }
-
-    public function recordStockMovement(
-        int $companyId,
-        int $warehouseId,
-        int $locationId,
-        int $productId,
-        string $movementType,
-        float $quantityDelta,
-        float $unitCost,
-        string $currency,
-        string $referenceType,
-        ?int $referenceId,
-        ?string $referenceNumber,
-        string $idempotencyKey,
-        ?string $notes,
-        string $occurredAt,
-        int $actorId
-    ): int {
-        $statement = $this->connection()->prepare(
-            "INSERT INTO inventory_stock_movements (
-                company_id,
-                warehouse_id,
-                location_id,
-                product_id,
-                movement_type,
-                quantity_delta,
-                unit_cost,
-                currency,
-                reference_type,
-                reference_id,
-                reference_number,
-                idempotency_key,
-                notes,
-                occurred_at,
-                recorded_by
-             ) VALUES (
-                :company_id,
-                :warehouse_id,
-                :location_id,
-                :product_id,
-                :movement_type,
-                :quantity_delta,
-                :unit_cost,
-                :currency,
-                :reference_type,
-                :reference_id,
-                :reference_number,
-                :idempotency_key,
-                :notes,
-                :occurred_at,
-                :recorded_by
-             )"
-        );
-
-        $statement->execute([
-            'company_id' => $companyId,
-            'warehouse_id' => $warehouseId,
-            'location_id' => $locationId,
-            'product_id' => $productId,
-            'movement_type' => $movementType,
-            'quantity_delta' => $quantityDelta,
-            'unit_cost' => $unitCost,
-            'currency' => strtoupper($currency),
-            'reference_type' => $referenceType,
-            'reference_id' => $referenceId,
-            'reference_number' => $referenceNumber,
-            'idempotency_key' => $idempotencyKey,
-            'notes' => $notes,
-            'occurred_at' => $occurredAt,
-            'recorded_by' => $actorId,
         ]);
 
         return (int) $this->connection()->lastInsertId();
@@ -1151,21 +1323,14 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                  FOR UPDATE"
             );
 
-            $balanceUpdate = $connection->prepare(
+            $reservationBalanceUpdate = $connection->prepare(
                 "UPDATE inventory_stock_balances
-                 SET quantity_on_hand =
-                        quantity_on_hand - :quantity,
-                     quantity_reserved =
+                 SET quantity_reserved =
                         quantity_reserved - :reserved_quantity,
-                     version_number = version_number + 1,
-                     last_movement_at = :fulfilled_at
+                     version_number = version_number + 1
                  WHERE company_id = :company_id
                    AND stock_balance_id = :stock_balance_id
-                   AND quantity_reserved >= :required_reserved
-                   AND (
-                        :allow_negative = 1
-                        OR quantity_on_hand >= :required_on_hand
-                   )"
+                   AND quantity_reserved >= :required_reserved"
             );
 
             $allocationUpdate = $connection->prepare(
@@ -1227,54 +1392,46 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                     );
                 }
 
-                $allowNegative = !empty(
-                    $allocation['allow_negative_stock']
-                );
                 $unitCost = (float)
                     $balance['average_unit_cost'];
 
-                $balanceUpdate->execute([
+                $movement = $this->completeStockMovement([
+                    'companyId' => $companyId,
+                    'productId' => (int) $allocation['product_id'],
+                    'sourceWarehouseId' => (int) $allocation['warehouse_id'],
+                    'sourceLocationId' => (int) $allocation['location_id'],
+                    'destinationWarehouseId' => null,
+                    'destinationLocationId' => null,
                     'quantity' => $quantity,
-                    'reserved_quantity' => $quantity,
-                    'fulfilled_at' => $fulfilledAt,
-                    'company_id' => $companyId,
-                    'stock_balance_id' => (int)
-                        $allocation['stock_balance_id'],
-                    'required_reserved' => $quantity,
-                    'allow_negative' =>
-                        $allowNegative ? 1 : 0,
-                    'required_on_hand' => $quantity,
-                ]);
-
-                if ($balanceUpdate->rowCount() !== 1) {
-                    throw new RuntimeException(
-                        'The reserved stock could not be fulfilled safely.'
-                    );
-                }
-
-                $this->recordStockMovement(
-                    $companyId,
-                    (int) $allocation['warehouse_id'],
-                    (int) $allocation['location_id'],
-                    (int) $allocation['product_id'],
-                    'fulfilment',
-                    -$quantity,
-                    $unitCost,
-                    (string) ($order['currency'] ?? 'ETB'),
-                    'sales_order',
-                    $orderId,
-                    (string) (
-                        $order['order_number'] ?? ''
-                    ),
-                    sprintf(
+                    'unitCost' => $unitCost,
+                    'movementType' => 'fulfilment',
+                    'currency' => (string) ($order['currency'] ?? 'ETB'),
+                    'referenceType' => 'sales_order',
+                    'referenceId' => $orderId,
+                    'referenceNumber' => (string) ($order['order_number'] ?? ''),
+                    'idempotencyKey' => sprintf(
                         'sales-order:%d:allocation:%d:fulfilment',
                         $orderId,
                         (int) $allocation['allocation_id']
                     ),
-                    'Sales order inventory fulfilment',
-                    $fulfilledAt,
-                    $actorId
-                );
+                    'notes' => 'Sales order inventory fulfilment',
+                    'occurredAt' => $fulfilledAt,
+                    'actorId' => $actorId,
+                ]);
+
+                $reservationBalanceUpdate->execute([
+                    'reserved_quantity' => $quantity,
+                    'company_id' => $companyId,
+                    'stock_balance_id' => (int)
+                        $allocation['stock_balance_id'],
+                    'required_reserved' => $quantity,
+                ]);
+
+                if ($reservationBalanceUpdate->rowCount() !== 1) {
+                    throw new RuntimeException(
+                        'The reserved stock could not be fulfilled safely.'
+                    );
+                }
 
                 $allocationUpdate->execute([
                     'quantity' => $quantity,
@@ -1285,7 +1442,9 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                         $allocation['allocation_id'],
                 ]);
 
-                $movementCount++;
+                if (empty($movement['replayed'])) {
+                    $movementCount++;
+                }
                 $totalFulfilled += $quantity;
                 $inventoryCost += $quantity * $unitCost;
             }
@@ -1403,6 +1562,1081 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                     | JSON_UNESCAPED_SLASHES
             ),
         ]);
+    }
+
+    public function ensureDeliveryPickings(
+        int $companyId,
+        int $orderId,
+        int $actorId,
+        string $createdAt
+    ): array {
+        $connection = $this->connection();
+        $ownsTransaction = !$connection->inTransaction();
+        if ($ownsTransaction) {
+            $connection->beginTransaction();
+        }
+        try {
+            $existing = $connection->prepare(
+                "SELECT picking_id FROM inventory_pickings
+                 WHERE company_id = :company_id
+                   AND sales_order_id = :order_id
+                   AND picking_type = 'delivery'
+                   AND backorder_of_id IS NULL
+                 ORDER BY picking_id"
+            );
+            $existing->execute(['company_id' => $companyId, 'order_id' => $orderId]);
+            $existingIds = array_map('intval', $existing->fetchAll(PDO::FETCH_COLUMN));
+            if ($existingIds !== []) {
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+                return $existingIds;
+            }
+
+            $allocations = $connection->prepare(
+                "SELECT allocations.*
+                 FROM inventory_sales_reservation_allocations allocations
+                 WHERE allocations.company_id = :company_id
+                   AND allocations.order_id = :order_id
+                   AND allocations.quantity_reserved
+                       - allocations.quantity_released
+                       - allocations.quantity_fulfilled > 0.0005
+                 ORDER BY allocations.warehouse_id, allocations.allocation_id
+                 FOR UPDATE"
+            );
+            $allocations->execute(['company_id' => $companyId, 'order_id' => $orderId]);
+            $rows = $allocations->fetchAll(PDO::FETCH_ASSOC);
+            if ($rows === []) {
+                throw new RuntimeException('The sales order has no reserved stock to deliver.');
+            }
+
+            $groups = [];
+            foreach ($rows as $row) {
+                $groups[(int) $row['warehouse_id']][] = $row;
+            }
+            $ids = [];
+            foreach ($groups as $warehouseId => $lines) {
+                $first = $lines[0];
+                $operationType = $this->defaultOperationType(
+                    $companyId,
+                    $warehouseId,
+                    'delivery'
+                );
+                $customerLocation = $this->virtualLocation(
+                    $companyId,
+                    $warehouseId,
+                    'customer'
+                );
+                $number = sprintf('DLV-%d-%d-%s', $orderId, $warehouseId, substr(hash('sha256', $companyId . ':' . $orderId . ':' . $warehouseId), 0, 8));
+                $header = $connection->prepare(
+                    "INSERT INTO inventory_pickings (
+                        company_id, warehouse_id, operation_type_id,
+                        sales_order_id, picking_type, picking_number,
+                        source_location_id, destination_location_id,
+                        status, reserved_at, created_by
+                     ) VALUES (
+                        :company_id, :warehouse_id, :operation_type_id,
+                        :sales_order_id, 'delivery', :picking_number,
+                        :source_location_id, :destination_location_id,
+                        'ready', :reserved_at, :created_by
+                     )"
+                );
+                $header->execute([
+                    'company_id' => $companyId,
+                    'warehouse_id' => $warehouseId,
+                    'operation_type_id' => (int) $operationType['operation_type_id'],
+                    'sales_order_id' => $orderId,
+                    'picking_number' => $number,
+                    'source_location_id' => (int) $first['location_id'],
+                    'destination_location_id' => (int) $customerLocation['location_id'],
+                    'reserved_at' => $createdAt,
+                    'created_by' => $this->positiveOrNull($actorId),
+                ]);
+                $pickingId = (int) $connection->lastInsertId();
+                $ids[] = $pickingId;
+                $lineInsert = $connection->prepare(
+                    "INSERT INTO inventory_picking_lines (
+                        company_id, picking_id, product_id,
+                        source_location_id, destination_location_id,
+                        reservation_allocation_id, requested_quantity,
+                        reserved_quantity, status
+                     ) VALUES (
+                        :company_id, :picking_id, :product_id,
+                        :source_location_id, :destination_location_id,
+                        :allocation_id, :requested_quantity,
+                        :reserved_quantity, 'ready'
+                     )"
+                );
+                foreach ($lines as $line) {
+                    $remaining = (float) $line['quantity_reserved']
+                        - (float) $line['quantity_released']
+                        - (float) $line['quantity_fulfilled'];
+                    if ($remaining <= 0.0005) {
+                        continue;
+                    }
+                    $lineInsert->execute([
+                        'company_id' => $companyId,
+                        'picking_id' => $pickingId,
+                        'product_id' => (int) $line['product_id'],
+                        'source_location_id' => (int) $line['location_id'],
+                        'destination_location_id' => (int) $customerLocation['location_id'],
+                        'allocation_id' => (int) $line['allocation_id'],
+                        'requested_quantity' => $remaining,
+                        'reserved_quantity' => $remaining,
+                    ]);
+                }
+            }
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
+            return $ids;
+        } catch (Throwable $exception) {
+            if ($ownsTransaction && $connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function completePicking(
+        int $companyId,
+        int $pickingId,
+        array $quantities,
+        bool $createBackorder,
+        string $idempotencyKey,
+        int $actorId,
+        string $completedAt
+    ): array {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $replay = $connection->prepare(
+                "SELECT completed_quantity, backorder_picking_id
+                 FROM inventory_picking_completions
+                 WHERE company_id = :company_id AND idempotency_key = :idempotency_key
+                 FOR UPDATE"
+            );
+            $replay->execute(['company_id' => $companyId, 'idempotency_key' => $idempotencyKey]);
+            $prior = $replay->fetch(PDO::FETCH_ASSOC);
+            if (is_array($prior)) {
+                $connection->commit();
+                return ['pickingId' => $pickingId, 'replayed' => true,
+                    'completedQuantity' => (float) $prior['completed_quantity'],
+                    'backorderPickingId' => $this->positiveOrNull($prior['backorder_picking_id'])];
+            }
+            $headerStatement = $connection->prepare(
+                "SELECT * FROM inventory_pickings
+                 WHERE company_id = :company_id AND picking_id = :picking_id
+                 FOR UPDATE"
+            );
+            $headerStatement->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+            $header = $headerStatement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($header)) {
+                throw new RuntimeException('The picking was not found.');
+            }
+            if (!in_array((string) $header['status'], ['ready', 'partially_done'], true)) {
+                throw new RuntimeException('Only a ready picking can be completed.');
+            }
+            if ((string) $header['status'] === 'partially_done') {
+                $hasBackorder = $connection->prepare(
+                    'SELECT 1 FROM inventory_pickings WHERE company_id = :company_id AND backorder_of_id = :picking_id LIMIT 1'
+                );
+                $hasBackorder->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+                if ($hasBackorder->fetchColumn() !== false) {
+                    throw new RuntimeException('Complete the linked backorder instead.');
+                }
+            }
+            $lineStatement = $connection->prepare(
+                'SELECT * FROM inventory_picking_lines
+                 WHERE company_id = :company_id AND picking_id = :picking_id
+                   AND status <> \'cancelled\'
+                 ORDER BY picking_line_id FOR UPDATE'
+            );
+            $lineStatement->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+            $lines = $lineStatement->fetchAll(PDO::FETCH_ASSOC);
+            $totalDone = 0.0;
+            $remainingLines = [];
+            foreach ($lines as $line) {
+                $lineId = (int) $line['picking_line_id'];
+                $quantity = (float) ($quantities[$lineId] ?? 0);
+                $remaining = (float) $line['requested_quantity'] - (float) $line['completed_quantity'];
+                if ($quantity < 0 || $quantity > $remaining + 0.0005) {
+                    throw new RuntimeException('A completed quantity exceeds the picking line remainder.');
+                }
+                if ($quantity > 0.0005) {
+                    $movementType = (string) $header['picking_type'] === 'customer_return'
+                        ? 'return_in' : ((string) $header['picking_type'] === 'vendor_return' ? 'return_out' : 'fulfilment');
+                    $this->completeStockMovement([
+                        'companyId' => $companyId,
+                        'productId' => (int) $line['product_id'],
+                        'sourceWarehouseId' => (int) $header['warehouse_id'],
+                        'sourceLocationId' => (int) $line['source_location_id'],
+                        'destinationWarehouseId' => (int) $header['warehouse_id'],
+                        'destinationLocationId' => (int) $line['destination_location_id'],
+                        'quantity' => $quantity,
+                        'unitCost' => 0,
+                        'movementType' => $movementType,
+                        'operationTypeId' => (int) $header['operation_type_id'],
+                        'referenceType' => 'inventory_picking',
+                        'referenceId' => $pickingId,
+                        'referenceNumber' => (string) $header['picking_number'],
+                        'idempotencyKey' => $idempotencyKey . ':line:' . $lineId,
+                        'notes' => $line['notes'] ?? null,
+                        'occurredAt' => $completedAt,
+                        'actorId' => $actorId,
+                    ]);
+                    if ((string) $header['picking_type'] === 'delivery') {
+                        $this->consumePickingReservation($line, $quantity, $completedAt);
+                    } elseif ((string) $header['picking_type'] === 'customer_return') {
+                        $this->applyReturnedQuantity($companyId, (int) $line['original_picking_line_id'], $quantity);
+                    }
+                    $totalDone += $quantity;
+                }
+                $newCompleted = (float) $line['completed_quantity'] + $quantity;
+                $lineRemaining = max(0.0, (float) $line['requested_quantity'] - $newCompleted);
+                $lineUpdate = $connection->prepare(
+                    "UPDATE inventory_picking_lines
+                     SET completed_quantity = :completed_quantity,
+                         status = CASE WHEN :remaining <= 0.0005 THEN 'done'
+                                       WHEN :completed > 0 THEN 'partially_done' ELSE status END
+                     WHERE company_id = :company_id AND picking_line_id = :line_id"
+                );
+                $lineUpdate->execute(['completed_quantity' => $newCompleted, 'remaining' => $lineRemaining,
+                    'completed' => $newCompleted, 'company_id' => $companyId, 'line_id' => $lineId]);
+                if ($lineRemaining > 0.0005) {
+                    $remainingLines[] = $line + ['remaining_quantity' => $lineRemaining];
+                }
+            }
+            if ($totalDone <= 0.0005) {
+                throw new RuntimeException('At least one positive completed quantity is required.');
+            }
+            $backorderId = null;
+            if ($remainingLines !== [] && $createBackorder) {
+                $backorderId = $this->createBackorderPicking($header, $remainingLines, $actorId, $completedAt);
+            } elseif ($remainingLines !== []) {
+                foreach ($remainingLines as $line) {
+                    if ((string) $header['picking_type'] === 'delivery') {
+                        $this->releasePickingReservation($line, (float) $line['remaining_quantity'], $completedAt);
+                    }
+                }
+            }
+            $status = $remainingLines === [] || !$createBackorder ? 'done' : 'partially_done';
+            $updateHeader = $connection->prepare(
+                'UPDATE inventory_pickings SET status = :status, completed_at = :completed_at,
+                    completed_by = :completed_by WHERE company_id = :company_id AND picking_id = :picking_id'
+            );
+            $updateHeader->execute(['status' => $status, 'completed_at' => $completedAt,
+                'completed_by' => $actorId, 'company_id' => $companyId, 'picking_id' => $pickingId]);
+            $completion = $connection->prepare(
+                'INSERT INTO inventory_picking_completions
+                    (company_id, picking_id, idempotency_key, completed_quantity,
+                     backorder_picking_id, completed_by, completed_at)
+                 VALUES (:company_id, :picking_id, :idempotency_key, :completed_quantity,
+                         :backorder_picking_id, :completed_by, :completed_at)'
+            );
+            $completion->execute(['company_id' => $companyId, 'picking_id' => $pickingId,
+                'idempotency_key' => $idempotencyKey, 'completed_quantity' => $totalDone,
+                'backorder_picking_id' => $backorderId, 'completed_by' => $actorId,
+                'completed_at' => $completedAt]);
+            if (!empty($header['sales_order_id'])) {
+                $this->synchronizeSalesDeliveryStatus($companyId, (int) $header['sales_order_id']);
+            }
+            $connection->commit();
+            return ['pickingId' => $pickingId, 'status' => $status, 'replayed' => false,
+                'completedQuantity' => $totalDone, 'backorderPickingId' => $backorderId];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function completeSalesOrderDeliveries(
+        int $companyId,
+        int $orderId,
+        int $actorId,
+        string $completedAt
+    ): array {
+        $pickingIds = $this->ensureDeliveryPickings(
+            $companyId,
+            $orderId,
+            $actorId,
+            $completedAt
+        );
+        $completed = 0.0;
+        foreach ($pickingIds as $pickingId) {
+            $statement = $this->connection()->prepare(
+                "SELECT picking_line_id,
+                        requested_quantity - completed_quantity AS remaining_quantity
+                 FROM inventory_picking_lines
+                 WHERE company_id = :company_id AND picking_id = :picking_id
+                   AND status IN ('ready', 'partially_done')"
+            );
+            $statement->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+            $quantities = [];
+            foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $line) {
+                $quantities[(int) $line['picking_line_id']] = (float) $line['remaining_quantity'];
+            }
+            if ($quantities === []) {
+                continue;
+            }
+            $result = $this->completePicking(
+                $companyId,
+                $pickingId,
+                $quantities,
+                false,
+                'sales-order:' . $orderId . ':picking:' . $pickingId . ':complete',
+                $actorId,
+                $completedAt
+            );
+            $completed += (float) ($result['completedQuantity'] ?? 0);
+        }
+        return ['orderId' => $orderId, 'status' => 'fulfilled',
+            'completedQuantity' => $completed, 'pickingCount' => count($pickingIds)];
+    }
+
+    public function postTransfer(
+        int $companyId,
+        int $transferId,
+        int $actorId,
+        string $postedAt
+    ): array {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+
+        try {
+            $header = $connection->prepare(
+                "SELECT * FROM inventory_transfers
+                 WHERE company_id = :company_id
+                   AND transfer_id = :transfer_id
+                 FOR UPDATE"
+            );
+            $header->execute([
+                'company_id' => $companyId,
+                'transfer_id' => $transferId,
+            ]);
+            $transfer = $header->fetch(PDO::FETCH_ASSOC);
+
+            if (!is_array($transfer)) {
+                throw new RuntimeException('The inventory transfer was not found.');
+            }
+
+            if ((string) $transfer['status'] === 'posted') {
+                $connection->commit();
+                return [
+                    'transferId' => $transferId,
+                    'status' => 'posted',
+                    'replayed' => true,
+                    'movementCount' => 0,
+                ];
+            }
+
+            if ((string) $transfer['status'] !== 'approved') {
+                throw new RuntimeException(
+                    'Only an approved inventory transfer can be posted.'
+                );
+            }
+
+            $linesStatement = $connection->prepare(
+                "SELECT * FROM inventory_transfer_lines
+                 WHERE company_id = :company_id
+                   AND transfer_id = :transfer_id
+                 ORDER BY transfer_line_id
+                 FOR UPDATE"
+            );
+            $linesStatement->execute([
+                'company_id' => $companyId,
+                'transfer_id' => $transferId,
+            ]);
+            $lines = $linesStatement->fetchAll(PDO::FETCH_ASSOC);
+
+            if ($lines === []) {
+                throw new RuntimeException(
+                    'The inventory transfer must contain at least one line.'
+                );
+            }
+
+            $movementCount = 0;
+            foreach ($lines as $line) {
+                $result = $this->completeStockMovement([
+                    'companyId' => $companyId,
+                    'productId' => (int) $line['product_id'],
+                    'sourceWarehouseId' => (int) $line['source_warehouse_id'],
+                    'sourceLocationId' => (int) $line['source_location_id'],
+                    'destinationWarehouseId' => (int) $line['destination_warehouse_id'],
+                    'destinationLocationId' => (int) $line['destination_location_id'],
+                    'quantity' => (float) $line['quantity'],
+                    'unitCost' => (float) $line['unit_cost'],
+                    'movementType' => 'transfer_in',
+                    'operationTypeId' => (int) $transfer['operation_type_id'],
+                    'currency' => 'ETB',
+                    'referenceType' => 'inventory_transfer',
+                    'referenceId' => $transferId,
+                    'referenceNumber' => (string) $transfer['transfer_number'],
+                    'idempotencyKey' => sprintf(
+                        'inventory-transfer:%d:line:%d',
+                        $transferId,
+                        (int) $line['transfer_line_id']
+                    ),
+                    'notes' => $line['notes'] ?? null,
+                    'occurredAt' => $postedAt,
+                    'actorId' => $actorId,
+                ]);
+                if (empty($result['replayed'])) {
+                    $movementCount++;
+                }
+            }
+
+            $update = $connection->prepare(
+                "UPDATE inventory_transfers
+                 SET status = 'posted', posted_by = :actor_id,
+                     posted_at = :posted_at
+                 WHERE company_id = :company_id
+                   AND transfer_id = :transfer_id
+                   AND status = 'approved'"
+            );
+            $update->execute([
+                'actor_id' => $actorId,
+                'posted_at' => $postedAt,
+                'company_id' => $companyId,
+                'transfer_id' => $transferId,
+            ]);
+
+            if ($update->rowCount() !== 1) {
+                throw new RuntimeException(
+                    'The inventory transfer could not be marked as posted.'
+                );
+            }
+
+            $connection->commit();
+            return [
+                'transferId' => $transferId,
+                'status' => 'posted',
+                'replayed' => false,
+                'movementCount' => $movementCount,
+            ];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function createReturnPicking(
+        int $companyId,
+        int $originalPickingId,
+        array $quantities,
+        int $actorId,
+        string $createdAt
+    ): int {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $headerStatement = $connection->prepare(
+                "SELECT * FROM inventory_pickings
+                 WHERE company_id = :company_id AND picking_id = :picking_id
+                   AND picking_type = 'delivery'
+                   AND status IN ('done', 'partially_done') FOR UPDATE"
+            );
+            $headerStatement->execute(['company_id' => $companyId, 'picking_id' => $originalPickingId]);
+            $original = $headerStatement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($original)) {
+                throw new RuntimeException('Only a completed delivery can be returned.');
+            }
+            $linesStatement = $connection->prepare(
+                'SELECT * FROM inventory_picking_lines
+                 WHERE company_id = :company_id AND picking_id = :picking_id FOR UPDATE'
+            );
+            $linesStatement->execute(['company_id' => $companyId, 'picking_id' => $originalPickingId]);
+            $lines = $linesStatement->fetchAll(PDO::FETCH_ASSOC);
+            $selected = [];
+            foreach ($lines as $line) {
+                $lineId = (int) $line['picking_line_id'];
+                $quantity = (float) ($quantities[$lineId] ?? 0);
+                $returnable = (float) $line['completed_quantity'] - (float) $line['returned_quantity'];
+                if ($quantity < 0 || $quantity > $returnable + 0.0005) {
+                    throw new RuntimeException('Return quantity exceeds the net delivered quantity.');
+                }
+                if ($quantity > 0.0005) {
+                    $selected[] = $line + ['return_quantity' => $quantity];
+                }
+            }
+            if ($selected === []) {
+                throw new RuntimeException('At least one positive return quantity is required.');
+            }
+            $number = sprintf('RET-%d-%s', $originalPickingId, substr(hash('sha256', $companyId . ':' . $originalPickingId . ':' . microtime(true)), 0, 10));
+            $insert = $connection->prepare(
+                "INSERT INTO inventory_pickings (
+                    company_id, warehouse_id, operation_type_id, sales_order_id,
+                    original_picking_id, picking_type, picking_number,
+                    source_location_id, destination_location_id, status,
+                    reserved_at, created_by
+                 ) VALUES (
+                    :company_id, :warehouse_id, :operation_type_id, :sales_order_id,
+                    :original_picking_id, 'customer_return', :picking_number,
+                    :source_location_id, :destination_location_id, 'ready',
+                    :reserved_at, :created_by)"
+            );
+            $insert->execute(['company_id' => $companyId, 'warehouse_id' => (int) $original['warehouse_id'],
+                'operation_type_id' => (int) $original['operation_type_id'],
+                'sales_order_id' => $original['sales_order_id'], 'original_picking_id' => $originalPickingId,
+                'picking_number' => $number, 'source_location_id' => (int) $original['destination_location_id'],
+                'destination_location_id' => (int) $original['source_location_id'],
+                'reserved_at' => $createdAt, 'created_by' => $actorId]);
+            $returnId = (int) $connection->lastInsertId();
+            $lineInsert = $connection->prepare(
+                "INSERT INTO inventory_picking_lines (
+                    company_id, picking_id, product_id, source_location_id,
+                    destination_location_id, original_picking_line_id,
+                    requested_quantity, reserved_quantity, status
+                 ) VALUES (:company_id, :picking_id, :product_id, :source_location_id,
+                    :destination_location_id, :original_line_id,
+                    :requested_quantity, 0, 'ready')"
+            );
+            foreach ($selected as $line) {
+                $lineInsert->execute(['company_id' => $companyId, 'picking_id' => $returnId,
+                    'product_id' => (int) $line['product_id'],
+                    'source_location_id' => (int) $line['destination_location_id'],
+                    'destination_location_id' => (int) $line['source_location_id'],
+                    'original_line_id' => (int) $line['picking_line_id'],
+                    'requested_quantity' => (float) $line['return_quantity']]);
+            }
+            $connection->commit();
+            return $returnId;
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function cancelPicking(
+        int $companyId,
+        int $pickingId,
+        string $reason,
+        int $actorId,
+        string $cancelledAt
+    ): void {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $statement = $connection->prepare(
+                'SELECT * FROM inventory_pickings WHERE company_id = :company_id
+                 AND picking_id = :picking_id FOR UPDATE'
+            );
+            $statement->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+            $header = $statement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($header) || !in_array((string) $header['status'], ['draft', 'ready'], true)) {
+                throw new RuntimeException('Only an uncompleted picking can be cancelled.');
+            }
+            if (mb_strlen(trim($reason)) < 3) {
+                throw new RuntimeException('A cancellation reason is required.');
+            }
+            if ((string) $header['picking_type'] === 'delivery') {
+                $lines = $connection->prepare(
+                    'SELECT * FROM inventory_picking_lines WHERE company_id = :company_id
+                     AND picking_id = :picking_id AND status <> \'cancelled\' FOR UPDATE'
+                );
+                $lines->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+                foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $line) {
+                    $remaining = (float) $line['reserved_quantity'] - (float) $line['completed_quantity'];
+                    if ($remaining > 0.0005) {
+                        $this->releasePickingReservation($line, $remaining, $cancelledAt);
+                    }
+                }
+            }
+            $update = $connection->prepare(
+                "UPDATE inventory_pickings SET status = 'cancelled', cancelled_at = :cancelled_at,
+                    cancelled_by = :cancelled_by, cancellation_reason = :reason
+                 WHERE company_id = :company_id AND picking_id = :picking_id"
+            );
+            $update->execute(['cancelled_at' => $cancelledAt, 'cancelled_by' => $actorId,
+                'reason' => trim($reason), 'company_id' => $companyId, 'picking_id' => $pickingId]);
+            $connection->prepare(
+                "UPDATE inventory_picking_lines SET status = 'cancelled'
+                 WHERE company_id = :company_id AND picking_id = :picking_id AND status <> 'done'"
+            )->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+            $connection->commit();
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function createStockAdjustment(array $document): int
+    {
+        $companyId = (int) ($document['companyId'] ?? 0);
+        $warehouseId = (int) ($document['warehouseId'] ?? 0);
+        $locationId = (int) ($document['locationId'] ?? 0);
+        $productId = (int) ($document['productId'] ?? 0);
+        $counted = (float) ($document['countedQuantity'] ?? -1);
+        $actorId = (int) ($document['actorId'] ?? 0);
+        if ($counted < 0) {
+            throw new RuntimeException('Counted quantity cannot be negative.');
+        }
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $this->assertLocation($companyId, $warehouseId, $locationId, true);
+            $balance = $this->stockBalanceForUpdate($companyId, $warehouseId, $locationId, $productId);
+            $expected = (float) ($balance['quantity_on_hand'] ?? 0);
+            $difference = $counted - $expected;
+            if (abs($difference) <= 0.0005) {
+                throw new RuntimeException('The counted quantity has no difference to post.');
+            }
+            $operation = $this->defaultOperationType($companyId, $warehouseId, 'adjustment');
+            $number = 'ADJ-' . $warehouseId . '-' . substr(hash('sha256', $companyId . ':' . microtime(true)), 0, 10);
+            $header = $connection->prepare(
+                "INSERT INTO inventory_stock_adjustments
+                    (company_id, warehouse_id, operation_type_id, adjustment_number,
+                     adjustment_date, reason_code, status, notes, created_by, approved_by, approved_at)
+                 VALUES (:company_id, :warehouse_id, :operation_type_id, :number,
+                         CURRENT_DATE, :reason, 'approved', :notes, :actor, :approver, NOW())"
+            );
+            $reason = trim((string) ($document['reason'] ?? ''));
+            if ($reason === '') {
+                throw new RuntimeException('An adjustment reason is required.');
+            }
+            $header->execute(['company_id' => $companyId, 'warehouse_id' => $warehouseId,
+                'operation_type_id' => (int) $operation['operation_type_id'], 'number' => $number,
+                'reason' => mb_substr($reason, 0, 40), 'notes' => $reason,
+                'actor' => $actorId, 'approver' => $actorId]);
+            $adjustmentId = (int) $connection->lastInsertId();
+            $line = $connection->prepare(
+                'INSERT INTO inventory_stock_adjustment_lines
+                    (company_id, adjustment_id, warehouse_id, location_id, product_id,
+                     expected_quantity, counted_quantity, quantity_delta, unit_cost, notes)
+                 VALUES (:company_id, :adjustment_id, :warehouse_id, :location_id, :product_id,
+                         :expected, :counted, :difference, :unit_cost, :notes)'
+            );
+            $line->execute(['company_id' => $companyId, 'adjustment_id' => $adjustmentId,
+                'warehouse_id' => $warehouseId, 'location_id' => $locationId, 'product_id' => $productId,
+                'expected' => $expected, 'counted' => $counted, 'difference' => $difference,
+                'unit_cost' => (float) ($balance['average_unit_cost'] ?? 0), 'notes' => $reason]);
+            $connection->commit();
+            return $adjustmentId;
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function postStockAdjustment(int $companyId, int $adjustmentId, int $actorId, string $postedAt): array
+    {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $header = $connection->prepare(
+                'SELECT * FROM inventory_stock_adjustments WHERE company_id = :company_id
+                 AND adjustment_id = :adjustment_id FOR UPDATE'
+            );
+            $header->execute(['company_id' => $companyId, 'adjustment_id' => $adjustmentId]);
+            $adjustment = $header->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($adjustment)) {
+                throw new RuntimeException('The adjustment was not found.');
+            }
+            if ((string) $adjustment['status'] === 'posted') {
+                $connection->commit();
+                return ['adjustmentId' => $adjustmentId, 'status' => 'posted', 'replayed' => true];
+            }
+            if ((string) $adjustment['status'] !== 'approved') {
+                throw new RuntimeException('Only an approved adjustment can be posted.');
+            }
+            $lines = $connection->prepare(
+                'SELECT * FROM inventory_stock_adjustment_lines WHERE company_id = :company_id
+                 AND adjustment_id = :adjustment_id ORDER BY adjustment_line_id FOR UPDATE'
+            );
+            $lines->execute(['company_id' => $companyId, 'adjustment_id' => $adjustmentId]);
+            $operation = $this->defaultOperationType($companyId, (int) $adjustment['warehouse_id'], 'adjustment');
+            $count = 0;
+            foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $line) {
+                $difference = (float) $line['quantity_delta'];
+                $positive = $difference > 0;
+                $this->completeStockMovement([
+                    'companyId' => $companyId, 'productId' => (int) $line['product_id'],
+                    'sourceWarehouseId' => (int) $adjustment['warehouse_id'],
+                    'sourceLocationId' => $positive ? (int) $operation['default_source_location_id'] : (int) $line['location_id'],
+                    'destinationWarehouseId' => (int) $adjustment['warehouse_id'],
+                    'destinationLocationId' => $positive ? (int) $line['location_id'] : (int) $operation['default_destination_location_id'],
+                    'quantity' => abs($difference), 'unitCost' => (float) $line['unit_cost'],
+                    'movementType' => $positive ? 'adjustment_in' : 'adjustment_out',
+                    'operationTypeId' => (int) $adjustment['operation_type_id'],
+                    'referenceType' => 'stock_adjustment', 'referenceId' => $adjustmentId,
+                    'referenceNumber' => (string) $adjustment['adjustment_number'],
+                    'idempotencyKey' => 'stock-adjustment:' . $adjustmentId . ':line:' . $line['adjustment_line_id'],
+                    'notes' => $line['notes'] ?? null, 'occurredAt' => $postedAt, 'actorId' => $actorId,
+                ]);
+                $count++;
+            }
+            $connection->prepare(
+                "UPDATE inventory_stock_adjustments SET status = 'posted', posted_by = :actor,
+                    posted_at = :posted_at WHERE company_id = :company_id AND adjustment_id = :adjustment_id"
+            )->execute(['actor' => $actorId, 'posted_at' => $postedAt,
+                'company_id' => $companyId, 'adjustment_id' => $adjustmentId]);
+            $connection->commit();
+            return ['adjustmentId' => $adjustmentId, 'status' => 'posted', 'replayed' => false, 'movementCount' => $count];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function createScrap(array $document): int
+    {
+        $companyId = (int) ($document['companyId'] ?? 0);
+        $warehouseId = (int) ($document['warehouseId'] ?? 0);
+        $sourceId = (int) ($document['sourceLocationId'] ?? 0);
+        $productId = (int) ($document['productId'] ?? 0);
+        $quantity = (float) ($document['quantity'] ?? 0);
+        $actorId = (int) ($document['actorId'] ?? 0);
+        $reason = trim((string) ($document['reason'] ?? ''));
+        if ($quantity <= 0 || $reason === '') {
+            throw new RuntimeException('Positive scrap quantity and reason are required.');
+        }
+        $this->assertLocation($companyId, $warehouseId, $sourceId, true);
+        $scrapLocation = $this->virtualLocation($companyId, $warehouseId, 'scrap');
+        $number = 'SCRAP-' . $warehouseId . '-' . substr(hash('sha256', $companyId . ':' . microtime(true)), 0, 10);
+        $statement = $this->connection()->prepare(
+            "INSERT INTO inventory_scrap_orders
+                (company_id, warehouse_id, source_location_id, scrap_location_id,
+                 product_id, scrap_number, quantity, reason, status, created_by)
+             VALUES (:company_id, :warehouse_id, :source_location_id, :scrap_location_id,
+                     :product_id, :number, :quantity, :reason, 'draft', :created_by)"
+        );
+        $statement->execute(['company_id' => $companyId, 'warehouse_id' => $warehouseId,
+            'source_location_id' => $sourceId, 'scrap_location_id' => (int) $scrapLocation['location_id'],
+            'product_id' => $productId, 'number' => $number, 'quantity' => $quantity,
+            'reason' => $reason, 'created_by' => $actorId]);
+        return (int) $this->connection()->lastInsertId();
+    }
+
+    public function postScrap(int $companyId, int $scrapId, int $actorId, string $postedAt): array
+    {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $statement = $connection->prepare(
+                'SELECT * FROM inventory_scrap_orders WHERE company_id = :company_id
+                 AND scrap_id = :scrap_id FOR UPDATE'
+            );
+            $statement->execute(['company_id' => $companyId, 'scrap_id' => $scrapId]);
+            $scrap = $statement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($scrap)) {
+                throw new RuntimeException('The scrap document was not found.');
+            }
+            if ((string) $scrap['status'] === 'done') {
+                $connection->commit();
+                return ['scrapId' => $scrapId, 'status' => 'done', 'replayed' => true];
+            }
+            if ((string) $scrap['status'] !== 'draft') {
+                throw new RuntimeException('Only a draft scrap document can be posted.');
+            }
+            $this->completeStockMovement([
+                'companyId' => $companyId, 'productId' => (int) $scrap['product_id'],
+                'sourceWarehouseId' => (int) $scrap['warehouse_id'], 'sourceLocationId' => (int) $scrap['source_location_id'],
+                'destinationWarehouseId' => (int) $scrap['warehouse_id'], 'destinationLocationId' => (int) $scrap['scrap_location_id'],
+                'quantity' => (float) $scrap['quantity'], 'unitCost' => 0, 'movementType' => 'adjustment_out',
+                'referenceType' => 'scrap', 'referenceId' => $scrapId, 'referenceNumber' => (string) $scrap['scrap_number'],
+                'idempotencyKey' => 'scrap:' . $scrapId, 'notes' => (string) $scrap['reason'],
+                'occurredAt' => $postedAt, 'actorId' => $actorId,
+            ]);
+            $connection->prepare(
+                "UPDATE inventory_scrap_orders SET status = 'done', posted_at = :posted_at,
+                    posted_by = :actor WHERE company_id = :company_id AND scrap_id = :scrap_id"
+            )->execute(['posted_at' => $postedAt, 'actor' => $actorId,
+                'company_id' => $companyId, 'scrap_id' => $scrapId]);
+            $connection->commit();
+            return ['scrapId' => $scrapId, 'status' => 'done', 'replayed' => false];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    /** @param array<string, mixed> $header @param list<array<string, mixed>> $lines */
+    private function createBackorderPicking(array $header, array $lines, int $actorId, string $createdAt): int
+    {
+        $number = (string) $header['picking_number'] . '-BO-' . substr(hash('sha256', $header['picking_id'] . ':' . microtime(true)), 0, 6);
+        $insert = $this->connection()->prepare(
+            "INSERT INTO inventory_pickings (
+                company_id, warehouse_id, operation_type_id, sales_order_id,
+                original_picking_id, backorder_of_id, picking_type, picking_number,
+                source_location_id, destination_location_id, status, reserved_at, created_by
+             ) VALUES (:company_id, :warehouse_id, :operation_type_id, :sales_order_id,
+                :original_picking_id, :backorder_of_id, :picking_type, :number,
+                :source_location_id, :destination_location_id, 'ready', :reserved_at, :created_by)"
+        );
+        $insert->execute(['company_id' => (int) $header['company_id'], 'warehouse_id' => (int) $header['warehouse_id'],
+            'operation_type_id' => (int) $header['operation_type_id'], 'sales_order_id' => $header['sales_order_id'],
+            'original_picking_id' => $header['original_picking_id'], 'backorder_of_id' => (int) $header['picking_id'],
+            'picking_type' => (string) $header['picking_type'], 'number' => $number,
+            'source_location_id' => (int) $header['source_location_id'],
+            'destination_location_id' => (int) $header['destination_location_id'],
+            'reserved_at' => $createdAt, 'created_by' => $actorId]);
+        $id = (int) $this->connection()->lastInsertId();
+        $lineInsert = $this->connection()->prepare(
+            "INSERT INTO inventory_picking_lines (
+                company_id, picking_id, product_id, source_location_id,
+                destination_location_id, reservation_allocation_id,
+                original_picking_line_id, requested_quantity, reserved_quantity, status
+             ) VALUES (:company_id, :picking_id, :product_id, :source_location_id,
+                :destination_location_id, :allocation_id, :original_line_id,
+                :quantity, :reserved_quantity, 'ready')"
+        );
+        foreach ($lines as $line) {
+            $quantity = (float) $line['remaining_quantity'];
+            $lineInsert->execute(['company_id' => (int) $header['company_id'], 'picking_id' => $id,
+                'product_id' => (int) $line['product_id'], 'source_location_id' => (int) $line['source_location_id'],
+                'destination_location_id' => (int) $line['destination_location_id'],
+                'allocation_id' => $line['reservation_allocation_id'], 'original_line_id' => null,
+                'quantity' => $quantity,
+                'reserved_quantity' => (string) $header['picking_type'] === 'delivery' ? $quantity : 0]);
+        }
+        return $id;
+    }
+
+    /** @param array<string, mixed> $line */
+    private function consumePickingReservation(array $line, float $quantity, string $completedAt): void
+    {
+        $allocationId = (int) ($line['reservation_allocation_id'] ?? 0);
+        if ($allocationId < 1) {
+            throw new RuntimeException('The delivery line has no reservation allocation.');
+        }
+        $allocation = $this->connection()->prepare(
+            'SELECT * FROM inventory_sales_reservation_allocations
+             WHERE company_id = :company_id AND allocation_id = :allocation_id FOR UPDATE'
+        );
+        $allocation->execute(['company_id' => (int) $line['company_id'], 'allocation_id' => $allocationId]);
+        $row = $allocation->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new RuntimeException('The delivery reservation no longer exists.');
+        }
+        $balance = $this->connection()->prepare(
+            'UPDATE inventory_stock_balances SET quantity_reserved = quantity_reserved - :quantity,
+                version_number = version_number + 1
+             WHERE company_id = :company_id AND stock_balance_id = :balance_id
+               AND quantity_reserved >= :required'
+        );
+        $balance->execute(['quantity' => $quantity, 'company_id' => (int) $line['company_id'],
+            'balance_id' => (int) $row['stock_balance_id'], 'required' => $quantity]);
+        if ($balance->rowCount() !== 1) {
+            throw new RuntimeException('The completed reservation quantity is inconsistent.');
+        }
+        $update = $this->connection()->prepare(
+            "UPDATE inventory_sales_reservation_allocations
+             SET quantity_fulfilled = quantity_fulfilled + :quantity,
+                 status = CASE WHEN quantity_fulfilled + :for_status + quantity_released >= quantity_reserved
+                               THEN 'fulfilled' ELSE 'partially_fulfilled' END,
+                 fulfilled_at = :completed_at
+             WHERE company_id = :company_id AND allocation_id = :allocation_id"
+        );
+        $update->execute(['quantity' => $quantity, 'for_status' => $quantity, 'completed_at' => $completedAt,
+            'company_id' => (int) $line['company_id'], 'allocation_id' => $allocationId]);
+    }
+
+    /** @param array<string, mixed> $line */
+    private function releasePickingReservation(array $line, float $quantity, string $releasedAt): void
+    {
+        $allocationId = (int) ($line['reservation_allocation_id'] ?? 0);
+        if ($allocationId < 1) {
+            return;
+        }
+        $allocation = $this->connection()->prepare(
+            'SELECT * FROM inventory_sales_reservation_allocations
+             WHERE company_id = :company_id AND allocation_id = :allocation_id FOR UPDATE'
+        );
+        $allocation->execute(['company_id' => (int) $line['company_id'], 'allocation_id' => $allocationId]);
+        $row = $allocation->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new RuntimeException('The reservation allocation no longer exists.');
+        }
+        $this->connection()->prepare(
+            'UPDATE inventory_stock_balances SET quantity_reserved = quantity_reserved - :quantity,
+                version_number = version_number + 1
+             WHERE company_id = :company_id AND stock_balance_id = :balance_id
+               AND quantity_reserved >= :required'
+        )->execute(['quantity' => $quantity, 'company_id' => (int) $line['company_id'],
+            'balance_id' => (int) $row['stock_balance_id'], 'required' => $quantity]);
+        $this->connection()->prepare(
+            "UPDATE inventory_sales_reservation_allocations
+             SET quantity_released = quantity_released + :quantity,
+                 status = CASE WHEN quantity_released + :for_status + quantity_fulfilled >= quantity_reserved
+                               THEN 'released' ELSE 'partially_released' END,
+                 released_at = :released_at
+             WHERE company_id = :company_id AND allocation_id = :allocation_id"
+        )->execute(['quantity' => $quantity, 'for_status' => $quantity, 'released_at' => $releasedAt,
+            'company_id' => (int) $line['company_id'], 'allocation_id' => $allocationId]);
+    }
+
+    private function applyReturnedQuantity(int $companyId, int $originalLineId, float $quantity): void
+    {
+        $statement = $this->connection()->prepare(
+            'UPDATE inventory_picking_lines
+             SET returned_quantity = returned_quantity + :quantity
+             WHERE company_id = :company_id AND picking_line_id = :line_id
+               AND returned_quantity + :required <= completed_quantity'
+        );
+        $statement->execute(['quantity' => $quantity, 'company_id' => $companyId,
+            'line_id' => $originalLineId, 'required' => $quantity]);
+        if ($statement->rowCount() !== 1) {
+            throw new RuntimeException('The return exceeds the net delivered quantity.');
+        }
+    }
+
+    private function synchronizeSalesDeliveryStatus(int $companyId, int $orderId): void
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT COUNT(*) FROM inventory_sales_reservation_allocations
+             WHERE company_id = :company_id AND order_id = :order_id
+               AND status NOT IN ('fulfilled', 'released')"
+        );
+        $statement->execute(['company_id' => $companyId, 'order_id' => $orderId]);
+        $remaining = (int) $statement->fetchColumn();
+        $delivered = $this->connection()->prepare(
+            'SELECT COALESCE(SUM(quantity_fulfilled), 0)
+             FROM inventory_sales_reservation_allocations
+             WHERE company_id = :company_id AND order_id = :order_id'
+        );
+        $delivered->execute(['company_id' => $companyId, 'order_id' => $orderId]);
+        $deliveredQuantity = (float) $delivered->fetchColumn();
+        $status = $remaining === 0 ? 'fulfilled' : ($deliveredQuantity > 0 ? 'partially_fulfilled' : 'approved');
+        $this->connection()->prepare(
+            'UPDATE sales_orders SET status = :status, updated_at = CURRENT_TIMESTAMP
+             WHERE company_id = :company_id AND order_id = :order_id
+               AND status NOT IN (\'cancelled\', \'paid\')'
+        )->execute(['status' => $status, 'company_id' => $companyId, 'order_id' => $orderId]);
+    }
+
+    /** @return array<string, mixed> */
+    private function defaultOperationType(int $companyId, int $warehouseId, string $kind): array
+    {
+        $statement = $this->connection()->prepare(
+            'SELECT * FROM inventory_operation_types WHERE company_id = :company_id
+             AND warehouse_id = :warehouse_id AND operation_kind = :kind
+             AND is_default = TRUE AND active = TRUE LIMIT 1'
+        );
+        $statement->execute(['company_id' => $companyId, 'warehouse_id' => $warehouseId, 'kind' => $kind]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new RuntimeException('The required inventory operation type is not configured.');
+        }
+        return $row;
+    }
+
+    /** @return array<string, mixed> */
+    private function virtualLocation(int $companyId, int $warehouseId, string $usage): array
+    {
+        $statement = $this->connection()->prepare(
+            'SELECT * FROM inventory_warehouse_locations WHERE company_id = :company_id
+             AND warehouse_id = :warehouse_id AND location_usage = :usage
+             AND active = TRUE AND deleted_at IS NULL LIMIT 1'
+        );
+        $statement->execute(['company_id' => $companyId, 'warehouse_id' => $warehouseId, 'usage' => $usage]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new RuntimeException('The required virtual location is not configured.');
+        }
+        return $row;
+    }
+
+    private function assertLocation(
+        int $companyId,
+        int $warehouseId,
+        int $locationId,
+        bool $source
+    ): array {
+        $statement = $this->connection()->prepare(
+            "SELECT receiving_allowed, picking_allowed, location_usage
+             FROM inventory_warehouse_locations
+             WHERE company_id = :company_id
+               AND warehouse_id = :warehouse_id
+               AND location_id = :location_id
+               AND active = TRUE
+               AND deleted_at IS NULL
+             FOR UPDATE"
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'warehouse_id' => $warehouseId,
+            'location_id' => $locationId,
+        ]);
+        $location = $statement->fetch(PDO::FETCH_ASSOC);
+
+        if (!is_array($location)) {
+            throw new RuntimeException(
+                'The movement location is unavailable to the active company.'
+            );
+        }
+
+        if ($source && empty($location['picking_allowed'])) {
+            throw new RuntimeException('The source location does not allow picking.');
+        }
+
+        if (!$source && empty($location['receiving_allowed'])) {
+            throw new RuntimeException(
+                'The destination location does not allow receiving.'
+            );
+        }
+
+        return $location;
+    }
+
+    private function applyBalanceDelta(
+        int $companyId,
+        int $stockBalanceId,
+        float $quantityDelta,
+        float $unitCost,
+        string $occurredAt
+    ): void {
+        $statement = $this->connection()->prepare(
+            "UPDATE inventory_stock_balances
+             SET average_unit_cost = CASE
+                    WHEN :quantity_delta > 0
+                     AND quantity_on_hand + :quantity_for_total > 0
+                    THEN ((quantity_on_hand * average_unit_cost)
+                         + (:quantity_for_cost * :unit_cost))
+                         / (quantity_on_hand + :quantity_for_average)
+                    ELSE average_unit_cost
+                 END,
+                 quantity_on_hand = quantity_on_hand + :quantity_for_stock,
+                 version_number = version_number + 1,
+                 last_movement_at = :occurred_at
+             WHERE company_id = :company_id
+               AND stock_balance_id = :stock_balance_id"
+        );
+        $positiveQuantity = max(0.0, $quantityDelta);
+        $statement->execute([
+            'quantity_delta' => $quantityDelta,
+            'quantity_for_total' => $positiveQuantity,
+            'quantity_for_cost' => $positiveQuantity,
+            'unit_cost' => $unitCost,
+            'quantity_for_average' => $positiveQuantity,
+            'quantity_for_stock' => $quantityDelta,
+            'occurred_at' => $occurredAt,
+            'company_id' => $companyId,
+            'stock_balance_id' => $stockBalanceId,
+        ]);
+
+        if ($statement->rowCount() !== 1) {
+            throw new RuntimeException('The stock balance could not be moved.');
+        }
+    }
+
+    private function positiveOrNull(mixed $value): ?int
+    {
+        $integer = (int) ($value ?? 0);
+        return $integer > 0 ? $integer : null;
     }
 
     public function markGoodsReceiptPosted(

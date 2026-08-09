@@ -29,6 +29,9 @@ $goodsReceipts = is_array(
 )
     ? $data['goodsReceipts']
     : [];
+$stockMovements = is_array($data['stockMovements'] ?? null)
+    ? $data['stockMovements']
+    : [];
 
 $inventoryDashboardUser = is_array(
     $data['user'] ?? null
@@ -154,6 +157,48 @@ $canViewInventoryWarehouses = in_array(
             </p>
         </article>
     </div>
+</section>
+
+<section class="page-section">
+    <article class="card table-card">
+        <div class="table-summary">
+            <div>
+                <h2 class="card-title">Movement history</h2>
+                <p class="text-muted">
+                    Completed location-aware receipts, deliveries and transfers.
+                </p>
+            </div>
+            <span class="badge badge-neutral"><?= count($stockMovements) ?> movements</span>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead><tr>
+                    <th>Reference</th><th>Operation</th><th>Product</th>
+                    <th>Source</th><th>Destination</th><th>Requested</th>
+                    <th>Completed</th><th>Status</th><th>Completed at</th>
+                </tr></thead>
+                <tbody>
+                <?php if ($stockMovements === []): ?>
+                    <tr><td colspan="9" class="empty-state">No stock movements have been completed yet.</td></tr>
+                <?php else: ?>
+                    <?php foreach ($stockMovements as $movement): ?>
+                        <tr>
+                            <td><?= e((string) ($movement['reference_number'] ?? 'Manual')) ?></td>
+                            <td><?= e((string) ($movement['operation_type_name'] ?? $movement['movement_type'] ?? 'Movement')) ?></td>
+                            <td><strong><?= e((string) ($movement['product_name'] ?? 'Product')) ?></strong><br><span class="text-muted"><?= e((string) ($movement['sku'] ?? '')) ?></span></td>
+                            <td><?= e((string) ($movement['source_location_name'] ?? 'External / Vendor')) ?></td>
+                            <td><?= e((string) ($movement['destination_location_name'] ?? 'External / Customer')) ?></td>
+                            <td><?= e(number_format((float) ($movement['requested_quantity'] ?? 0), 3)) ?></td>
+                            <td><?= e(number_format((float) ($movement['completed_quantity'] ?? 0), 3)) ?></td>
+                            <td><span class="badge badge-success"><?= e(ucfirst((string) ($movement['status'] ?? 'unknown'))) ?></span></td>
+                            <td><?= e((string) ($movement['occurred_at'] ?? '')) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </article>
 </section>
 
 <section class="page-section">

@@ -44,6 +44,32 @@ final class InventoryController
         ] + $this->inventory->workspace());
     }
 
+    public function postTransfer(): void
+    {
+        $this->authorize('inventory.transfers.manage');
+
+        if (!\verifyCsrfToken(\postString('_token'))) {
+            \flash('inventory_notice', [
+                'type' => 'error',
+                'message' => 'The form session expired. Please try again.',
+            ]);
+            \redirect('/inventory');
+        }
+
+        $result = $this->inventory->postTransfer(
+            (int) \postString('transfer_id'),
+            (int) ($_SESSION['auth']['user_id'] ?? 0)
+        );
+        $successful = !empty($result['successful']);
+        \flash('inventory_notice', [
+            'type' => $successful ? 'success' : 'error',
+            'message' => $successful
+                ? 'The inventory transfer was posted.'
+                : (string) ($result['errors']['form'] ?? 'The transfer could not be posted.'),
+        ]);
+        \redirect('/inventory');
+    }
+
     private function authorize(
         string $permission
     ): void {

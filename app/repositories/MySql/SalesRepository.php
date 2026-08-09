@@ -377,7 +377,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'submit' => 'submitted',
                 'approve' => 'approved',
                 'cancel' => 'cancelled',
-                'fulfill' => 'fulfilled',
+                'fulfill' => $current,
             };
             $update = $connection->prepare(
                 "UPDATE sales_orders SET

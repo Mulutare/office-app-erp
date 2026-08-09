@@ -6,6 +6,7 @@ use App\Repositories\RepositoryFactory;
 use App\Services\SalesService;
 use App\Services\IntegrationDispatcherService;
 use App\Services\IntegrationEventHandler;
+use App\Services\WarehouseManagementService;
 
 require_once __DIR__ . '/../app/helpers/bootstrap.php';
 
@@ -105,74 +106,32 @@ try {
         $check(!empty($product['successful']), 'Product line ' . ($index + 1) . ' is created');
     }
 
-    $warehouseStatement = db()->prepare(
-        "INSERT INTO inventory_warehouses (
-            company_id,
-            code,
-            name,
-            allow_negative_stock,
-            is_default,
-            active,
-            created_by,
-            updated_by
-        ) VALUES (
-            :company_id,
-            :code,
-            :name,
-            0,
-            1,
-            1,
-            :created_by,
-            :updated_by
-        )"
-    );
-    $warehouseStatement->execute([
-        'company_id' => $companyId,
-        'code' => 'TEST-WH-' . $suffix,
+    $warehouseCode = 'TEST-WH-' . $suffix;
+    $warehouse = (new WarehouseManagementService())->create([
+        'code' => $warehouseCode,
         'name' => 'Integration Warehouse ' . $suffix,
-        'created_by' => $actorId,
-        'updated_by' => $actorId,
-    ]);
-    $created['warehouse'] = (int)
-        db()->lastInsertId();
-
+        'warehouse_type' => 'standard',
+        'branch_id' => null,
+        'manager_user_id' => null,
+        'address' => null,
+        'phone' => null,
+        'email' => null,
+        'allow_negative_stock' => false,
+        'is_default' => true,
+        'active' => true,
+    ], $actorId);
+    $created['warehouse'] = (int) ($warehouse['warehouseId'] ?? 0);
     $locationStatement = db()->prepare(
-        "INSERT INTO inventory_warehouse_locations (
-            company_id,
-            warehouse_id,
-            code,
-            name,
-            location_type,
-            pick_priority,
-            receiving_allowed,
-            picking_allowed,
-            active,
-            created_by,
-            updated_by
-        ) VALUES (
-            :company_id,
-            :warehouse_id,
-            :code,
-            :name,
-            'bin',
-            1,
-            1,
-            1,
-            1,
-            :created_by,
-            :updated_by
-        )"
+        "SELECT location_id FROM inventory_warehouse_locations
+         WHERE company_id = :company_id AND warehouse_id = :warehouse_id
+           AND code = :code AND location_usage = 'internal'"
     );
     $locationStatement->execute([
         'company_id' => $companyId,
         'warehouse_id' => $created['warehouse'],
-        'code' => 'PICK-' . $suffix,
-        'name' => 'Integration Picking Location',
-        'created_by' => $actorId,
-        'updated_by' => $actorId,
+        'code' => $warehouseCode . '/STOCK',
     ]);
-    $created['location'] = (int)
-        db()->lastInsertId();
+    $created['location'] = (int) $locationStatement->fetchColumn();
 
     $stockStatement = db()->prepare(
         "INSERT INTO inventory_stock_balances (

@@ -6,6 +6,83 @@ namespace App\Repositories;
 
 interface InventoryRepository
 {
+    /** @param array<string, mixed> $movement @return array<string, mixed> */
+    public function completeStockMovement(array $movement): array;
+
+    /** @return array<string, mixed> */
+    public function postTransfer(
+        int $companyId,
+        int $transferId,
+        int $actorId,
+        string $postedAt
+    ): array;
+
+    /** @return list<int> */
+    public function ensureDeliveryPickings(
+        int $companyId,
+        int $orderId,
+        int $actorId,
+        string $createdAt
+    ): array;
+
+    /** @return array<string, mixed> */
+    public function completeSalesOrderDeliveries(
+        int $companyId,
+        int $orderId,
+        int $actorId,
+        string $completedAt
+    ): array;
+
+    /** @param array<int, float> $quantities @return array<string, mixed> */
+    public function completePicking(
+        int $companyId,
+        int $pickingId,
+        array $quantities,
+        bool $createBackorder,
+        string $idempotencyKey,
+        int $actorId,
+        string $completedAt
+    ): array;
+
+    /** @param array<int, float> $quantities */
+    public function createReturnPicking(
+        int $companyId,
+        int $originalPickingId,
+        array $quantities,
+        int $actorId,
+        string $createdAt
+    ): int;
+
+    public function cancelPicking(
+        int $companyId,
+        int $pickingId,
+        string $reason,
+        int $actorId,
+        string $cancelledAt
+    ): void;
+
+    /** @param array<string, mixed> $document */
+    public function createStockAdjustment(array $document): int;
+
+    /** @return array<string, mixed> */
+    public function postStockAdjustment(
+        int $companyId,
+        int $adjustmentId,
+        int $actorId,
+        string $postedAt
+    ): array;
+
+    /** @param array<string, mixed> $document */
+    public function createScrap(array $document): int;
+
+    /** @return array<string, mixed> */
+    public function postScrap(
+        int $companyId,
+        int $scrapId,
+        int $actorId,
+        string $postedAt
+    ): array;
+
     /** @return array<string, mixed> */
     public function postGoodsReceipt(
         int $companyId,
@@ -39,32 +116,6 @@ interface InventoryRepository
         int $warehouseId,
         int $locationId,
         int $productId
-    ): int;
-
-    public function applyReceiptToBalance(
-        int $companyId,
-        int $stockBalanceId,
-        float $quantity,
-        float $unitCost,
-        string $occurredAt
-    ): void;
-
-    public function recordStockMovement(
-        int $companyId,
-        int $warehouseId,
-        int $locationId,
-        int $productId,
-        string $movementType,
-        float $quantityDelta,
-        float $unitCost,
-        string $currency,
-        string $referenceType,
-        ?int $referenceId,
-        ?string $referenceNumber,
-        string $idempotencyKey,
-        ?string $notes,
-        string $occurredAt,
-        int $actorId
     ): int;
 
     /**

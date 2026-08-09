@@ -85,7 +85,7 @@ final class InventorySalesIntegrationHandler
                 );
             }
 
-            $this->inventory->fulfilSalesOrder(
+            $this->inventory->completeSalesOrderDeliveries(
                 $companyId,
                 $orderId,
                 $actorId,
@@ -113,6 +113,12 @@ final class InventorySalesIntegrationHandler
             $orderId,
             $branchId,
             $lines,
+            $occurredAt
+        );
+        $this->inventory->ensureDeliveryPickings(
+            $companyId,
+            $orderId,
+            (int) ($payload['actor_id'] ?? 0),
             $occurredAt
         );
     }

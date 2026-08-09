@@ -82,6 +82,31 @@ foreach ($requiredMigrationTokens as $token) {
     );
 }
 
+$movementMigrationPath =
+    'database/migrations/mysql/040_location_aware_stock_movements.php';
+$movementMigration = require $root . DIRECTORY_SEPARATOR . $movementMigrationPath;
+$movementMigrationSource = $contents($movementMigrationPath);
+$check(
+    is_array($movementMigration)
+    && ($movementMigration['version'] ?? null) === '040'
+    && is_callable($movementMigration['preflight'] ?? null),
+    'Migration 040 has a protected migration definition'
+);
+foreach ([
+    'source_location_id',
+    'destination_location_id',
+    'requested_quantity',
+    'completed_quantity',
+    'ck_inventory_movement_distinct_locations',
+    'uq_inventory_movement_idempotency',
+] as $token) {
+    $check(
+        str_contains($movementMigrationSource, $token)
+        || str_contains($contents('database/migrations/mysql/034_create_inventory_stock_core.php'), $token),
+        'Authoritative movement schema contains: ' . $token
+    );
+}
+
 $warehouseContractPath =
     'app/repositories/WarehouseRepository.php';
 $warehouseMySqlPath =
@@ -417,9 +442,9 @@ $check(
 $check(
     str_contains(
         $testRunnerSource,
-        '$migrationLedgerCount === 25'
+        '$migrationLedgerCount === 26'
     ),
-    'Main test runner expects twenty-five MySQL migrations'
+    'Main test runner expects twenty-six MySQL migrations'
 );
 
 foreach ($results as $result) {

@@ -228,6 +228,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                     code,
                     name,
                     location_type,
+                    location_usage,
                     barcode,
                     aisle,
                     rack,
@@ -248,6 +249,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                     :code,
                     :name,
                     :location_type,
+                    :location_usage,
                     :barcode,
                     :aisle,
                     :rack,
@@ -269,6 +271,7 @@ final class WarehouseLocationRepository extends MySqlRepository
             'code' => $values['code'],
             'name' => $values['name'],
             'location_type' => $values['location_type'],
+            'location_usage' => $values['usage'] ?? 'internal',
             'barcode' => $values['barcode'],
             'aisle' => $values['aisle'],
             'rack' => $values['rack'],
@@ -299,6 +302,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                 'code' => $warehouseCode,
                 'name' => $warehouseName,
                 'type' => 'zone',
+                'usage' => 'internal',
                 'priority' => 1,
                 'receiving' => false,
                 'picking' => false,
@@ -308,6 +312,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                 'code' => $warehouseCode . '/INPUT',
                 'name' => 'Input',
                 'type' => 'receiving',
+                'usage' => 'internal',
                 'priority' => 10,
                 'receiving' => true,
                 'picking' => true,
@@ -317,6 +322,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                 'code' => $warehouseCode . '/STOCK',
                 'name' => 'Stock',
                 'type' => 'zone',
+                'usage' => 'internal',
                 'priority' => 20,
                 'receiving' => true,
                 'picking' => true,
@@ -326,6 +332,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                 'code' => $warehouseCode . '/OUTPUT',
                 'name' => 'Output',
                 'type' => 'dispatch',
+                'usage' => 'internal',
                 'priority' => 30,
                 'receiving' => true,
                 'picking' => true,
@@ -335,6 +342,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                 'code' => $warehouseCode . '/RETURNS',
                 'name' => 'Returns',
                 'type' => 'returns',
+                'usage' => 'internal',
                 'priority' => 40,
                 'receiving' => true,
                 'picking' => true,
@@ -344,10 +352,36 @@ final class WarehouseLocationRepository extends MySqlRepository
                 'code' => $warehouseCode . '/QUARANTINE',
                 'name' => 'Quarantine',
                 'type' => 'quarantine',
+                'usage' => 'internal',
                 'priority' => 900,
                 'receiving' => true,
                 'picking' => false,
                 'parent' => 'ROOT',
+            ],
+            'VENDOR' => [
+                'code' => $warehouseCode . '/VENDOR', 'name' => 'Vendors',
+                'type' => 'vendor', 'usage' => 'vendor', 'priority' => 950,
+                'receiving' => true, 'picking' => true, 'parent' => 'ROOT',
+            ],
+            'CUSTOMER' => [
+                'code' => $warehouseCode . '/CUSTOMER', 'name' => 'Customers',
+                'type' => 'customer', 'usage' => 'customer', 'priority' => 951,
+                'receiving' => true, 'picking' => true, 'parent' => 'ROOT',
+            ],
+            'INVENTORY' => [
+                'code' => $warehouseCode . '/INVENTORY', 'name' => 'Inventory Adjustment',
+                'type' => 'inventory', 'usage' => 'inventory', 'priority' => 952,
+                'receiving' => true, 'picking' => true, 'parent' => 'ROOT',
+            ],
+            'SCRAP' => [
+                'code' => $warehouseCode . '/SCRAP', 'name' => 'Scrap',
+                'type' => 'scrap', 'usage' => 'scrap', 'priority' => 953,
+                'receiving' => true, 'picking' => false, 'parent' => 'ROOT',
+            ],
+            'TRANSIT' => [
+                'code' => $warehouseCode . '/TRANSIT', 'name' => 'Transit',
+                'type' => 'transit', 'usage' => 'transit', 'priority' => 954,
+                'receiving' => true, 'picking' => true, 'parent' => 'ROOT',
             ],
         ];
 
@@ -402,6 +436,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                     'code' => $definition['code'],
                     'name' => $definition['name'],
                     'location_type' => $definition['type'],
+                    'usage' => $definition['usage'],
                     'barcode' => null,
                     'aisle' => null,
                     'rack' => null,
@@ -427,7 +462,8 @@ final class WarehouseLocationRepository extends MySqlRepository
         array $locations
     ): void {
         foreach (
-            ['ROOT', 'INPUT', 'STOCK', 'OUTPUT', 'RETURNS', 'QUARANTINE']
+            ['ROOT', 'INPUT', 'STOCK', 'OUTPUT', 'RETURNS', 'QUARANTINE',
+             'VENDOR', 'CUSTOMER', 'INVENTORY', 'SCRAP', 'TRANSIT']
             as $required
         ) {
             if (
@@ -443,13 +479,12 @@ final class WarehouseLocationRepository extends MySqlRepository
         $statement = $this->connection()->prepare(
             'UPDATE inventory_operation_types
              SET default_source_location_id = CASE
-                    WHEN operation_kind = \'receipt\' THEN NULL
+                    WHEN operation_kind = \'receipt\' THEN :receipt_source
                     WHEN operation_kind = \'internal_transfer\'
                         THEN :internal_source
                     WHEN operation_kind = \'delivery\'
                         THEN :delivery_source
-                    WHEN operation_kind = \'adjustment\'
-                        THEN :adjustment_source
+                    WHEN operation_kind = \'adjustment\' THEN :adjustment_source
                     ELSE default_source_location_id
                  END,
                  default_destination_location_id = CASE
@@ -457,8 +492,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                         THEN :receipt_destination
                     WHEN operation_kind = \'internal_transfer\'
                         THEN :internal_destination
-                    WHEN operation_kind = \'delivery\'
-                        THEN :delivery_destination
+                    WHEN operation_kind = \'delivery\' THEN :delivery_destination
                     WHEN operation_kind = \'adjustment\'
                         THEN :adjustment_destination
                     ELSE default_destination_location_id
@@ -475,13 +509,14 @@ final class WarehouseLocationRepository extends MySqlRepository
                )'
         );
         $statement->execute([
+            'receipt_source' => $locations['VENDOR'],
             'internal_source' => $locations['STOCK'],
             'delivery_source' => $locations['STOCK'],
-            'adjustment_source' => $locations['STOCK'],
+            'adjustment_source' => $locations['INVENTORY'],
             'receipt_destination' => $locations['INPUT'],
             'internal_destination' => $locations['OUTPUT'],
-            'delivery_destination' => $locations['OUTPUT'],
-            'adjustment_destination' => $locations['STOCK'],
+            'delivery_destination' => $locations['CUSTOMER'],
+            'adjustment_destination' => $locations['INVENTORY'],
             'company_id' => $companyId,
             'warehouse_id' => $warehouseId,
         ]);
@@ -497,7 +532,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                     (
                         operation_types.operation_kind = \'receipt\'
                         AND operation_types.default_source_location_id
-                            IS NULL
+                            = :vendor_id
                         AND operation_types.default_destination_location_id
                             = :input_id
                     )
@@ -514,7 +549,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                         AND operation_types.default_source_location_id
                             = :delivery_stock_id
                         AND operation_types.default_destination_location_id
-                            = :delivery_output_id
+                            = :customer_id
                     )
                     OR (
                         operation_types.operation_kind = \'adjustment\'
@@ -528,13 +563,14 @@ final class WarehouseLocationRepository extends MySqlRepository
         $verification->execute([
             'company_id' => $companyId,
             'warehouse_id' => $warehouseId,
+            'vendor_id' => $locations['VENDOR'],
             'input_id' => $locations['INPUT'],
             'internal_stock_id' => $locations['STOCK'],
             'internal_output_id' => $locations['OUTPUT'],
             'delivery_stock_id' => $locations['STOCK'],
-            'delivery_output_id' => $locations['OUTPUT'],
-            'adjustment_source_id' => $locations['STOCK'],
-            'adjustment_destination_id' => $locations['STOCK'],
+            'customer_id' => $locations['CUSTOMER'],
+            'adjustment_source_id' => $locations['INVENTORY'],
+            'adjustment_destination_id' => $locations['INVENTORY'],
         ]);
 
         if ((int) $verification->fetchColumn() !== 4) {
@@ -654,7 +690,8 @@ final class WarehouseLocationRepository extends MySqlRepository
                           (
                               operation_types.operation_kind =
                                   \'receipt\'
-                              AND operation_types.default_source_location_id IS NULL
+                              AND source_locations.code =
+                                  CONCAT(warehouses.code, \'/VENDOR\')
                               AND destination_locations.code =
                                   CONCAT(warehouses.code, \'/INPUT\')
                           )
@@ -664,7 +701,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                               AND source_locations.code =
                                   CONCAT(warehouses.code, \'/STOCK\')
                               AND destination_locations.code =
-                                  CONCAT(warehouses.code, \'/OUTPUT\')
+                                  CONCAT(warehouses.code, \'/CUSTOMER\')
                           )
                           OR (
                               operation_types.operation_kind =
@@ -678,9 +715,9 @@ final class WarehouseLocationRepository extends MySqlRepository
                               operation_types.operation_kind =
                                   \'adjustment\'
                               AND source_locations.code =
-                                  CONCAT(warehouses.code, \'/STOCK\')
+                                  CONCAT(warehouses.code, \'/INVENTORY\')
                               AND destination_locations.code =
-                                  CONCAT(warehouses.code, \'/STOCK\')
+                                  CONCAT(warehouses.code, \'/INVENTORY\')
                           )
                       )
                 ) AS mapped_operation_type_count

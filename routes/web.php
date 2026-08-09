@@ -244,6 +244,10 @@ $router->get(
     '/inventory',
     [$inventoryController, 'index']
 );
+$router->post(
+    '/inventory/transfers/post',
+    [$inventoryController, 'postTransfer']
+);
 $router->get(
     '/inventory/warehouses',
     [$warehouseController, 'index']
