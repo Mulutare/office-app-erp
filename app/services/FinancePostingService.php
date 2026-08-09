@@ -75,4 +75,46 @@ final class FinancePostingService
             $currency
         );
     }
+
+    /** @return array<string, int> */
+    public function ensureSystemJournals(int $companyId, string $currency, ?int $actorId = null): array
+    {
+        return $this->finance->ensureSystemJournals($companyId, $currency, $actorId);
+    }
+
+    public function createCustomerInvoiceFromOrder(
+        int $companyId,
+        int $orderId,
+        string $invoicePolicy,
+        int $actorId
+    ): int {
+        return $this->finance->createCustomerInvoiceFromOrder(
+            $companyId, $orderId, $invoicePolicy, $actorId
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function postInvoice(int $companyId, int $invoiceId, int $actorId): array
+    {
+        return $this->finance->postInvoice($companyId, $invoiceId, $actorId);
+    }
+
+    /** @param list<array{invoice_id:int,amount:mixed}> $allocations @return array<string, mixed> */
+    public function postCustomerPayment(
+        int $companyId,
+        int $customerId,
+        int $journalId,
+        string $paymentDate,
+        string $currency,
+        mixed $amount,
+        string $method,
+        ?string $reference,
+        array $allocations,
+        int $actorId
+    ): array {
+        return $this->finance->postCustomerPayment(
+            $companyId, $customerId, $journalId, $paymentDate, $currency,
+            $amount, $method, $reference, $allocations, $actorId
+        );
+    }
 }

@@ -52,6 +52,20 @@ final class FinanceRepository extends MySqlRepository
             'key' => 'accounts_payable',
         ],
         [
+            'code' => '2100',
+            'name' => 'Sales Tax Payable',
+            'type' => 'liability',
+            'normal' => 'credit',
+            'key' => 'sales_tax_payable',
+        ],
+        [
+            'code' => '2200',
+            'name' => 'Customer Credits',
+            'type' => 'liability',
+            'normal' => 'credit',
+            'key' => 'customer_credits',
+        ],
+        [
             'code' => '3000',
             'name' => 'Owner Equity',
             'type' => 'equity',
@@ -451,6 +465,11 @@ final class FinanceRepository extends MySqlRepository
                 ];
             }
 
+            $this->assertOpenPostingDate(
+                $companyId,
+                $postingDate
+            );
+
             $accountIds = array_values(array_unique(
                 array_map(
                     static fn (array $line): int =>
@@ -688,6 +707,303 @@ final class FinanceRepository extends MySqlRepository
             }
 
             throw $exception;
+        }
+    }
+
+    public function ensureSystemJournals(int $companyId, string $currency, ?int $actorId): array
+    {
+        $accounts = $this->ensureSystemAccounts($companyId, $currency, $actorId);
+        $definitions = [
+            'sales' => ['SAL', 'Sales Journal', null, 'accounts_receivable'],
+            'purchase' => ['PUR', 'Purchase Journal', 'accounts_payable', null],
+            'bank' => ['BNK', 'Bank Journal', 'cash', null],
+            'cash' => ['CSH', 'Cash Journal', 'cash', null],
+            'general' => ['GEN', 'General Journal', null, null],
+        ];
+        $connection = $this->connection();
+        $statement = $connection->prepare(
+            "INSERT INTO finance_journals
+                (company_id,journal_code,journal_name,journal_type,
+                 default_debit_account_id,default_credit_account_id,
+                 active,system_required,created_by)
+             VALUES (:company_id,:code,:name,:type,:debit,:credit,TRUE,TRUE,:actor)
+             ON DUPLICATE KEY UPDATE journal_id = LAST_INSERT_ID(journal_id),
+                 journal_name = VALUES(journal_name), active = TRUE"
+        );
+        $ids = [];
+        foreach ($definitions as $type => [$code, $name, $debitKey, $creditKey]) {
+            $statement->execute([
+                'company_id' => $companyId, 'code' => $code, 'name' => $name,
+                'type' => $type,
+                'debit' => $debitKey === null ? null : $accounts[$debitKey],
+                'credit' => $creditKey === null ? null : $accounts[$creditKey],
+                'actor' => $actorId,
+            ]);
+            $ids[$type] = (int) $connection->lastInsertId();
+        }
+        return $ids;
+    }
+
+    public function createCustomerInvoiceFromOrder(
+        int $companyId,
+        int $orderId,
+        string $invoicePolicy,
+        int $actorId
+    ): int {
+        if (!in_array($invoicePolicy, ['ordered', 'delivered'], true)) {
+            throw new RuntimeException('Invoice policy must be ordered or delivered.');
+        }
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $orderStatement = $connection->prepare(
+                "SELECT * FROM sales_orders WHERE company_id=:company_id AND order_id=:order_id
+                 AND deleted_at IS NULL AND status NOT IN ('draft','submitted','cancelled') FOR UPDATE"
+            );
+            $orderStatement->execute(['company_id' => $companyId, 'order_id' => $orderId]);
+            $order = $orderStatement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($order)) {
+                throw new RuntimeException('Only an active confirmed sales order can be invoiced.');
+            }
+            if ($invoicePolicy === 'ordered') {
+                $existing = $connection->prepare(
+                    "SELECT invoice_id FROM finance_invoices
+                     WHERE company_id=:company_id AND sales_order_id=:order_id
+                       AND document_type='customer_invoice' AND invoice_policy='ordered'
+                       AND status<>'cancelled' ORDER BY invoice_id LIMIT 1 FOR UPDATE"
+                );
+                $existing->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
+                $existingId = $existing->fetchColumn();
+                if ($existingId !== false) {
+                    $connection->commit();
+                    return (int)$existingId;
+                }
+            }
+            $journals = $this->ensureSystemJournals($companyId, (string) $order['currency'], $actorId);
+            $linesStatement = $connection->prepare(
+                "SELECT order_lines.*,
+                    CASE WHEN :policy = 'ordered' THEN order_lines.quantity ELSE
+                        COALESCE((SELECT SUM(pl.completed_quantity - pl.returned_quantity)
+                          FROM inventory_picking_lines pl
+                          INNER JOIN inventory_pickings p ON p.company_id=pl.company_id AND p.picking_id=pl.picking_id
+                          WHERE p.company_id=order_lines.company_id AND p.sales_order_id=order_lines.order_id
+                            AND p.picking_type='delivery' AND p.status IN ('done','partially_done')
+                            AND pl.product_id=order_lines.product_id),0) END AS eligible_quantity,
+                    COALESCE((SELECT SUM(il.quantity)
+                      FROM finance_invoice_lines il INNER JOIN finance_invoices i
+                        ON i.company_id=il.company_id AND i.invoice_id=il.invoice_id
+                      WHERE i.company_id=order_lines.company_id AND i.sales_order_id=order_lines.order_id
+                        AND i.document_type='customer_invoice' AND i.status <> 'cancelled'
+                        AND il.sales_order_line_id=order_lines.order_line_id),0) AS invoiced_quantity
+                 FROM sales_order_lines order_lines
+                 WHERE order_lines.company_id=:company_id AND order_lines.order_id=:order_id
+                 ORDER BY order_lines.order_line_id FOR UPDATE"
+            );
+            $linesStatement->execute(['policy' => $invoicePolicy, 'company_id' => $companyId, 'order_id' => $orderId]);
+            $invoiceLines = [];
+            $untaxed = $discount = $tax = $total = 0.0;
+            foreach ($linesStatement->fetchAll(PDO::FETCH_ASSOC) as $line) {
+                $quantity = round((float) $line['eligible_quantity'] - (float) $line['invoiced_quantity'], 3);
+                if ($quantity <= 0.0005) { continue; }
+                $unitPrice = round((float) $line['unit_price'], 4);
+                $gross = round($quantity * $unitPrice, 2);
+                $ratio = $quantity / (float) $line['quantity'];
+                $lineDiscount = round((float) $line['discount_amount'] * $ratio, 2);
+                $lineUntaxed = round($gross - $lineDiscount, 2);
+                $lineTax = round($lineUntaxed * (float) $line['tax_rate'] / 100, 2);
+                $invoiceLines[] = [$line, $quantity, $unitPrice, $lineDiscount, $lineUntaxed, $lineTax];
+                $untaxed += $lineUntaxed; $discount += $lineDiscount; $tax += $lineTax;
+                $total += $lineUntaxed + $lineTax;
+            }
+            if ($invoiceLines === []) {
+                throw new RuntimeException('The sales order has no remaining invoiceable quantity.');
+            }
+            $journal = $connection->prepare(
+                'SELECT next_number FROM finance_journals WHERE company_id=:company_id AND journal_id=:journal_id FOR UPDATE'
+            );
+            $journal->execute(['company_id' => $companyId, 'journal_id' => $journals['sales']]);
+            $next = (int) $journal->fetchColumn();
+            $number = sprintf('INV-%08d', $next);
+            $connection->prepare(
+                'UPDATE finance_journals SET next_number=next_number+1 WHERE company_id=:company_id AND journal_id=:journal_id'
+            )->execute(['company_id' => $companyId, 'journal_id' => $journals['sales']]);
+            $invoice = $connection->prepare(
+                "INSERT INTO finance_invoices
+                 (company_id,journal_id,customer_id,sales_order_id,document_type,invoice_number,
+                  invoice_date,due_date,currency,payment_terms_days,invoice_policy,status,payment_status,
+                  untaxed_amount,discount_amount,tax_amount,total_amount,residual_amount,notes,created_by)
+                 VALUES (:company_id,:journal_id,:customer_id,:order_id,'customer_invoice',:number,
+                  CURRENT_DATE,:due_date,:currency,:terms,:policy,'draft','unpaid',
+                  :untaxed,:discount,:tax,:total,:residual,:notes,:actor)"
+            );
+            $invoice->execute([
+                'company_id'=>$companyId,'journal_id'=>$journals['sales'],'customer_id'=>(int)$order['customer_id'],
+                'order_id'=>$orderId,'number'=>$number,'due_date'=>$order['due_date'],'currency'=>$order['currency'],
+                'terms'=>(int)((strtotime((string)$order['due_date'])-strtotime((string)$order['order_date']))/86400),
+                'policy'=>$invoicePolicy,'untaxed'=>round($untaxed,2),'discount'=>round($discount,2),
+                'tax'=>round($tax,2),'total'=>round($total,2),'residual'=>round($total,2),
+                'notes'=>$order['notes'],'actor'=>$actorId,
+            ]);
+            $invoiceId = (int) $connection->lastInsertId();
+            $insertLine = $connection->prepare(
+                "INSERT INTO finance_invoice_lines
+                 (company_id,invoice_id,sales_order_line_id,product_id,description,quantity,unit_price,
+                  discount_amount,tax_rate,untaxed_amount,tax_amount,total_amount)
+                 VALUES (:company_id,:invoice_id,:sales_line,:product,:description,:quantity,:unit_price,
+                  :discount,:tax_rate,:untaxed,:tax,:total)"
+            );
+            foreach ($invoiceLines as [$line,$quantity,$unitPrice,$lineDiscount,$lineUntaxed,$lineTax]) {
+                $insertLine->execute([
+                    'company_id'=>$companyId,'invoice_id'=>$invoiceId,'sales_line'=>(int)$line['order_line_id'],
+                    'product'=>(int)$line['product_id'],'description'=>$line['description'],'quantity'=>$quantity,
+                    'unit_price'=>$unitPrice,'discount'=>$lineDiscount,'tax_rate'=>$line['tax_rate'],
+                    'untaxed'=>$lineUntaxed,'tax'=>$lineTax,'total'=>round($lineUntaxed+$lineTax,2),
+                ]);
+            }
+            $connection->commit();
+            return $invoiceId;
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) { $connection->rollBack(); }
+            throw $exception;
+        }
+    }
+
+    public function postInvoice(int $companyId, int $invoiceId, int $actorId): array
+    {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $statement = $connection->prepare(
+                "SELECT * FROM finance_invoices WHERE company_id=:company_id AND invoice_id=:invoice_id FOR UPDATE"
+            );
+            $statement->execute(['company_id'=>$companyId,'invoice_id'=>$invoiceId]);
+            $invoice = $statement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($invoice)) { throw new RuntimeException('Invoice was not found.'); }
+            if ($invoice['status'] === 'posted') {
+                $connection->commit();
+                return ['invoiceId'=>$invoiceId,'status'=>'posted','replayed'=>true];
+            }
+            if ($invoice['status'] !== 'draft') { throw new RuntimeException('Only a draft invoice can be posted.'); }
+            $this->assertOpenPostingDate($companyId, (string)$invoice['invoice_date']);
+            $accounts = $this->ensureSystemAccounts($companyId, (string)$invoice['currency'], $actorId);
+            $journal = $this->postBalancedJournal(
+                $companyId, 'INV-'.$invoiceId, 'customer_invoice', (string)$invoiceId,
+                (string)$invoice['invoice_number'], (string)$invoice['invoice_date'], (string)$invoice['currency'],
+                'Customer invoice '.$invoice['invoice_number'], 'finance-invoice-'.$companyId.'-'.$invoiceId,
+                [
+                    ['account_id'=>$accounts['accounts_receivable'],'debit'=>$invoice['total_amount'],'credit'=>0,'description'=>'Customer receivable'],
+                    ['account_id'=>$accounts['sales_revenue'],'debit'=>0,'credit'=>$invoice['untaxed_amount'],'description'=>'Sales revenue'],
+                    ...((float)$invoice['tax_amount'] > 0 ? [[
+                        'account_id'=>$accounts['sales_tax_payable'],'debit'=>0,'credit'=>$invoice['tax_amount'],'description'=>'Sales tax payable'
+                    ]] : []),
+                ], $actorId
+            );
+            $connection->prepare(
+                "UPDATE finance_invoices SET status='posted',journal_batch_id=:batch,posted_by=:actor,posted_at=NOW()
+                 WHERE company_id=:company_id AND invoice_id=:invoice_id"
+            )->execute(['batch'=>$journal['journalBatchId'],'actor'=>$actorId,'company_id'=>$companyId,'invoice_id'=>$invoiceId]);
+            $connection->commit();
+            return ['invoiceId'=>$invoiceId,'status'=>'posted','replayed'=>false,'journalBatchId'=>$journal['journalBatchId']];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) { $connection->rollBack(); }
+            throw $exception;
+        }
+    }
+
+    public function postCustomerPayment(
+        int $companyId, int $customerId, int $journalId, string $paymentDate,
+        string $currency, mixed $amount, string $method, ?string $reference,
+        array $allocations, int $actorId
+    ): array {
+        $amountValue = round((float)$amount, 2);
+        if ($amountValue <= 0) { throw new RuntimeException('Payment amount must be positive.'); }
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $this->assertOpenPostingDate($companyId, $paymentDate);
+            $journal = $connection->prepare(
+                "SELECT next_number FROM finance_journals WHERE company_id=:company_id AND journal_id=:journal_id
+                 AND journal_type IN ('bank','cash') AND active=TRUE FOR UPDATE"
+            );
+            $journal->execute(['company_id'=>$companyId,'journal_id'=>$journalId]);
+            $next = $journal->fetchColumn();
+            if ($next === false) { throw new RuntimeException('Select an active bank or cash journal.'); }
+            $normalized = []; $allocated = 0.0;
+            foreach ($allocations as $allocation) {
+                $invoiceId = (int)($allocation['invoice_id'] ?? 0);
+                $allocationAmount = round((float)($allocation['amount'] ?? 0), 2);
+                if ($invoiceId < 1 || $allocationAmount <= 0) { throw new RuntimeException('Payment allocations must be positive.'); }
+                $invoice = $connection->prepare(
+                    "SELECT residual_amount FROM finance_invoices WHERE company_id=:company_id AND invoice_id=:invoice_id
+                     AND customer_id=:customer_id AND status='posted' AND payment_status<>'paid' FOR UPDATE"
+                );
+                $invoice->execute(['company_id'=>$companyId,'invoice_id'=>$invoiceId,'customer_id'=>$customerId]);
+                $residual = $invoice->fetchColumn();
+                if ($residual === false || $allocationAmount > round((float)$residual,2)) {
+                    throw new RuntimeException('A payment allocation exceeds the invoice residual.');
+                }
+                $normalized[$invoiceId] = ($normalized[$invoiceId] ?? 0) + $allocationAmount;
+                $allocated += $allocationAmount;
+            }
+            $allocated = round($allocated,2);
+            if ($allocated > $amountValue) { throw new RuntimeException('Payment allocations exceed the payment amount.'); }
+            $unallocated = round($amountValue-$allocated,2);
+            $number = sprintf('PAY-%08d',(int)$next);
+            $connection->prepare('UPDATE finance_journals SET next_number=next_number+1 WHERE company_id=:company_id AND journal_id=:journal_id')
+                ->execute(['company_id'=>$companyId,'journal_id'=>$journalId]);
+            $payment = $connection->prepare(
+                "INSERT INTO finance_payments
+                 (company_id,journal_id,customer_id,payment_number,direction,payment_date,currency,amount,
+                  allocated_amount,unallocated_amount,method,reference_number,status,posted_by,posted_at,created_by)
+                 VALUES (:company_id,:journal_id,:customer_id,:number,'inbound',:payment_date,:currency,:amount,
+                  :allocated,:unallocated,:method,:reference,'draft',:posted_by,NOW(),:created_by)"
+            );
+            $payment->execute(['company_id'=>$companyId,'journal_id'=>$journalId,'customer_id'=>$customerId,
+                'number'=>$number,'payment_date'=>$paymentDate,'currency'=>strtoupper($currency),'amount'=>$amountValue,
+                'allocated'=>$allocated,'unallocated'=>$unallocated,'method'=>$method,'reference'=>$reference,
+                'posted_by'=>$actorId,'created_by'=>$actorId]);
+            $paymentId = (int)$connection->lastInsertId();
+            $accounts = $this->ensureSystemAccounts($companyId, $currency, $actorId);
+            $journalResult = $this->postBalancedJournal(
+                $companyId,$number,'customer_payment',(string)$paymentId,$number,$paymentDate,strtoupper($currency),
+                'Customer payment '.$number,'finance-payment-'.$companyId.'-'.$paymentId,
+                [
+                    ['account_id'=>$accounts['cash'],'debit'=>$amountValue,'credit'=>0,'description'=>'Bank or cash received'],
+                    ...($allocated > 0 ? [['account_id'=>$accounts['accounts_receivable'],'debit'=>0,'credit'=>$allocated,'description'=>'Receivable settlement']] : []),
+                    ...($unallocated > 0 ? [['account_id'=>$accounts['customer_credits'],'debit'=>0,'credit'=>$unallocated,'description'=>'Unallocated customer credit']] : []),
+                ],$actorId
+            );
+            $allocationInsert = $connection->prepare(
+                'INSERT INTO finance_payment_allocations (company_id,payment_id,invoice_id,amount,allocated_by,allocated_at)
+                 VALUES (:company_id,:payment_id,:invoice_id,:amount,:actor,NOW())'
+            );
+            foreach ($normalized as $invoiceId=>$allocationAmount) {
+                $allocationInsert->execute(['company_id'=>$companyId,'payment_id'=>$paymentId,'invoice_id'=>$invoiceId,'amount'=>$allocationAmount,'actor'=>$actorId]);
+                $connection->prepare(
+                    "UPDATE finance_invoices SET residual_amount=residual_amount-:amount,
+                     payment_status=CASE WHEN residual_amount-:status_amount<=0 THEN 'paid' ELSE 'partially_paid' END
+                     WHERE company_id=:company_id AND invoice_id=:invoice_id"
+                )->execute(['amount'=>$allocationAmount,'status_amount'=>$allocationAmount,'company_id'=>$companyId,'invoice_id'=>$invoiceId]);
+            }
+            $connection->prepare("UPDATE finance_payments SET status='posted',journal_batch_id=:batch WHERE company_id=:company_id AND payment_id=:payment_id")
+                ->execute(['batch'=>$journalResult['journalBatchId'],'company_id'=>$companyId,'payment_id'=>$paymentId]);
+            $connection->commit();
+            return ['paymentId'=>$paymentId,'paymentNumber'=>$number,'allocatedAmount'=>$allocated,'unallocatedAmount'=>$unallocated,'status'=>'posted'];
+        } catch (Throwable $exception) {
+            if ($connection->inTransaction()) { $connection->rollBack(); }
+            throw $exception;
+        }
+    }
+
+    private function assertOpenPostingDate(int $companyId, string $postingDate): void
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT COUNT(*) FROM finance_accounting_periods WHERE company_id=:company_id
+             AND :posting_date BETWEEN date_from AND date_to AND status IN ('closed','locked')"
+        );
+        $statement->execute(['company_id'=>$companyId,'posting_date'=>$postingDate]);
+        if ((int)$statement->fetchColumn() > 0) {
+            throw new RuntimeException('The accounting period is closed or locked.');
         }
     }
 

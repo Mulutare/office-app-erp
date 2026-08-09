@@ -94,73 +94,17 @@ final class FinanceSalesIntegrationHandler
             $payload['order_id'] ?? null,
             'The confirmed sales order ID is invalid.'
         );
-        $orderNumber = $this->requiredString(
-            $payload['order_number'] ?? null,
-            'The confirmed sales order number is missing.'
-        );
-        $currency = $this->currency(
-            $payload['currency'] ?? null
-        );
-        $amount = $this->positiveAmount(
-            $payload['total_amount'] ?? null,
-            'The confirmed sales amount must be positive.'
-        );
-        $branchId = $this->nullablePositiveInt(
-            $payload['branch_id'] ?? null
-        );
-
-        $this->openReceivable(
+        $actorId = $this->nullablePositiveInt($payload['actor_id'] ?? null)
+            ?? $this->salesOrderActor($companyId, $orderId);
+        $invoiceId = $this->posting->createCustomerInvoiceFromOrder(
             $companyId,
-            $payload
+            $orderId,
+            'ordered',
+            $actorId
         );
-
-        $accounts =
-            $this->posting->ensureSystemAccounts(
-                $companyId,
-                $currency,
-                $this->nullablePositiveInt(
-                    $payload['actor_id'] ?? null
-                )
-            );
-
-        $this->posting->postBalancedJournal(
-            $companyId,
-            'SO-' . $orderId,
-            'sales_order',
-            (string) $orderId,
-            $orderNumber,
-            $this->eventDate($event),
-            $currency,
-            'Sales order ' . $orderNumber
-                . ' confirmed',
-            'finance-sales-order-confirmed-'
-                . $companyId . '-' . $orderId,
-            [
-                [
-                    'account_id' =>
-                        $accounts[
-                            'accounts_receivable'
-                        ],
-                    'branch_id' => $branchId,
-                    'debit' => $amount,
-                    'credit' => 0,
-                    'description' =>
-                        'Customer receivable',
-                ],
-                [
-                    'account_id' =>
-                        $accounts['sales_revenue'],
-                    'branch_id' => $branchId,
-                    'debit' => 0,
-                    'credit' => $amount,
-                    'description' =>
-                        'Sales revenue',
-                ],
-            ],
-            $this->nullablePositiveInt(
-                $payload['actor_id'] ?? null
-            )
-        );
+        $this->posting->postInvoice($companyId, $invoiceId, $actorId);
+        /* Compatibility cache: its values are sourced from the posted invoice. */
+        $this->openReceivable($companyId, $payload);
     }
 
     /**
@@ -196,68 +140,30 @@ final class FinanceSalesIntegrationHandler
             $salesContext['order_number']
             ?? $orderId
         );
-        $branchId = $this->nullablePositiveInt(
-            $salesContext['branch_id'] ?? null
+        $actorId = $this->nullablePositiveInt($payload['actor_id'] ?? null)
+            ?? $this->salesPaymentActor($companyId, $paymentId);
+        $invoice = \db()->prepare(
+            "SELECT invoice_id, customer_id, residual_amount FROM finance_invoices
+             WHERE company_id=:company_id AND sales_order_id=:order_id
+               AND document_type='customer_invoice' AND status='posted'
+             ORDER BY invoice_id LIMIT 1"
         );
-
-        $this->postReceipt(
-            $companyId,
-            $payload
+        $invoice->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
+        $invoiceRow = $invoice->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($invoiceRow)) {
+            throw new RuntimeException('The posted customer invoice was not found.');
+        }
+        $journals = $this->posting->ensureSystemJournals($companyId,$currency,$actorId);
+        $allocation = min($amount, round((float)$invoiceRow['residual_amount'],2));
+        $this->posting->postCustomerPayment(
+            $companyId,(int)$invoiceRow['customer_id'],$journals['bank'],
+            $this->dateValue($payload['payment_date'] ?? $this->eventDate($event)),
+            $currency,$amount,(string)($payload['payment_method'] ?? 'bank_transfer'),
+            isset($payload['reference_number']) ? (string)$payload['reference_number'] : null,
+            $allocation > 0 ? [['invoice_id'=>(int)$invoiceRow['invoice_id'],'amount'=>$allocation]] : [],
+            $actorId
         );
-
-        $accounts =
-            $this->posting->ensureSystemAccounts(
-                $companyId,
-                $currency,
-                $this->nullablePositiveInt(
-                    $payload['actor_id'] ?? null
-                )
-            );
-
-        $this->posting->postBalancedJournal(
-            $companyId,
-            'PAY-' . $paymentId,
-            'sales_payment',
-            (string) $paymentId,
-            $this->requiredString(
-                $payload['receipt_number'] ?? null,
-                'The payment receipt number is missing.'
-            ),
-            $this->dateValue(
-                $payload['payment_date']
-                ?? $this->eventDate($event)
-            ),
-            $currency,
-            'Payment received for sales order '
-                . $orderNumber,
-            'finance-sales-payment-'
-                . $companyId . '-' . $paymentId,
-            [
-                [
-                    'account_id' =>
-                        $accounts['cash'],
-                    'branch_id' => $branchId,
-                    'debit' => $amount,
-                    'credit' => 0,
-                    'description' =>
-                        'Customer payment received',
-                ],
-                [
-                    'account_id' =>
-                        $accounts[
-                            'accounts_receivable'
-                        ],
-                    'branch_id' => $branchId,
-                    'debit' => 0,
-                    'credit' => $amount,
-                    'description' =>
-                        'Customer receivable settled',
-                ],
-            ],
-            $this->nullablePositiveInt(
-                $payload['actor_id'] ?? null
-            )
-        );
+        $this->postReceipt($companyId,$payload);
     }
 
     /**
@@ -570,6 +476,24 @@ final class FinanceSalesIntegrationHandler
         }
 
         return $order;
+    }
+
+    private function salesOrderActor(int $companyId, int $orderId): int
+    {
+        $statement = \db()->prepare(
+            'SELECT created_by FROM sales_orders WHERE company_id=:company_id AND order_id=:order_id'
+        );
+        $statement->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
+        return $this->positiveInt($statement->fetchColumn(), 'The sales order actor is unavailable.');
+    }
+
+    private function salesPaymentActor(int $companyId, int $paymentId): int
+    {
+        $statement = \db()->prepare(
+            'SELECT recorded_by FROM sales_payments WHERE company_id=:company_id AND payment_id=:payment_id'
+        );
+        $statement->execute(['company_id'=>$companyId,'payment_id'=>$paymentId]);
+        return $this->positiveInt($statement->fetchColumn(), 'The sales payment actor is unavailable.');
     }
 
     /**

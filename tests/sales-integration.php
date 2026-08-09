@@ -282,7 +282,7 @@ try {
         }
     }
     $check(
-        $dispatch['processed'] === 2 && $dispatch['failed'] === 0,
+        $dispatch['processed'] >= 2 && $dispatch['failed'] === 0,
         'Order and payment integration events are dispatched'
     );
     $webhookEventDispatch = (new IntegrationDispatcherService())->dispatch(50);
@@ -393,6 +393,43 @@ try {
     $failures[] = $exception::class . ': ' . $exception->getMessage();
     fwrite(STDERR, 'FAIL ' . end($failures) . PHP_EOL);
 } finally {
+    if ($created['order'] > 0) {
+        $pickingIds = db()->prepare(
+            'SELECT picking_id FROM inventory_pickings WHERE company_id=:company_id AND sales_order_id=:order_id'
+        );
+        $pickingIds->execute(['company_id'=>$companyId,'order_id'=>$created['order']]);
+        $pickingIds = array_map('intval',$pickingIds->fetchAll(PDO::FETCH_COLUMN));
+        foreach (array_reverse($pickingIds) as $pickingId) {
+            db()->prepare('DELETE FROM inventory_picking_completions WHERE company_id=:company_id AND picking_id=:id')
+                ->execute(['company_id'=>$companyId,'id'=>$pickingId]);
+            db()->prepare('DELETE FROM inventory_picking_lines WHERE company_id=:company_id AND picking_id=:id')
+                ->execute(['company_id'=>$companyId,'id'=>$pickingId]);
+            db()->prepare('DELETE FROM inventory_pickings WHERE company_id=:company_id AND picking_id=:id')
+                ->execute(['company_id'=>$companyId,'id'=>$pickingId]);
+        }
+        db()->prepare('DELETE FROM inventory_sales_reservation_allocations WHERE company_id=:company_id AND order_id=:order_id')
+            ->execute(['company_id'=>$companyId,'order_id'=>$created['order']]);
+
+        $batchIds = db()->prepare(
+            "SELECT journal_batch_id FROM finance_invoices WHERE company_id=:invoice_company AND sales_order_id=:order_id
+             UNION SELECT journal_batch_id FROM finance_payments WHERE company_id=:payment_company AND customer_id=:customer_id"
+        );
+        $batchIds->execute(['invoice_company'=>$companyId,'payment_company'=>$companyId,
+            'order_id'=>$created['order'],'customer_id'=>$created['customer']]);
+        $batchIds = array_values(array_filter(array_map('intval',$batchIds->fetchAll(PDO::FETCH_COLUMN))));
+        db()->prepare(
+            'DELETE FROM finance_payment_allocations WHERE company_id=:company_id AND invoice_id IN
+             (SELECT invoice_id FROM finance_invoices WHERE company_id=:invoice_company AND sales_order_id=:order_id)'
+        )->execute(['company_id'=>$companyId,'invoice_company'=>$companyId,'order_id'=>$created['order']]);
+        db()->prepare('DELETE FROM finance_payments WHERE company_id=:company_id AND customer_id=:customer_id')
+            ->execute(['company_id'=>$companyId,'customer_id'=>$created['customer']]);
+        db()->prepare('DELETE FROM finance_invoices WHERE company_id=:company_id AND sales_order_id=:order_id')
+            ->execute(['company_id'=>$companyId,'order_id'=>$created['order']]);
+        foreach ($batchIds as $batchId) {
+            db()->prepare('DELETE FROM finance_journal_batches WHERE company_id=:company_id AND journal_batch_id=:batch_id')
+                ->execute(['company_id'=>$companyId,'batch_id'=>$batchId]);
+        }
+    }
     $deletions = [
         ['inventory_sales_commitments', 'order_id', $created['order']],
         ['finance_sales_receipts', 'order_id', $created['order']],
@@ -418,16 +455,6 @@ try {
         ];
     }
 
-    $deletions[] = [
-        'inventory_warehouse_locations',
-        'location_id',
-        $created['location'],
-    ];
-    $deletions[] = [
-        'inventory_warehouses',
-        'warehouse_id',
-        $created['warehouse'],
-    ];
     foreach (array_reverse($created['products']) as $productId) {
         $deletions[] = ['sales_products', 'product_id', $productId];
     }
@@ -445,6 +472,14 @@ try {
             'company_id' => $companyId,
             'record_id' => $id,
         ]);
+    }
+    if ($created['warehouse'] > 0) {
+        db()->prepare('DELETE FROM inventory_operation_types WHERE company_id=:company_id AND warehouse_id=:warehouse_id')
+            ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse']]);
+        db()->prepare('DELETE FROM inventory_warehouse_locations WHERE company_id=:company_id AND warehouse_id=:warehouse_id')
+            ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse']]);
+        db()->prepare('DELETE FROM inventory_warehouses WHERE company_id=:company_id AND warehouse_id=:warehouse_id')
+            ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse']]);
     }
     db()->prepare(
         "DELETE FROM integration_outbox

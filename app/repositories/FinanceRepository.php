@@ -48,6 +48,33 @@ interface FinanceRepository
         int $companyId,
         string $systemKey
     ): ?array;
+
+    /** @return array<string, int> */
+    public function ensureSystemJournals(int $companyId, string $currency, ?int $actorId): array;
+
+    public function createCustomerInvoiceFromOrder(
+        int $companyId,
+        int $orderId,
+        string $invoicePolicy,
+        int $actorId
+    ): int;
+
+    /** @return array<string, mixed> */
+    public function postInvoice(int $companyId, int $invoiceId, int $actorId): array;
+
+    /** @param list<array{invoice_id:int,amount:mixed}> $allocations @return array<string, mixed> */
+    public function postCustomerPayment(
+        int $companyId,
+        int $customerId,
+        int $journalId,
+        string $paymentDate,
+        string $currency,
+        mixed $amount,
+        string $method,
+        ?string $reference,
+        array $allocations,
+        int $actorId
+    ): array;
     /**
      * @return list<array<string, mixed>>
      */

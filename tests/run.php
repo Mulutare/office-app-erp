@@ -541,6 +541,7 @@ try {
                 '039',
                 '040',
                 '041',
+                '042',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -576,13 +577,14 @@ try {
                 \'038\',
                 \'039\',
                 \'040\',
-                \'041\'
+                \'041\',
+                \'042\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 27,
+        $migrationLedgerCount === 28,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -768,8 +770,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 81,
-        'All 81 application tables were created'
+        $tableCount === 90,
+        'All 90 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -781,8 +783,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 290,
-        'All 290 foreign-key relationships were created'
+        $foreignKeyCount === 327,
+        'All 327 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
