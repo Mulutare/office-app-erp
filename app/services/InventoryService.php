@@ -67,6 +67,15 @@ final class InventoryService
         }
     }
 
+    public function receipts(): array{return $this->inventory->goodsReceipts($this->tenant->companyId());}
+    public function receipt(int $id): ?array{return $this->inventory->goodsReceipt($this->tenant->companyId(),$id);}
+    public function receiptOptions(): array
+    {$company=$this->tenant->companyId();$w=\db()->prepare("SELECT w.warehouse_id,w.code,w.name FROM inventory_warehouses w WHERE w.company_id=:company_id AND w.active=TRUE AND w.deleted_at IS NULL AND EXISTS(SELECT 1 FROM inventory_operation_types o WHERE o.company_id=w.company_id AND o.warehouse_id=w.warehouse_id AND o.operation_kind='receipt' AND o.active=TRUE AND o.is_default=TRUE AND o.default_source_location_id IS NOT NULL AND o.default_destination_location_id IS NOT NULL) ORDER BY w.is_default DESC,w.name");$w->execute(['company_id'=>$company]);$p=\db()->prepare("SELECT product_id,sku,name,unit_of_measure FROM sales_products WHERE company_id=:company_id AND active=TRUE AND deleted_at IS NULL AND product_type<>'service' ORDER BY name");$p->execute(['company_id'=>$company]);return['warehouses'=>$w->fetchAll(\PDO::FETCH_ASSOC),'products'=>$p->fetchAll(\PDO::FETCH_ASSOC)];}
+    public function createGoodsReceipt(array $input,int $actorId): array
+    {$warehouse=(int)($input['warehouse_id']??0);$supplier=trim((string)($input['supplier_name']??''));$date=trim((string)($input['receipt_date']??''));$currency=strtoupper(trim((string)($input['currency']??'ETB')));$productIds=(array)($input['product_id']??[]);$quantities=(array)($input['quantity']??[]);$costs=(array)($input['unit_cost']??[]);$lines=[];foreach($productIds as $i=>$productId){$pid=(int)$productId;$qty=(float)($quantities[$i]??0);$cost=(float)($costs[$i]??0);if($pid>0&&$qty>0)$lines[]=['product_id'=>$pid,'quantity'=>$qty,'unit_cost'=>$cost,'notes'=>null];}if($warehouse<1||$supplier===''||preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)!==1||preg_match('/^[A-Z]{3}$/',$currency)!==1||$lines===[])return['successful'=>false,'errors'=>['form'=>'Warehouse, supplier, receipt date, currency and at least one positive product quantity are required.']];try{$id=$this->inventory->createGoodsReceipt($this->tenant->companyId(),['warehouse_id'=>$warehouse,'supplier_name'=>$supplier,'supplier_reference'=>trim((string)($input['supplier_reference']??''))?:null,'receipt_date'=>$date,'currency'=>$currency,'notes'=>trim((string)($input['notes']??''))?:null],$lines,$actorId);return['successful'=>true,'id'=>$id];}catch(\Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function approveGoodsReceipt(int $id,int $actorId): array
+    {try{$this->inventory->approveGoodsReceipt($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));return['successful'=>true,'id'=>$id];}catch(\Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+
     /** @return array<string, mixed> */
     public function postTransfer(int $transferId, int $actorId): array
     {

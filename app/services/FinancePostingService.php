@@ -93,6 +93,14 @@ final class FinancePostingService
         );
     }
 
+    public function createCustomerCreditFromOrder(
+        int $companyId, int $orderId, int $actorId
+    ): int {
+        return $this->finance->createCustomerCreditFromOrder(
+            $companyId, $orderId, $actorId
+        );
+    }
+
     /** @return array<string, mixed> */
     public function postInvoice(int $companyId, int $invoiceId, int $actorId): array
     {

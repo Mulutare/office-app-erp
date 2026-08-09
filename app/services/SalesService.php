@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Repositories\AuditLogWriter;
+use App\Repositories\InventoryRepository;
 use App\Repositories\RepositoryFactory;
 use App\Repositories\SalesRepository;
 use PDOException;
@@ -15,11 +16,13 @@ final class SalesService
     public function __construct(
         private ?SalesRepository $sales = null,
         private ?AuditLogWriter $audit = null,
-        private ?TenantContext $tenant = null
+        private ?TenantContext $tenant = null,
+        private ?InventoryRepository $inventory = null
     ) {
         $this->sales ??= RepositoryFactory::sales();
         $this->audit ??= RepositoryFactory::auditLogs();
         $this->tenant ??= new TenantContext();
+        $this->inventory ??= RepositoryFactory::inventory();
     }
 
     /** @return array<string, mixed> */
@@ -37,7 +40,142 @@ final class SalesService
             'targets' => $this->sales->targets($companyId),
             'commissions' => $this->sales->commissions($companyId),
             'serialNumbers' => $this->sales->serialNumbers($companyId),
+            'quotations' => $this->sales->quotations($companyId),
+            'pricelists' => $this->sales->pricelists($companyId),
+            'salesTeams' => $this->sales->teams($companyId),
         ];
+    }
+
+    public function createPricelist(array $input,int $actorId): array
+    {
+        $calculation=(string)($input['calculation']??'fixed');$values=['name'=>trim((string)($input['name']??'')),'currency'=>strtoupper(trim((string)($input['currency']??'ETB'))),'valid_from'=>$this->date($input['valid_from']??null),'valid_to'=>$this->date($input['valid_to']??null),'product_id'=>$this->optionalId($input['product_id']??null),'category'=>$this->nullable($input['category']??null),'minimum_quantity'=>$this->decimal($input['minimum_quantity']??1),'calculation'=>$calculation,'fixed_price'=>$calculation==='fixed'?$this->money($input['fixed_price']??0):null,'percentage_adjustment'=>$calculation==='percentage'?$this->money($input['percentage_adjustment']??0):null,'rule_from'=>$this->date($input['rule_from']??null),'rule_to'=>$this->date($input['rule_to']??null),'priority'=>(int)($input['priority']??100)];
+        if($values['name']===''||!in_array($calculation,['fixed','percentage'],true)||$values['minimum_quantity']<=0)return ['successful'=>false,'errors'=>['form'=>'Name, calculation and positive minimum quantity are required.']];
+        try{return ['successful'=>true,'id'=>$this->sales->createPricelist($this->tenant->companyId(),$values,$actorId)];}catch(Throwable $e){return ['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
+    }
+
+    public function pricelist(int $id): ?array{return $this->sales->pricelist($this->tenant->companyId(),$id);}
+    public function updatePricelist(int $id,array $input): array
+    {$v=['name'=>trim((string)($input['name']??'')),'currency'=>strtoupper(trim((string)($input['currency']??'ETB'))),'valid_from'=>$this->date($input['valid_from']??null),'valid_to'=>$this->date($input['valid_to']??null)];if($v['name']===''||preg_match('/^[A-Z]{3}$/',$v['currency'])!==1||($v['valid_from']!==null&&$v['valid_to']!==null&&$v['valid_to']<$v['valid_from']))return['successful'=>false,'errors'=>['form'=>'Enter a name, ISO currency and valid date range.']];try{$this->sales->updatePricelist($this->tenant->companyId(),$id,$v);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function addPricelistRule(int $id,array $input): array
+    {$prepared=$this->preparePricelistRule($input);if(isset($prepared['errors']))return['successful'=>false,'errors'=>$prepared['errors']];try{$rule=$this->sales->createPricelistRule($this->tenant->companyId(),$id,$prepared['values']);return['successful'=>true,'id'=>$rule];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function updatePricelistRule(int $id,int $ruleId,array $input): array
+    {$prepared=$this->preparePricelistRule($input);if(isset($prepared['errors']))return['successful'=>false,'errors'=>$prepared['errors']];try{$this->sales->updatePricelistRule($this->tenant->companyId(),$id,$ruleId,$prepared['values']);return['successful'=>true,'id'=>$ruleId];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function setPricelistRuleActive(int $id,int $ruleId,bool $active): array
+    {try{$this->sales->setPricelistRuleActive($this->tenant->companyId(),$id,$ruleId,$active);return['successful'=>true,'id'=>$ruleId];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function setPricelistActive(int $id,bool $active): array{try{$this->sales->setPricelistActive($this->tenant->companyId(),$id,$active);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+
+    public function createSalesTeam(array $input,int $actorId): array
+    {
+        $name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return ['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{return ['successful'=>true,'id'=>$this->sales->createTeam($this->tenant->companyId(),['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members,$actorId)];}catch(Throwable $e){return ['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
+    }
+    public function salesTeam(int $id): ?array{return $this->sales->team($this->tenant->companyId(),$id);}
+    public function updateSalesTeam(int $id,array $input): array
+    {$name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{$this->sales->updateTeam($this->tenant->companyId(),$id,['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function setSalesTeamActive(int $id,bool $active): array{try{$this->sales->setTeamActive($this->tenant->companyId(),$id,$active);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+
+    public function createQuotation(array $input,int $actorId): array
+    {
+        $companyId = $this->tenant->companyId();
+        $prepared = $this->prepareQuotation($input, $companyId);
+        if (isset($prepared['errors'])) {
+            return ['successful' => false, 'errors' => $prepared['errors']];
+        }
+        try {
+            $number = $this->sales->reserveDocumentNumber($companyId, null, 'quotation');
+            $prepared['quotation']['quotation_number'] = $number;
+            $id = $this->sales->createQuotation($companyId, $prepared['quotation'], $prepared['lines'], $actorId);
+            return ['successful' => true, 'id' => $id, 'number' => $number];
+        } catch (Throwable $exception) {
+            return ['successful' => false, 'errors' => ['form' => $exception->getMessage()]];
+        }
+    }
+
+    public function quotation(int $id): ?array
+    {
+        return $this->sales->quotation($this->tenant->companyId(), $id);
+    }
+
+    public function orderDetail(int $id): ?array
+    {
+        return $this->sales->orderDetail($this->tenant->companyId(), $id);
+    }
+
+    public function deliveries(): array{return $this->inventory->deliveryPickings($this->tenant->companyId());}
+    public function delivery(int $id): ?array{return $this->inventory->deliveryPicking($this->tenant->companyId(),$id);}
+    public function completeDelivery(int $id,array $input,int $actorId): array
+    {
+        $quantities=[];foreach((array)($input['completed_quantity']??[]) as $lineId=>$quantity){$quantities[(int)$lineId]=max(0,(float)$quantity);}
+        try{$result=$this->inventory->completePicking($this->tenant->companyId(),$id,$quantities,!empty($input['create_backorder']),trim((string)($input['idempotency_key']??''))?:bin2hex(random_bytes(16)),$actorId,date('Y-m-d H:i:s'));return ['successful'=>true]+$result;}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
+    }
+    public function reserveDelivery(int $id,int $actorId): array
+    {try{return['successful'=>true]+$this->inventory->reserveDeliveryPicking($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+
+    public function createReturn(int $deliveryId,array $input,int $actorId): array
+    {
+        $quantities=[];
+        foreach((array)($input['return_quantity']??[]) as $lineId=>$quantity){
+            $quantities[(int)$lineId]=max(0,(float)$quantity);
+        }
+        try{
+            $returnId=$this->inventory->createReturnPicking(
+                $this->tenant->companyId(),$deliveryId,$quantities,$actorId,date('Y-m-d H:i:s')
+            );
+            return['successful'=>true,'returnPickingId'=>$returnId];
+        }catch(Throwable $e){
+            return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];
+        }
+    }
+
+    public function createInvoice(int $orderId,string $policy,int $actorId): array
+    {
+        if(!in_array($policy,['ordered','delivered'],true))return['successful'=>false,'errors'=>['invoice_policy'=>'Select ordered or delivered invoice policy.']];
+        if($this->sales->orderDetail($this->tenant->companyId(),$orderId)===null)return['successful'=>false,'errors'=>['form'=>'Sales Order was not found.']];
+        try{$invoiceId=(new FinancePostingService())->createCustomerInvoiceFromOrder($this->tenant->companyId(),$orderId,$policy,$actorId);return['successful'=>true,'invoiceId'=>$invoiceId];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
+    }
+
+    public function createCreditNote(int $orderId,int $actorId): array
+    {
+        if($this->sales->orderDetail($this->tenant->companyId(),$orderId)===null)return['successful'=>false,'errors'=>['form'=>'Sales Order was not found.']];
+        try{$creditId=(new FinancePostingService())->createCustomerCreditFromOrder($this->tenant->companyId(),$orderId,$actorId);return['successful'=>true,'invoiceId'=>$creditId];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
+    }
+
+    public function updateQuotation(int $id, array $input, int $actorId): array
+    {
+        $companyId = $this->tenant->companyId();
+        $prepared = $this->prepareQuotation($input, $companyId);
+        if (isset($prepared['errors'])) {
+            return ['successful' => false, 'errors' => $prepared['errors']];
+        }
+        try {
+            $this->sales->updateQuotation($companyId, $id, $prepared['quotation'], $prepared['lines'], $actorId);
+            return ['successful' => true, 'id' => $id];
+        } catch (Throwable $exception) {
+            return ['successful' => false, 'errors' => ['form' => $exception->getMessage()]];
+        }
+    }
+
+    public function transitionQuotation(int $id,string $action,int $actorId): array
+    {
+        try {
+            $result = $this->sales->transitionQuotation(
+                $this->tenant->companyId(), $id, $action, $actorId
+            );
+            if ($action === 'confirm' && !empty($result['orderId'])) {
+                $orderId = (int) $result['orderId'];
+                $order = $this->sales->orderDetail($this->tenant->companyId(), $orderId);
+                if (($order['status'] ?? null) === 'submitted') {
+                    $this->sales->activateOrderFromConfirmedQuotation(
+                        $this->tenant->companyId(), $id, $orderId, $actorId
+                    );
+                    $result += $this->prepareDelivery(
+                        $this->tenant->companyId(), $orderId, $actorId
+                    );
+                }
+            }
+            return ['successful' => true] + $result;
+        } catch (Throwable $e) {
+            return ['successful' => false, 'errors' => ['form' => $e->getMessage()]];
+        }
     }
 
     /** @param array<string, mixed> $input @return array<string, mixed> */
@@ -139,13 +277,24 @@ final class SalesService
         }
         $values = [
             'territory_id' => $this->optionalId($input['territory_id'] ?? null),
+            'agent_id' => $this->optionalId($input['agent_id'] ?? null),
+            'pricelist_id' => $this->optionalId($input['pricelist_id'] ?? null),
+            'team_id' => $this->optionalId($input['team_id'] ?? null),
             'customer_number' => strtoupper(trim((string) ($input['customer_number'] ?? ''))),
             'name' => trim((string) ($input['name'] ?? '')),
+            'legal_name' => $this->nullable($input['legal_name'] ?? null),
             'customer_type' => (string) ($input['customer_type'] ?? 'business'),
             'tax_number' => $this->nullable($input['tax_number'] ?? null),
             'email' => $this->nullable($input['email'] ?? null),
             'phone' => $this->nullable($input['phone'] ?? null),
+            'mobile' => $this->nullable($input['mobile'] ?? null),
             'address' => $this->nullable($input['address'] ?? null),
+            'street' => $this->nullable($input['street'] ?? null),
+            'street2' => $this->nullable($input['street2'] ?? null),
+            'city' => $this->nullable($input['city'] ?? null),
+            'state_region' => $this->nullable($input['state_region'] ?? null),
+            'postal_code' => $this->nullable($input['postal_code'] ?? null),
+            'country' => $this->nullable($input['country'] ?? null),
             'preferred_currency' => strtoupper(trim((string) ($input['preferred_currency'] ?? 'ETB'))),
             'credit_mode' => $creditMode,
             'credit_limit' => $creditLimit,
@@ -186,12 +335,18 @@ final class SalesService
                 $errors['territory_id'] = 'Select a territory from the current company.';
             }
         }
+        $errors += $this->validateCustomerValues($values);
         if ($errors !== []) {
             return ['successful' => false, 'errors' => $errors];
         }
 
         return $this->createRecord('customer', $values, $actorId);
     }
+
+    public function customer(int $id): ?array{return $this->sales->customer($this->tenant->companyId(),$id);}
+    public function updateCustomer(int $id,array $input,int $actorId): array
+    {$values=$this->customerValues($input);$errors=$this->validateCustomerValues($values);if($errors!==[])return['successful'=>false,'errors'=>$errors];try{$this->sales->updateCustomer($this->tenant->companyId(),$id,$values,$actorId);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function setCustomerActive(int $id,bool $active,int $actorId): array{try{$this->sales->setCustomerActive($this->tenant->companyId(),$id,$active,$actorId);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
 
     /** @param array<string, mixed> $input @return array<string, mixed> */
     public function createProduct(array $input, int $actorId): array
@@ -226,6 +381,11 @@ final class SalesService
         return $this->createRecord('product', $values, $actorId);
     }
 
+    public function product(int $id): ?array{return $this->sales->product($this->tenant->companyId(),$id);}
+    public function updateProduct(int $id,array $input,int $actorId): array
+    {$values=['sku'=>strtoupper(trim((string)($input['sku']??''))),'name'=>trim((string)($input['name']??'')),'category'=>$this->nullable($input['category']??null),'product_type'=>trim((string)($input['product_type']??'service')),'unit_of_measure'=>trim((string)($input['unit_of_measure']??'unit')),'unit_price'=>$this->money($input['unit_price']??0),'commission_rate'=>$this->money($input['commission_rate']??0),'serial_tracking'=>!empty($input['serial_tracking'])?1:0];$errors=[];if($values['sku']===''||strlen($values['sku'])>60)$errors['sku']='Enter an SKU of up to 60 characters.';if($values['name']===''||strlen($values['name'])>160)$errors['name']='Enter a product name of up to 160 characters.';if(!in_array($values['product_type'],['stockable','service','telecom_product'],true))$errors['product_type']='Select stockable or service semantics.';if($values['unit_price']<0)$errors['unit_price']='Sales price cannot be negative.';if($values['commission_rate']<0||$values['commission_rate']>100)$errors['commission_rate']='Commission rate must be between 0 and 100.';if($errors!==[])return['successful'=>false,'errors'=>$errors];try{$this->sales->updateProduct($this->tenant->companyId(),$id,$values,$actorId);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    public function setProductActive(int $id,bool $active,int $actorId): array{try{$this->sales->setProductActive($this->tenant->companyId(),$id,$active,$actorId);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+
     /** @param array<string, mixed> $input @return array<string, mixed> */
     public function createOrder(array $input, int $actorId): array
     {
@@ -236,7 +396,9 @@ final class SalesService
         }
         $customers = [];
         foreach ($this->sales->customers($companyId) as $customer) {
-            $customers[(int) $customer['customer_id']] = $customer;
+            if (!empty($customer['active'])) {
+                $customers[(int) $customer['customer_id']] = $customer;
+            }
         }
         $agents = [];
         foreach ($this->sales->agents($companyId) as $agent) {
@@ -287,7 +449,7 @@ final class SalesService
             $product = $products[$productId] ?? null;
             $lineDiscount = $this->money($submittedLine['discount_amount'] ?? 0);
             $taxRate = $this->money($submittedLine['tax_rate'] ?? 0);
-            if (!is_array($product) || $quantity <= 0 || $lineDiscount < 0 || $taxRate < 0 || $taxRate > 100) {
+            if (!is_array($product) || empty($product['active']) || $quantity <= 0 || $lineDiscount < 0 || $taxRate < 0 || $taxRate > 100) {
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' has an invalid product, quantity, discount or tax rate.';
                 continue;
             }
@@ -439,6 +601,9 @@ final class SalesService
     {
         $companyId = $this->tenant->companyId();
         try {
+            if($action==='fulfill'){
+                return ['successful'=>true]+$this->prepareDelivery($companyId,$orderId,$actorId);
+            }
             $key = trim((string) $idempotencyKey);
             if ($key === '' || strlen($key) > 100) {
                 $key = bin2hex(random_bytes(16));
@@ -446,13 +611,14 @@ final class SalesService
             $transition = $this->sales->transitionOrder(
                 $companyId, $orderId, $action, $reason, $actorId, $key
             );
+            $delivery=$action==='approve'?$this->prepareDelivery($companyId,$orderId,$actorId):[];
             if (!empty($transition['replayed'])) {
-                return ['successful' => true, 'replayed' => true];
+                return ['successful' => true, 'replayed' => true]+$delivery;
             }
             $this->audit->record($actorId, 'TRANSITION_SALES_ORDER', 'sales', 'sales_orders', (string) $orderId, null, [
                 'action' => $action, 'reason' => $reason,
             ], $companyId);
-            return ['successful' => true];
+            return ['successful' => true]+$delivery;
         } catch (Throwable $exception) {
             if (!$exception instanceof \RuntimeException) {
                 error_log('Sales order transition failed: ' . $exception->getMessage());
@@ -575,6 +741,120 @@ final class SalesService
     {
         $value = trim((string) $value);
         return $value === '' ? null : $value;
+    }
+
+    /** @return array<string,mixed> */
+    private function prepareDelivery(int $companyId,int $orderId,int $actorId): array
+    {
+        $order=$this->sales->orderDetail($companyId,$orderId);
+        if($order===null)throw new \RuntimeException('Sales order was not found.');
+        if(!in_array((string)$order['status'],['approved','confirmed'],true))throw new \RuntimeException('Only an approved Sales Order can prepare a delivery.');
+        $deliveryLines=array_values(array_filter($order['lines'],static fn(array $line)=>(string)($line['product_type']??'stockable')!=='service'));
+        if($deliveryLines===[])return ['pickingId'=>null,'inventoryReserved'=>false,'deliveryRequired'=>false];
+        $lines=array_map(static fn(array $line)=>['product_id'=>(int)$line['product_id'],'quantity'=>(float)$line['quantity']],$deliveryLines);
+        $now=date('Y-m-d H:i:s');$reserved=true;
+        try{$this->inventory->reserveSalesOrder($companyId,$orderId,isset($order['branch_id'])?(int)$order['branch_id']:null,$lines,$now);}catch(\RuntimeException $reservationFailure){
+            if(!str_contains(strtolower($reservationFailure->getMessage()),'stock'))throw $reservationFailure;$reserved=false;
+        }
+        $pickingIds=$this->inventory->ensureDeliveryPickings($companyId,$orderId,$actorId,$now);
+        return ['pickingId'=>$pickingIds[0]??null,'inventoryReserved'=>$reserved,'deliveryRequired'=>true];
+    }
+
+    /** @return array{quotation?:array<string,mixed>,lines?:list<array<string,mixed>>,errors?:array<string,string>} */
+    private function prepareQuotation(array $input, int $companyId): array
+    {
+        $pricelistId = $this->optionalId($input['pricelist_id'] ?? null);
+        $quotationDate = $this->date($input['quotation_date'] ?? null) ?? date('Y-m-d');
+        $expirationDate = $this->date($input['expiration_date'] ?? null);
+        $customerId = (int) ($input['customer_id'] ?? 0);
+        $customers = [];
+        foreach ($this->sales->customers($companyId) as $customer) {
+            if (!empty($customer['active'])) {
+                $customers[(int) $customer['customer_id']] = true;
+            }
+        }
+        if (!isset($customers[$customerId])) {
+            return ['errors' => ['customer_id' => 'Select a customer from the current company.']];
+        }
+        if ($expirationDate !== null && $expirationDate < $quotationDate) {
+            return ['errors' => ['expiration_date' => 'Expiration cannot precede the quotation date.']];
+        }
+        $products = [];
+        foreach ($this->sales->products($companyId) as $product) {
+            $products[(int) $product['product_id']] = $product;
+        }
+        $lines = [];
+        $untaxed = $tax = $total = 0.0;
+        foreach ((array) ($input['lines'] ?? []) as $index => $submitted) {
+            $productId = (int) ($submitted['product_id'] ?? 0);
+            $quantity = $this->decimal($submitted['quantity'] ?? 0);
+            $product = $products[$productId] ?? null;
+            if (!is_array($product) || empty($product['active']) || $quantity <= 0) {
+                continue;
+            }
+            $price = $this->sales->resolvePrice($companyId, $pricelistId, $productId, $quantity, $quotationDate, (float) $product['unit_price']);
+            $discount = $this->money($submitted['discount_amount'] ?? 0);
+            $taxRate = $this->money($submitted['tax_rate'] ?? 0);
+            $gross = round($quantity * $price, 2);
+            if ($discount < 0 || $discount > $gross || $taxRate < 0 || $taxRate > 100) {
+                continue;
+            }
+            $net = round($gross - $discount, 2);
+            $lineTax = round($net * $taxRate / 100, 2);
+            $lines[] = [
+                'sequence' => $index + 1, 'product_id' => $productId,
+                'description' => $product['name'], 'quantity' => $quantity,
+                'unit_of_measure' => $product['unit_of_measure'], 'unit_price' => $price,
+                'discount_amount' => $discount, 'tax_rate' => $taxRate,
+                'untaxed_amount' => $net, 'tax_amount' => $lineTax,
+                'line_total' => round($net + $lineTax, 2),
+            ];
+            $untaxed += $net; $tax += $lineTax; $total += $net + $lineTax;
+        }
+        if ($lines === []) {
+            return ['errors' => ['lines' => 'Add at least one valid quotation line.']];
+        }
+        return [
+            'quotation' => [
+                'customer_id' => $customerId,
+                'agent_id' => $this->optionalId($input['agent_id'] ?? null),
+                'team_id' => $this->optionalId($input['team_id'] ?? null),
+                'pricelist_id' => $pricelistId,
+                'quotation_date' => $quotationDate, 'expiration_date' => $expirationDate,
+                'payment_terms_days' => max(0, (int) ($input['payment_terms_days'] ?? 0)),
+                'currency' => strtoupper((string) ($input['currency'] ?? 'ETB')),
+                'billing_address' => $this->nullable($input['billing_address'] ?? null),
+                'delivery_address' => $this->nullable($input['delivery_address'] ?? null),
+                'notes' => $this->nullable($input['notes'] ?? null),
+                'untaxed_amount' => round($untaxed, 2), 'tax_amount' => round($tax, 2),
+                'total_amount' => round($total, 2),
+            ],
+            'lines' => $lines,
+        ];
+    }
+
+    /** @return array{values?:array<string,mixed>,errors?:array<string,string>} */
+    private function preparePricelistRule(array $input): array
+    {
+        $calculation=(string)($input['calculation']??'fixed');$from=$this->date($input['rule_from']??null);$to=$this->date($input['rule_to']??null);$values=['product_id'=>$this->optionalId($input['product_id']??null),'category'=>$this->nullable($input['category']??null),'minimum_quantity'=>$this->decimal($input['minimum_quantity']??1),'calculation'=>$calculation,'fixed_price'=>$calculation==='fixed'?$this->money($input['fixed_price']??0):null,'percentage_adjustment'=>$calculation==='percentage'?$this->money($input['percentage_adjustment']??0):null,'rule_from'=>$from,'rule_to'=>$to,'priority'=>(int)($input['priority']??100)];
+        if(!in_array($calculation,['fixed','percentage'],true)||$values['minimum_quantity']<=0)return['errors'=>['form'=>'Enter a valid pricing calculation and positive minimum quantity.']];
+        if($from!==null&&$to!==null&&$to<$from)return['errors'=>['rule_to'=>'Rule end date cannot precede its start date.']];
+        if($calculation==='fixed'&&$values['fixed_price']<0)return['errors'=>['fixed_price'=>'Fixed price cannot be negative.']];
+        if($calculation==='percentage'&&$values['percentage_adjustment']<-100)return['errors'=>['percentage_adjustment'=>'Percentage adjustment cannot reduce price below zero.']];
+        return['values'=>$values];
+    }
+
+    /** @return array<string,mixed> */
+    private function customerValues(array $input): array
+    {
+        $creditLimit=$this->money($input['credit_limit']??0);$creditMode=trim((string)($input['credit_mode']??''));if($creditMode==='')$creditMode=$creditLimit>0?'fixed':'unlimited';return['territory_id'=>$this->optionalId($input['territory_id']??null),'agent_id'=>$this->optionalId($input['agent_id']??null),'pricelist_id'=>$this->optionalId($input['pricelist_id']??null),'team_id'=>$this->optionalId($input['team_id']??null),'customer_number'=>strtoupper(trim((string)($input['customer_number']??''))),'name'=>trim((string)($input['name']??'')),'legal_name'=>$this->nullable($input['legal_name']??null),'customer_type'=>(string)($input['customer_type']??'business'),'tax_number'=>$this->nullable($input['tax_number']??null),'email'=>$this->nullable($input['email']??null),'phone'=>$this->nullable($input['phone']??null),'mobile'=>$this->nullable($input['mobile']??null),'address'=>$this->nullable($input['address']??null),'street'=>$this->nullable($input['street']??null),'street2'=>$this->nullable($input['street2']??null),'city'=>$this->nullable($input['city']??null),'state_region'=>$this->nullable($input['state_region']??null),'postal_code'=>$this->nullable($input['postal_code']??null),'country'=>$this->nullable($input['country']??null),'preferred_currency'=>strtoupper(trim((string)($input['preferred_currency']??'ETB'))),'credit_mode'=>$creditMode,'credit_limit'=>$creditLimit,'credit_status'=>(string)($input['credit_status']??'active'),'payment_terms_days'=>max(0,(int)($input['payment_terms_days']??0))];
+    }
+
+    /** @param array<string,mixed> $v @return array<string,string> */
+    private function validateCustomerValues(array $v): array
+    {
+        $errors=[];if($v['customer_number']===''||strlen($v['customer_number'])>40)$errors['customer_number']='Enter a customer number of up to 40 characters.';if($v['name']===''||strlen($v['name'])>160)$errors['name']='Enter a customer name of up to 160 characters.';if(!in_array($v['customer_type'],['business','individual','agent','government'],true))$errors['customer_type']='Select a valid customer type.';if($v['email']!==null&&filter_var($v['email'],FILTER_VALIDATE_EMAIL)===false)$errors['email']='Enter a valid email address.';if(preg_match('/^[A-Z]{3}$/',$v['preferred_currency'])!==1)$errors['preferred_currency']='Preferred currency must be a three-letter ISO code.';if(!in_array($v['credit_mode'],['no_credit','unlimited','fixed'],true))$errors['credit_mode']='Select a valid credit policy.';if(!in_array($v['credit_status'],['active','hold','blocked'],true))$errors['credit_status']='Select a valid credit status.';if($v['credit_limit']<0||($v['credit_mode']==='fixed'&&$v['credit_limit']<=0))$errors['credit_limit']='A fixed credit policy requires a positive limit.';
+        $companyId=$this->tenant->companyId();$allowed=['territory_id'=>array_column($this->sales->territories($companyId),'territory_id'),'agent_id'=>array_column($this->sales->agents($companyId),'agent_id'),'team_id'=>array_column($this->sales->teams($companyId),'team_id'),'pricelist_id'=>array_column($this->sales->pricelists($companyId),'pricelist_id')];foreach($allowed as $field=>$ids)if($v[$field]!==null&&!in_array($v[$field],array_map('intval',$ids),true))$errors[$field]='Select a '.$field.' from the current company.';return $errors;
     }
 
     private function optionalId(mixed $value): ?int

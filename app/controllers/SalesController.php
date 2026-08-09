@@ -20,6 +20,102 @@ final class SalesController
 
     public function index(): void
     {
+        $this->renderWorkspace('dashboard');
+    }
+
+    public function customers(): void { $this->renderWorkspace('customers'); }
+    public function products(): void { $this->renderWorkspace('products'); }
+    public function showCustomer(string $id): void{$this->authorize('sales.view');$this->renderMaster('customer',(int)$id);}
+    public function showProduct(string $id): void{$this->authorize('sales.view');$this->renderMaster('product',(int)$id);}
+    private function renderMaster(string $type,int $id): void
+    {$record=$type==='customer'?$this->sales->customer($id):$this->sales->product($id);if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='customer'?'Customer commercial master.':'Shared Sales and Inventory product master.','contentView'=>'sales.master','masterType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
+    public function quotations(): void { $this->renderWorkspace('quotations'); }
+    public function orders(): void { $this->renderWorkspace('orders'); }
+    public function showOrder(string $id): void
+    {
+        $this->authorize('sales.view');
+        $order=$this->sales->orderDetail((int)$id);
+        if($order===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage')]);
+    }
+    public function createInvoice(string $id): void
+    {$this->authorize('sales.view');$this->authorization->requireModule('finance');$this->authorization->requireTenantPermission('finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+    public function createCreditNote(string $id): void
+    {$this->authorize('sales.view');$this->authorization->requireModule('finance');$this->authorization->requireTenantPermission('finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createCreditNote((int)$id,$this->actorId());$this->finishTo($result,'sales_invoice','Customer credit note created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+    public function pricelists(): void { $this->renderWorkspace('pricelists'); }
+    public function teams(): void { $this->renderWorkspace('teams'); }
+    public function deliveries(): void
+    {
+        $this->authorize('sales.view');
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Deliveries','pageDescription'=>'Authoritative Inventory pickings created from Sales Orders.','contentView'=>'sales.deliveries','deliveries'=>$this->sales->deliveries(),'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[])]);
+    }
+    public function showDelivery(string $id): void
+    {
+        $this->authorize('sales.view');$delivery=$this->sales->delivery((int)$id);
+        if($delivery===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.transfers.manage'),'canReturn'=>$this->can('inventory.transfers.manage')]);
+    }
+    public function completeDelivery(string $id): void
+    {
+        $this->authorize('inventory.transfers.manage');$this->requireCsrf('sales_delivery');
+        $document=$this->sales->delivery((int)$id);
+        $result=$this->sales->completeDelivery((int)$id,['completed_quantity'=>$_POST['completed_quantity']??[],'create_backorder'=>\postString('create_backorder'),'idempotency_key'=>\postString('idempotency_key')],$this->actorId());
+        $message=is_array($document)&&($document['picking_type']??'')==='customer_return'?'Return validated in Inventory.':'Delivery quantities validated in Inventory.';
+        $this->finishTo($result,'sales_delivery',$message,[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)($result['backorderPickingId']??$id));
+    }
+    public function reserveDelivery(string $id): void
+    {$this->authorize('inventory.transfers.manage');$this->requireCsrf('sales_delivery_reserve');$result=$this->sales->reserveDelivery((int)$id,$this->actorId());$this->finishTo($result,'sales_delivery_reserve','Stock reserved. The delivery is ready for validation.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)$id);}
+    public function createReturn(string $id): void
+    {$this->authorize('inventory.transfers.manage');$this->requireCsrf('sales_delivery_return');$result=$this->sales->createReturn((int)$id,$_POST,$this->actorId());$this->finishTo($result,'sales_delivery_return','Return document created. Validate it to move returned stock.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)($result['returnPickingId']??$id));}
+    public function showPricelist(string $id): void{$this->authorize('sales.view');$this->renderCommercial('pricelist',(int)$id);}
+    public function showTeam(string $id): void{$this->authorize('sales.view');$this->renderCommercial('team',(int)$id);}
+    private function renderCommercial(string $type,int $id): void
+    {$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id);if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
+
+    public function createQuotation(): void
+    {
+        $this->authorize('sales.orders.create');
+        $this->renderQuotationPage('create');
+    }
+
+    public function showQuotation(string $id): void
+    {
+        $this->authorize('sales.view');
+        $this->renderQuotationPage('show', (int) $id);
+    }
+
+    public function editQuotation(string $id): void
+    {
+        $this->authorize('sales.orders.create');
+        $this->renderQuotationPage('edit', (int) $id);
+    }
+
+    private function renderQuotationPage(string $mode, ?int $quotationId = null): void
+    {
+        $workspace = $this->sales->workspace();
+        $quotation = $quotationId === null ? null : $this->sales->quotation($quotationId);
+        if ($quotationId !== null && $quotation === null) {
+            http_response_code(404);
+            \view('errors.404', ['applicationName' => \config('name', 'OfficeApp ERP')]);
+            return;
+        }
+        \view('layouts.app', [
+            'applicationName' => \config('name', 'OfficeApp ERP'),
+            'environment' => \config('environment', 'unknown'),
+            'pageTitle' => $mode === 'create' ? 'New quotation' : (string) ($quotation['quotation_number'] ?? 'Quotation'),
+            'pageDescription' => 'Create, review and progress an authoritative Sales quotation.',
+            'contentView' => 'sales.quotation', 'quotationMode' => $mode,
+            'quotation' => $quotation, 'user' => $_SESSION['auth'],
+            'notice' => \getFlash('sales_notice'),
+            'errors' => \getFlash('sales_errors', []),
+            'old' => \getFlash('sales_old', []),
+            'canEdit' => $this->can('sales.orders.create'),
+            'canTransition' => $this->can('sales.orders.submit'),
+        ] + $workspace);
+    }
+
+    private function renderWorkspace(string $section): void
+    {
         $this->authorize('sales.view');
         $workspace = $this->sales->workspace();
 
@@ -28,6 +124,7 @@ final class SalesController
             'environment' => \config('environment', 'unknown'),
             'pageTitle' => 'Sales',
             'pageDescription' => 'Customer orders, telecom products, commissions and receivables.',
+            'salesSection' => $section,
             'contentView' => 'sales.index',
             'user' => $_SESSION['auth'],
             'notice' => \getFlash('sales_notice'),
@@ -97,11 +194,13 @@ final class SalesController
         $this->requireCsrf('customer');
         $input = $this->input([
             'customer_number', 'name', 'customer_type', 'territory_id',
-            'tax_number', 'email', 'phone', 'address', 'credit_limit',
-            'payment_terms_days', 'preferred_currency', 'credit_mode',
+            'agent_id','team_id','pricelist_id','legal_name','tax_number','email','phone','mobile','address','street','street2','city','state_region','postal_code','country','credit_limit','credit_status','payment_terms_days','preferred_currency','credit_mode',
         ]);
         $this->finish($this->sales->createCustomer($input, $this->actorId()), 'customer', 'Customer created successfully.', $input);
     }
+
+    public function updateCustomer(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('customer');$input=$this->input(['customer_number','name','customer_type','territory_id','agent_id','team_id','pricelist_id','legal_name','tax_number','email','phone','mobile','address','street','street2','city','state_region','postal_code','country','credit_limit','credit_status','payment_terms_days','preferred_currency','credit_mode']);$result=$this->sales->updateCustomer((int)$id,$input,$this->actorId());$this->finishTo($result,'customer','Customer saved.',$input,'/sales/customers/'.(int)$id,'/sales/customers/'.(int)$id);}
+    public function toggleCustomer(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('customer');$result=$this->sales->setCustomerActive((int)$id,\postString('active')==='1',$this->actorId());$this->finishTo($result,'customer','Customer status updated.',[],'/sales/customers/'.(int)$id,'/sales/customers/'.(int)$id);}
 
     public function storeProduct(): void
     {
@@ -113,6 +212,9 @@ final class SalesController
         ]) + ['serial_tracking' => isset($_POST['serial_tracking'])];
         $this->finish($this->sales->createProduct($input, $this->actorId()), 'product', 'Product created successfully.', $input);
     }
+
+    public function updateProduct(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('product');$input=$this->input(['sku','name','category','product_type','unit_of_measure','unit_price','commission_rate'])+['serial_tracking'=>isset($_POST['serial_tracking'])];$result=$this->sales->updateProduct((int)$id,$input,$this->actorId());$this->finishTo($result,'product','Product saved.',$input,'/sales/products/'.(int)$id,'/sales/products/'.(int)$id);}
+    public function toggleProduct(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('product');$result=$this->sales->setProductActive((int)$id,\postString('active')==='1',$this->actorId());$this->finishTo($result,'product','Product status updated.',[],'/sales/products/'.(int)$id,'/sales/products/'.(int)$id);}
 
     public function storeOrder(): void
     {
@@ -131,6 +233,50 @@ final class SalesController
             : 'Sales order created successfully.';
         $this->finish($result, 'order', $message, $input);
     }
+
+    public function storeQuotation(): void
+    {
+        $this->authorize('sales.orders.create');$this->requireCsrf('quotation');$input=$this->quotationInput();$result=$this->sales->createQuotation($input,$this->actorId());$this->finishTo($result,'quotation','Quotation created successfully.',$input,'/sales/quotations/create',!empty($result['id'])?'/sales/quotations/'.(int)$result['id']:'/sales/quotations');
+    }
+    public function updateQuotation(string $id): void
+    {
+        $this->authorize('sales.orders.create');$this->requireCsrf('quotation');$input=$this->quotationInput();$result=$this->sales->updateQuotation((int)$id,$input,$this->actorId());$this->finishTo($result,'quotation','Quotation saved successfully.',$input,'/sales/quotations/'.(int)$id.'/edit','/sales/quotations/'.(int)$id);
+    }
+    public function confirmQuotation(string $id): void
+    {
+        $this->quotationTransition((int)$id,'confirm');
+    }
+    public function cancelQuotation(string $id): void
+    {
+        $this->quotationTransition((int)$id,'cancel');
+    }
+    public function sendQuotation(string $id): void
+    {
+        $this->quotationTransition((int)$id,'send');
+    }
+    private function quotationTransition(int $id,string $action): void
+    {
+        $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$result=$this->sales->transitionQuotation($id,$action,$this->actorId());$this->finishTo($result,'quotation_action','Quotation updated successfully.',['quotation_id'=>$id,'action'=>$action],'/sales/quotations/'.$id,'/sales/quotations/'.$id);
+    }
+    public function transitionQuotation(): void
+    {
+        $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$input=$this->input(['quotation_id','action']);$this->finish($this->sales->transitionQuotation((int)$input['quotation_id'],$input['action'],$this->actorId()),'quotation_action','Quotation updated successfully.',$input);
+    }
+    public function storePricelist(): void
+    {
+        $this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist');$input=$this->input(['name','currency','valid_from','valid_to','product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$this->finish($this->sales->createPricelist($input,$this->actorId()),'pricelist','Pricelist created successfully.',$input);
+    }
+    public function updatePricelist(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist');$input=$this->input(['name','currency','valid_from','valid_to']);$result=$this->sales->updatePricelist((int)$id,$input);$this->finishTo($result,'pricelist','Pricelist saved.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function storePricelistRule(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist_rule');$input=$this->input(['product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$result=$this->sales->addPricelistRule((int)$id,$input);$this->finishTo($result,'pricelist_rule','Pricing rule added.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function updatePricelistRule(string $id,string $ruleId): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist_rule');$input=$this->input(['product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$result=$this->sales->updatePricelistRule((int)$id,(int)$ruleId,$input);$this->finishTo($result,'pricelist_rule','Pricing rule saved.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function togglePricelistRule(string $id,string $ruleId): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist_rule');$result=$this->sales->setPricelistRuleActive((int)$id,(int)$ruleId,\postString('active')==='1');$this->finishTo($result,'pricelist_rule','Pricing rule status updated.',[],'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function togglePricelist(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist');$result=$this->sales->setPricelistActive((int)$id,\postString('active')==='1');$this->finishTo($result,'pricelist','Pricelist status updated.',[],'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function storeTeam(): void
+    {
+        $this->authorize('sales.catalogue.manage');$this->requireCsrf('team');$input=$this->input(['name','leader_agent_id','territory_id'])+['member_ids'=>is_array($_POST['member_ids']??null)?$_POST['member_ids']:[]];$this->finish($this->sales->createSalesTeam($input,$this->actorId()),'team','Sales team created successfully.',$input);
+    }
+    public function updateTeam(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('team');$input=$this->input(['name','leader_agent_id','territory_id'])+['member_ids'=>is_array($_POST['member_ids']??null)?$_POST['member_ids']:[]];$result=$this->sales->updateSalesTeam((int)$id,$input);$this->finishTo($result,'team','Sales team saved.',$input,'/sales/teams/'.(int)$id,'/sales/teams/'.(int)$id);}
+    public function toggleTeam(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('team');$result=$this->sales->setSalesTeamActive((int)$id,\postString('active')==='1');$this->finishTo($result,'team','Sales team status updated.',[],'/sales/teams/'.(int)$id,'/sales/teams/'.(int)$id);}
 
     public function recordPayment(): void
     {
@@ -164,7 +310,7 @@ final class SalesController
                 (int) $input['order_id'], $input['action'],
                 $input['reason'] ?: null, $this->actorId(), $input['idempotency_key']
             ),
-            'order_action', 'Order status updated successfully.', $input
+            'order_action', $action==='fulfill'?'Inventory delivery prepared successfully.':'Order status updated successfully.', $input
         );
     }
 
@@ -265,6 +411,11 @@ final class SalesController
         return $lines;
     }
 
+    private function quotationInput(): array
+    {
+        return $this->input(['customer_id','agent_id','team_id','pricelist_id','quotation_date','expiration_date','payment_terms_days','currency','billing_address','delivery_address','notes'])+['lines'=>$this->orderLines()];
+    }
+
     private function scalar(mixed $value): string
     {
         return is_string($value) || is_numeric($value)
@@ -282,6 +433,17 @@ final class SalesController
             \flash('sales_notice', ['message' => $message]);
         }
         \redirect('/sales');
+    }
+
+    private function finishTo(array $result,string $form,string $message,array $old,string $failurePath,string $successPath): never
+    {
+        if (empty($result['successful'])) {
+            \flash('sales_errors',$result['errors']??['form'=>'The request could not be completed.']);
+            \flash('sales_old',$old+['form'=>$form]);
+            \redirect($failurePath);
+        }
+        \flash('sales_notice',['message'=>$message]);
+        \redirect($successPath);
     }
 
     private function actorId(): int

@@ -404,7 +404,12 @@ final class WarehouseRepository extends MySqlRepository
                     FALSE,
                     TRUE,
                     TRUE
-                )'
+                )
+             ON DUPLICATE KEY UPDATE
+                name=VALUES(name),operation_kind=VALUES(operation_kind),
+                requires_approval=VALUES(requires_approval),auto_reserve=VALUES(auto_reserve),
+                allow_partial=VALUES(allow_partial),create_backorder=VALUES(create_backorder),
+                is_default=TRUE,active=TRUE'
         );
         $statement->execute([
             'receipt_company_id' => $companyId,
@@ -417,7 +422,9 @@ final class WarehouseRepository extends MySqlRepository
             'adjustment_warehouse_id' => $warehouseId,
         ]);
 
-        if ($statement->rowCount() !== 4) {
+        $verification=$this->connection()->prepare("SELECT COUNT(*) FROM inventory_operation_types WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND active=TRUE AND is_default=TRUE AND ((code='RCPT' AND operation_kind='receipt') OR (code='INT' AND operation_kind='internal_transfer') OR (code='DLV' AND operation_kind='delivery') OR (code='ADJ' AND operation_kind='adjustment'))");
+        $verification->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId]);
+        if ((int)$verification->fetchColumn() !== 4) {
             throw new RuntimeException(
                 'Warehouse operation-type provisioning was incomplete.'
             );

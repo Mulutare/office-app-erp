@@ -241,6 +241,22 @@ $router->get(
     [$financeController, 'index']
 );
 $router->get(
+    '/finance/customer-invoices',
+    [$financeController, 'customerInvoices']
+);
+$router->get(
+    '/finance/customer-invoices/{id}',
+    [$financeController, 'customerInvoice']
+);
+$router->post(
+    '/finance/customer-invoices/{id}/post',
+    [$financeController, 'postCustomerInvoice']
+);
+$router->post(
+    '/finance/customer-invoices/{id}/payments',
+    [$financeController, 'registerCustomerPayment']
+);
+$router->get(
     '/inventory',
     [$inventoryController, 'index']
 );
@@ -248,6 +264,12 @@ $router->post(
     '/inventory/transfers/post',
     [$inventoryController, 'postTransfer']
 );
+$router->get('/inventory/receipts',[$inventoryController,'receipts']);
+$router->get('/inventory/receipts/create',[$inventoryController,'createReceipt']);
+$router->post('/inventory/receipts',[$inventoryController,'storeReceipt']);
+$router->get('/inventory/receipts/{id}',[$inventoryController,'showReceipt']);
+$router->post('/inventory/receipts/{id}/approve',[$inventoryController,'approveReceipt']);
+$router->post('/inventory/receipts/{id}/post',[$inventoryController,'postReceipt']);
 $router->get(
     '/inventory/warehouses',
     [$warehouseController, 'index']
@@ -277,12 +299,52 @@ $router->post(
     [$warehouseLocationController, 'provision']
 );
 $router->get('/sales', [$salesController, 'index']);
+$router->get('/sales/customers', [$salesController, 'customers']);
+$router->get('/sales/products', [$salesController, 'products']);
+$router->get('/sales/customers/{id}', [$salesController, 'showCustomer']);
+$router->get('/sales/products/{id}', [$salesController, 'showProduct']);
+$router->get('/sales/quotations', [$salesController, 'quotations']);
+$router->get('/sales/quotations/create', [$salesController, 'createQuotation']);
+$router->get('/sales/quotations/{id}/edit', [$salesController, 'editQuotation']);
+$router->get('/sales/quotations/{id}', [$salesController, 'showQuotation']);
+$router->get('/sales/orders', [$salesController, 'orders']);
+$router->get('/sales/orders/{id}', [$salesController, 'showOrder']);
+$router->post('/sales/orders/{id}/invoices', [$salesController, 'createInvoice']);
+$router->post('/sales/orders/{id}/credit-notes', [$salesController, 'createCreditNote']);
+$router->get('/sales/pricelists', [$salesController, 'pricelists']);
+$router->get('/sales/teams', [$salesController, 'teams']);
+$router->get('/sales/pricelists/{id}', [$salesController, 'showPricelist']);
+$router->get('/sales/teams/{id}', [$salesController, 'showTeam']);
+$router->get('/sales/deliveries', [$salesController, 'deliveries']);
+$router->get('/sales/deliveries/{id}', [$salesController, 'showDelivery']);
+$router->post('/sales/deliveries/{id}/complete', [$salesController, 'completeDelivery']);
+$router->post('/sales/deliveries/{id}/reserve', [$salesController, 'reserveDelivery']);
+$router->post('/sales/deliveries/{id}/returns', [$salesController, 'createReturn']);
 $router->post('/sales/customers', [$salesController, 'storeCustomer']);
 $router->post('/sales/products', [$salesController, 'storeProduct']);
+$router->post('/sales/customers/{id}', [$salesController, 'updateCustomer']);
+$router->post('/sales/customers/{id}/active', [$salesController, 'toggleCustomer']);
+$router->post('/sales/products/{id}', [$salesController, 'updateProduct']);
+$router->post('/sales/products/{id}/active', [$salesController, 'toggleProduct']);
 $router->post('/sales/territories', [$salesController, 'storeTerritory']);
 $router->post('/sales/agents', [$salesController, 'storeAgent']);
 $router->post('/sales/targets', [$salesController, 'storeTarget']);
 $router->post('/sales/orders', [$salesController, 'storeOrder']);
+$router->post('/sales/quotations', [$salesController, 'storeQuotation']);
+$router->post('/sales/quotations/{id}', [$salesController, 'updateQuotation']);
+$router->post('/sales/quotations/{id}/send', [$salesController, 'sendQuotation']);
+$router->post('/sales/quotations/{id}/confirm', [$salesController, 'confirmQuotation']);
+$router->post('/sales/quotations/{id}/cancel', [$salesController, 'cancelQuotation']);
+$router->post('/sales/quotations/action', [$salesController, 'transitionQuotation']);
+$router->post('/sales/pricelists', [$salesController, 'storePricelist']);
+$router->post('/sales/teams', [$salesController, 'storeTeam']);
+$router->post('/sales/pricelists/{id}', [$salesController, 'updatePricelist']);
+$router->post('/sales/pricelists/{id}/rules', [$salesController, 'storePricelistRule']);
+$router->post('/sales/pricelists/{id}/rules/{ruleId}', [$salesController, 'updatePricelistRule']);
+$router->post('/sales/pricelists/{id}/rules/{ruleId}/active', [$salesController, 'togglePricelistRule']);
+$router->post('/sales/pricelists/{id}/active', [$salesController, 'togglePricelist']);
+$router->post('/sales/teams/{id}', [$salesController, 'updateTeam']);
+$router->post('/sales/teams/{id}/active', [$salesController, 'toggleTeam']);
 $router->post('/sales/orders/action', [$salesController, 'transitionOrder']);
 $router->post('/sales/serials', [$salesController, 'storeSerialNumbers']);
 $router->post('/sales/commissions/action', [$salesController, 'transitionCommission']);

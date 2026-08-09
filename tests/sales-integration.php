@@ -212,10 +212,64 @@ try {
         $created['order'], 'approve', null, $approverId, $approvalKey
     );
     $check(!empty($approval['successful']), 'Submitted order is approved');
+    $automaticPicking=(int)db()->query('SELECT COUNT(*) FROM inventory_pickings WHERE company_id='.(int)$companyId.' AND sales_order_id='.(int)$created['order']." AND picking_type='delivery'")->fetchColumn();
+    $check($automaticPicking>0,'Order approval automatically prepares an authoritative Inventory delivery picking');
     $approvalReplay = $service->transitionOrder(
         $created['order'], 'approve', null, $approverId, $approvalKey
     );
     $check(!empty($approvalReplay['successful']), 'Repeated approval request is idempotent');
+
+    $deliveryId=(int)db()->query(
+        'SELECT picking_id FROM inventory_pickings WHERE company_id='.(int)$companyId
+        .' AND sales_order_id='.(int)$created['order']." AND picking_type='delivery' ORDER BY picking_id LIMIT 1"
+    )->fetchColumn();
+    $delivery=$service->delivery($deliveryId);
+    $deliveryQuantities=[];
+    foreach((array)($delivery['lines']??[]) as $line){
+        $deliveryQuantities[(int)$line['picking_line_id']] = (float)$line['remaining_quantity'];
+    }
+    $deliveryCompletion=$service->completeDelivery($deliveryId,[
+        'completed_quantity'=>$deliveryQuantities,
+        'create_backorder'=>'',
+        'idempotency_key'=>'sales-return-delivery-'.$suffix,
+    ],$approverId);
+    $check(!empty($deliveryCompletion['successful']),'Authoritative delivery is completed before return');
+    $stableCompletedDelivery=$service->delivery($deliveryId);
+    $stableCompletedOrder=$service->orderDetail($created['order']);
+    $stableCompletedLine=(array)(($stableCompletedOrder['lines']??[])[0]??[]);
+    $check(
+        ($stableCompletedDelivery['status']??'')==='done'
+        && (float)($stableCompletedLine['delivered_quantity']??0)===2.0
+        && (float)($stableCompletedLine['returned_quantity']??0)===0.0
+        && (float)($stableCompletedOrder['credit_note_eligible_quantity']??-1)===0.0,
+        'Completed delivery remains authoritative on repeated delivery and Sales Order reloads'
+    );
+
+    $completedDelivery=$service->delivery($deliveryId);
+    $firstDeliveryLine=(array)(($completedDelivery['lines']??[])[0]??[]);
+    $returnCreation=$service->createReturn($deliveryId,[
+        'return_quantity'=>[(int)($firstDeliveryLine['picking_line_id']??0)=>1],
+    ],$approverId);
+    $returnId=(int)($returnCreation['returnPickingId']??0);
+    $returnPicking=$service->delivery($returnId);
+    $returnQuantities=[];
+    foreach((array)($returnPicking['lines']??[]) as $line){
+        $returnQuantities[(int)$line['picking_line_id']] = (float)$line['remaining_quantity'];
+    }
+    $returnCompletion=$service->completeDelivery($returnId,[
+        'completed_quantity'=>$returnQuantities,
+        'create_backorder'=>'',
+        'idempotency_key'=>'sales-return-complete-'.$suffix,
+    ],$approverId);
+    $returnedOrder=$service->orderDetail($created['order']);
+    $returnedLine=(array)(($returnedOrder['lines']??[])[0]??[]);
+    $check(
+        !empty($returnCreation['successful']) && !empty($returnCompletion['successful'])
+        && (float)($returnedLine['delivered_quantity']??0)===2.0
+        && (float)($returnedLine['returned_quantity']??0)===1.0
+        && (float)($returnedLine['net_delivered_quantity']??0)===1.0,
+        'Customer return preserves delivered quantity and recalculates returned and net delivered quantities'
+    );
 
     $historyStatement = db()->prepare(
         'SELECT COUNT(*) FROM sales_order_status_history
@@ -400,6 +454,8 @@ try {
         $pickingIds->execute(['company_id'=>$companyId,'order_id'=>$created['order']]);
         $pickingIds = array_map('intval',$pickingIds->fetchAll(PDO::FETCH_COLUMN));
         foreach (array_reverse($pickingIds) as $pickingId) {
+            db()->prepare("DELETE FROM inventory_stock_movements WHERE company_id=:company_id AND reference_type='inventory_picking' AND reference_id=:id")
+                ->execute(['company_id'=>$companyId,'id'=>$pickingId]);
             db()->prepare('DELETE FROM inventory_picking_completions WHERE company_id=:company_id AND picking_id=:id')
                 ->execute(['company_id'=>$companyId,'id'=>$pickingId]);
             db()->prepare('DELETE FROM inventory_picking_lines WHERE company_id=:company_id AND picking_id=:id')
@@ -409,6 +465,11 @@ try {
         }
         db()->prepare('DELETE FROM inventory_sales_reservation_allocations WHERE company_id=:company_id AND order_id=:order_id')
             ->execute(['company_id'=>$companyId,'order_id'=>$created['order']]);
+
+        foreach($created['products'] as $productId){
+            db()->prepare('DELETE FROM inventory_stock_balances WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND product_id=:product_id')
+                ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse'],'product_id'=>$productId]);
+        }
 
         $batchIds = db()->prepare(
             "SELECT journal_batch_id FROM finance_invoices WHERE company_id=:invoice_company AND sales_order_id=:order_id
@@ -468,15 +529,25 @@ try {
              WHERE company_id = :company_id
                AND {$column} = :record_id"
         );
-        $statement->execute([
-            'company_id' => $companyId,
-            'record_id' => $id,
-        ]);
+        try {
+            $statement->execute([
+                'company_id' => $companyId,
+                'record_id' => $id,
+            ]);
+        } catch (PDOException $exception) {
+            throw new RuntimeException(
+                'Sales integration cleanup failed for '.$table.'.'.$column.': '.$exception->getMessage(),
+                0,
+                $exception
+            );
+        }
     }
     if ($created['warehouse'] > 0) {
         db()->prepare('DELETE FROM inventory_operation_types WHERE company_id=:company_id AND warehouse_id=:warehouse_id')
             ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse']]);
-        db()->prepare('DELETE FROM inventory_warehouse_locations WHERE company_id=:company_id AND warehouse_id=:warehouse_id')
+        db()->prepare('DELETE FROM inventory_warehouse_locations WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND parent_location_id IS NOT NULL')
+            ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse']]);
+        db()->prepare('DELETE FROM inventory_warehouse_locations WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND parent_location_id IS NULL')
             ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse']]);
         db()->prepare('DELETE FROM inventory_warehouses WHERE company_id=:company_id AND warehouse_id=:warehouse_id')
             ->execute(['company_id'=>$companyId,'warehouse_id'=>$created['warehouse']]);

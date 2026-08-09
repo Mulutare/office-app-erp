@@ -52,6 +52,7 @@ $canViewInventoryWarehouses = in_array(
     $inventoryDashboardPermissions,
     true
 );?>
+<div class="details-toolbar"><a href="/office_app/public/inventory/receipts" class="btn btn-primary">Receipts</a><?php if(in_array('inventory.receipts.create',$inventoryDashboardPermissions,true)):?><a href="/office_app/public/inventory/receipts/create" class="btn btn-secondary">New Receipt</a><?php endif;?></div>
 <?php if ($canViewInventoryWarehouses): ?>
     <div class="details-toolbar">
         <a
@@ -255,7 +256,7 @@ $canViewInventoryWarehouses = in_array(
                     ): ?>
                         <tr>
                             <td>
-                                <strong>
+                                <strong><a href="/office_app/public/sales/products/<?= e((string) ($stock['product_id'] ?? '')) ?>">
                                     <?= e((string) (
                                         $stock[
                                             'product_name'
@@ -270,7 +271,7 @@ $canViewInventoryWarehouses = in_array(
                                             )
                                         )
                                     )) ?>
-                                </strong>
+                                </a></strong>
                             </td>
 
                             <td>
@@ -405,8 +406,7 @@ $canViewInventoryWarehouses = in_array(
                             colspan="5"
                             class="empty-state"
                         >
-                            No goods receipts have been
-                            created yet.
+                            No goods receipts have been created yet. <a href="/office_app/public/inventory/receipts/create">Create the first receipt</a>.
                         </td>
                     </tr>
                 <?php else: ?>

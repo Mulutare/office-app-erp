@@ -13,6 +13,91 @@ use Throwable;
 final class FinanceRepository extends MySqlRepository
     implements FinanceRepositoryContract
 {
+    public function customerInvoices(int $companyId): array
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT i.invoice_id,i.invoice_number,i.invoice_date,i.due_date,i.currency,
+                    i.status,i.payment_status,i.total_amount,i.residual_amount,
+                    c.name customer_name,o.order_number
+             FROM finance_invoices i
+             INNER JOIN sales_customers c
+                ON c.company_id=i.company_id AND c.customer_id=i.customer_id
+             LEFT JOIN sales_orders o
+                ON o.company_id=i.company_id AND o.order_id=i.sales_order_id
+             WHERE i.company_id=:company_id
+               AND i.document_type IN ('customer_invoice','customer_credit')
+               AND i.status<>'cancelled'
+             ORDER BY i.invoice_date DESC,i.invoice_id DESC"
+        );
+        $statement->execute(['company_id' => $companyId]);
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function customerInvoice(int $companyId, int $invoiceId): ?array
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT i.*,c.name customer_name,o.order_number,
+                    j.journal_code,j.journal_name,b.batch_number posting_reference
+             FROM finance_invoices i
+             INNER JOIN sales_customers c
+                ON c.company_id=i.company_id AND c.customer_id=i.customer_id
+             LEFT JOIN sales_orders o
+                ON o.company_id=i.company_id AND o.order_id=i.sales_order_id
+             INNER JOIN finance_journals j
+                ON j.company_id=i.company_id AND j.journal_id=i.journal_id
+             LEFT JOIN finance_journal_batches b
+                ON b.company_id=i.company_id AND b.journal_batch_id=i.journal_batch_id
+             WHERE i.company_id=:company_id
+               AND i.invoice_id=:invoice_id
+               AND i.document_type IN ('customer_invoice','customer_credit')"
+        );
+        $statement->execute(['company_id' => $companyId, 'invoice_id' => $invoiceId]);
+        $invoice = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($invoice)) {
+            return null;
+        }
+
+        $lines = $this->connection()->prepare(
+            "SELECT il.*,p.sku,p.name product_name
+             FROM finance_invoice_lines il
+             LEFT JOIN sales_products p
+                ON p.company_id=il.company_id AND p.product_id=il.product_id
+             WHERE il.company_id=:company_id AND il.invoice_id=:invoice_id
+             ORDER BY il.invoice_line_id"
+        );
+        $lines->execute(['company_id' => $companyId, 'invoice_id' => $invoiceId]);
+        $invoice['lines'] = $lines->fetchAll(PDO::FETCH_ASSOC);
+
+        $payments = $this->connection()->prepare(
+            "SELECT p.payment_id,p.payment_number,p.payment_date,p.currency,p.amount,
+                    a.amount allocated_amount,p.method,p.reference_number,p.status,
+                    b.batch_number posting_reference
+             FROM finance_payment_allocations a
+             INNER JOIN finance_payments p
+                ON p.company_id=a.company_id AND p.payment_id=a.payment_id
+             LEFT JOIN finance_journal_batches b
+                ON b.company_id=p.company_id AND b.journal_batch_id=p.journal_batch_id
+             WHERE a.company_id=:company_id AND a.invoice_id=:invoice_id
+             ORDER BY p.payment_id"
+        );
+        $payments->execute(['company_id' => $companyId, 'invoice_id' => $invoiceId]);
+        $invoice['payments'] = $payments->fetchAll(PDO::FETCH_ASSOC);
+        return $invoice;
+    }
+
+    public function customerPaymentJournals(int $companyId): array
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT journal_id,journal_code,journal_name,journal_type
+             FROM finance_journals
+             WHERE company_id=:company_id
+               AND journal_type IN ('bank','cash') AND active=TRUE
+             ORDER BY journal_type,journal_name"
+        );
+        $statement->execute(['company_id' => $companyId]);
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     /**
      * @var list<array{
      *     code:string,
@@ -868,6 +953,45 @@ final class FinanceRepository extends MySqlRepository
         }
     }
 
+    public function createCustomerCreditFromOrder(int $companyId, int $orderId, int $actorId): int
+    {
+        $connection = $this->connection();
+        $connection->beginTransaction();
+        try {
+            $existing = $connection->prepare("SELECT invoice_id FROM finance_invoices WHERE company_id=:company_id AND sales_order_id=:order_id AND document_type='customer_credit' AND status<>'cancelled' ORDER BY invoice_id DESC LIMIT 1 FOR UPDATE");
+            $existing->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
+            $existingId = $existing->fetchColumn();
+            if ($existingId !== false) { $connection->commit(); return (int)$existingId; }
+            $orderStatement = $connection->prepare("SELECT * FROM sales_orders WHERE company_id=:company_id AND order_id=:order_id AND deleted_at IS NULL FOR UPDATE");
+            $orderStatement->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
+            $order = $orderStatement->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($order)) { throw new RuntimeException('Sales Order was not found.'); }
+            $linesStatement = $connection->prepare("SELECT l.*,COALESCE((SELECT SUM(pl.completed_quantity) FROM inventory_picking_lines pl INNER JOIN inventory_pickings p ON p.company_id=pl.company_id AND p.picking_id=pl.picking_id WHERE p.company_id=l.company_id AND p.sales_order_id=l.order_id AND p.picking_type='customer_return' AND p.status='done' AND pl.product_id=l.product_id),0) returned_quantity FROM sales_order_lines l WHERE l.company_id=:company_id AND l.order_id=:order_id ORDER BY l.order_line_id FOR UPDATE");
+            $linesStatement->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
+            $creditLines=[];$untaxed=$discount=$tax=$total=0.0;
+            foreach($linesStatement->fetchAll(PDO::FETCH_ASSOC) as $line){
+                $quantity=round((float)$line['returned_quantity'],3);if($quantity<=0.0005)continue;
+                $unitPrice=round((float)$line['unit_price'],4);$gross=round($quantity*$unitPrice,2);
+                $ratio=$quantity/(float)$line['quantity'];$lineDiscount=round((float)$line['discount_amount']*$ratio,2);
+                $lineUntaxed=round($gross-$lineDiscount,2);$lineTax=round($lineUntaxed*(float)$line['tax_rate']/100,2);
+                $creditLines[]=[$line,$quantity,$unitPrice,$lineDiscount,$lineUntaxed,$lineTax];
+                $untaxed+=$lineUntaxed;$discount+=$lineDiscount;$tax+=$lineTax;$total+=$lineUntaxed+$lineTax;
+            }
+            if($creditLines===[]){throw new RuntimeException('No completed returned quantity is eligible for credit.');}
+            $original=$connection->prepare("SELECT invoice_id,journal_id FROM finance_invoices WHERE company_id=:company_id AND sales_order_id=:order_id AND document_type='customer_invoice' AND status='posted' ORDER BY invoice_id DESC LIMIT 1 FOR UPDATE");
+            $original->execute(['company_id'=>$companyId,'order_id'=>$orderId]);$source=$original->fetch(PDO::FETCH_ASSOC);
+            if(!is_array($source)){throw new RuntimeException('A posted customer invoice is required before creating a credit note.');}
+            $journal=$connection->prepare('SELECT next_number FROM finance_journals WHERE company_id=:company_id AND journal_id=:journal_id FOR UPDATE');
+            $journal->execute(['company_id'=>$companyId,'journal_id'=>$source['journal_id']]);$next=(int)$journal->fetchColumn();
+            $number=sprintf('CN-%08d',$next);$connection->prepare('UPDATE finance_journals SET next_number=next_number+1 WHERE company_id=:company_id AND journal_id=:journal_id')->execute(['company_id'=>$companyId,'journal_id'=>$source['journal_id']]);
+            $insert=$connection->prepare("INSERT INTO finance_invoices(company_id,journal_id,customer_id,sales_order_id,original_invoice_id,document_type,invoice_number,invoice_date,due_date,currency,payment_terms_days,invoice_policy,status,payment_status,untaxed_amount,discount_amount,tax_amount,total_amount,residual_amount,notes,created_by) VALUES(:company_id,:journal_id,:customer_id,:order_id,:original,'customer_credit',:number,CURRENT_DATE,CURRENT_DATE,:currency,0,'delivered','draft','credit',:untaxed,:discount,:tax,:total,:residual,:notes,:actor)");
+            $insert->execute(['company_id'=>$companyId,'journal_id'=>$source['journal_id'],'customer_id'=>$order['customer_id'],'order_id'=>$orderId,'original'=>$source['invoice_id'],'number'=>$number,'currency'=>$order['currency'],'untaxed'=>round($untaxed,2),'discount'=>round($discount,2),'tax'=>round($tax,2),'total'=>round($total,2),'residual'=>round($total,2),'notes'=>'Customer return credit for '.$order['order_number'],'actor'=>$actorId]);
+            $creditId=(int)$connection->lastInsertId();$lineInsert=$connection->prepare("INSERT INTO finance_invoice_lines(company_id,invoice_id,sales_order_line_id,product_id,description,quantity,unit_price,discount_amount,tax_rate,untaxed_amount,tax_amount,total_amount) VALUES(:company_id,:invoice_id,:sales_line,:product,:description,:quantity,:unit_price,:discount,:tax_rate,:untaxed,:tax,:total)");
+            foreach($creditLines as [$line,$quantity,$unitPrice,$lineDiscount,$lineUntaxed,$lineTax]){$lineInsert->execute(['company_id'=>$companyId,'invoice_id'=>$creditId,'sales_line'=>$line['order_line_id'],'product'=>$line['product_id'],'description'=>$line['description'],'quantity'=>$quantity,'unit_price'=>$unitPrice,'discount'=>$lineDiscount,'tax_rate'=>$line['tax_rate'],'untaxed'=>$lineUntaxed,'tax'=>$lineTax,'total'=>round($lineUntaxed+$lineTax,2)]);}
+            $connection->commit();return $creditId;
+        } catch(Throwable $exception){if($connection->inTransaction())$connection->rollBack();throw $exception;}
+    }
+
     public function postInvoice(int $companyId, int $invoiceId, int $actorId): array
     {
         $connection = $this->connection();
@@ -886,11 +1010,16 @@ final class FinanceRepository extends MySqlRepository
             if ($invoice['status'] !== 'draft') { throw new RuntimeException('Only a draft invoice can be posted.'); }
             $this->assertOpenPostingDate($companyId, (string)$invoice['invoice_date']);
             $accounts = $this->ensureSystemAccounts($companyId, (string)$invoice['currency'], $actorId);
+            $isCredit = (string)$invoice['document_type'] === 'customer_credit';
             $journal = $this->postBalancedJournal(
-                $companyId, 'INV-'.$invoiceId, 'customer_invoice', (string)$invoiceId,
+                $companyId, ($isCredit?'CN-':'INV-').$invoiceId, $isCredit?'customer_credit':'customer_invoice', (string)$invoiceId,
                 (string)$invoice['invoice_number'], (string)$invoice['invoice_date'], (string)$invoice['currency'],
-                'Customer invoice '.$invoice['invoice_number'], 'finance-invoice-'.$companyId.'-'.$invoiceId,
-                [
+                ($isCredit?'Customer credit ':'Customer invoice ').$invoice['invoice_number'], 'finance-invoice-'.$companyId.'-'.$invoiceId,
+                $isCredit ? [
+                    ['account_id'=>$accounts['sales_revenue'],'debit'=>$invoice['untaxed_amount'],'credit'=>0,'description'=>'Sales return'],
+                    ...((float)$invoice['tax_amount'] > 0 ? [['account_id'=>$accounts['sales_tax_payable'],'debit'=>$invoice['tax_amount'],'credit'=>0,'description'=>'Sales tax reversal']] : []),
+                    ['account_id'=>$accounts['accounts_receivable'],'debit'=>0,'credit'=>$invoice['total_amount'],'description'=>'Customer credit'],
+                ] : [
                     ['account_id'=>$accounts['accounts_receivable'],'debit'=>$invoice['total_amount'],'credit'=>0,'description'=>'Customer receivable'],
                     ['account_id'=>$accounts['sales_revenue'],'debit'=>0,'credit'=>$invoice['untaxed_amount'],'description'=>'Sales revenue'],
                     ...((float)$invoice['tax_amount'] > 0 ? [[

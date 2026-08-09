@@ -701,7 +701,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                               AND source_locations.code =
                                   CONCAT(warehouses.code, \'/STOCK\')
                               AND destination_locations.code =
-                                  CONCAT(warehouses.code, \'/CUSTOMER\')
+                                  CONCAT(warehouses.code, \'/OUTPUT\')
                           )
                           OR (
                               operation_types.operation_kind =
@@ -709,7 +709,7 @@ final class WarehouseLocationRepository extends MySqlRepository
                               AND source_locations.code =
                                   CONCAT(warehouses.code, \'/STOCK\')
                               AND destination_locations.code =
-                                  CONCAT(warehouses.code, \'/OUTPUT\')
+                                  CONCAT(warehouses.code, \'/CUSTOMER\')
                           )
                           OR (
                               operation_types.operation_kind =

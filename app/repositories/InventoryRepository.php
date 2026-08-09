@@ -6,6 +6,22 @@ namespace App\Repositories;
 
 interface InventoryRepository
 {
+    /** @return list<array<string,mixed>> */
+    public function goodsReceipts(int $companyId): array;
+    /** @return array<string,mixed>|null */
+    public function goodsReceipt(int $companyId,int $receiptId): ?array;
+    /** @param array<string,mixed> $header @param list<array<string,mixed>> $lines */
+    public function createGoodsReceipt(int $companyId,array $header,array $lines,int $actorId): int;
+    public function approveGoodsReceipt(int $companyId,int $receiptId,int $actorId,string $approvedAt): void;
+    /** @return list<array<string, mixed>> */
+    public function deliveryPickings(int $companyId): array;
+
+    /** @return array<string, mixed>|null */
+    public function deliveryPicking(int $companyId, int $pickingId): ?array;
+
+    /** @return array<string,mixed> */
+    public function reserveDeliveryPicking(int $companyId,int $pickingId,int $actorId,string $reservedAt): array;
+
     /** @param array<string, mixed> $movement @return array<string, mixed> */
     public function completeStockMovement(array $movement): array;
 

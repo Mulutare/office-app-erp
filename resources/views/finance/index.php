@@ -107,6 +107,10 @@ function financeDashboardUrl(
 }
 ?>
 
+<nav class="card details-toolbar">
+    <a class="btn btn-primary" href="/office_app/public/finance/customer-invoices">Customer Invoices</a>
+</nav>
+
 <section
     class="finance-overview"
     aria-labelledby="finance-overview-title"

@@ -132,7 +132,7 @@ final class WarehouseLocationController
         \flash('location_notice', [
             'type' => 'success',
             'message' => sprintf(
-                '%s now has six operational locations and mapped Inventory operation types.',
+                '%s is operation-ready with 6/6 operational locations and 4/4 mapped Inventory routes.',
                 (string) $result['warehouseName']
             ),
         ]);

@@ -418,7 +418,7 @@ $check(
 $check(
     str_contains(
         $testRunnerSource,
-        'Warehouse creation provisions six Odoo-style operational locations'
+        'Warehouse creation provisions eleven Odoo-style operational and virtual locations'
     ),
     'Main test runner verifies operational location provisioning'
 );
@@ -442,9 +442,34 @@ $check(
 $check(
     str_contains(
         $testRunnerSource,
-        '$migrationLedgerCount === 26'
+        '$migrationLedgerCount === 30'
     ),
-    'Main test runner expects twenty-six MySQL migrations'
+    'Main test runner expects thirty MySQL migrations'
+);
+
+$inventoryRepositorySource = $contents(
+    'app/repositories/MySql/InventoryRepository.php'
+);
+$check(
+    str_contains($inventoryRepositorySource, "locations.location_usage = 'internal'")
+    && str_contains($inventoryRepositorySource, 'locations.is_virtual = FALSE'),
+    'Sales reservation excludes virtual customer/vendor stock after a shortage retry'
+);
+$check(
+    str_contains($inventoryRepositorySource, '$releasedCommitments')
+    && str_contains($inventoryRepositorySource, '$commitmentReuse')
+    && str_contains($inventoryRepositorySource, 'ON DUPLICATE KEY UPDATE'),
+    'A released shortage reservation can reserve the same commitment and allocation after stock is received'
+);
+$check(
+    str_contains($inventoryRepositorySource, 'UPDATE inventory_picking_lines SET source_location_id=:source')
+    && !str_contains($inventoryRepositorySource, "DELETE FROM inventory_picking_lines WHERE company_id=:company_id AND picking_id=:picking_id')->execute"),
+    'Retry reserves the same existing picking line instead of replacing the picking document'
+);
+$check(
+    str_contains($inventoryRepositorySource, "if((string)\$picking['status']!=='waiting_stock')")
+    && str_contains($inventoryRepositorySource, 'Only a delivery waiting for stock can be reserved.'),
+    'Reservation retry cannot downgrade a completed delivery to ready'
 );
 
 foreach ($results as $result) {

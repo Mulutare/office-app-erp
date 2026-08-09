@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Repositories\AuditLogWriter;
 use App\Repositories\RepositoryFactory;
 use App\Repositories\WarehouseLocationRepository;
+use App\Repositories\WarehouseRepository;
 use PDOException;
 use RuntimeException;
 use Throwable;
@@ -28,11 +29,13 @@ final class WarehouseLocationManagementService
     private WarehouseLocationRepository $locations;
     private AuditLogWriter $auditLogs;
     private TenantContext $tenant;
+    private WarehouseRepository $warehouses;
 
     public function __construct(
         ?WarehouseLocationRepository $locations = null,
         ?AuditLogWriter $auditLogs = null,
-        ?TenantContext $tenant = null
+        ?TenantContext $tenant = null,
+        ?WarehouseRepository $warehouses = null
     ) {
         $this->locations = $locations
             ?? RepositoryFactory::warehouseLocations();
@@ -40,6 +43,7 @@ final class WarehouseLocationManagementService
             ?? RepositoryFactory::auditLogs();
         $this->tenant = $tenant
             ?? new TenantContext();
+        $this->warehouses=$warehouses??RepositoryFactory::warehouses();
     }
 
     /**
@@ -348,12 +352,16 @@ final class WarehouseLocationManagementService
                     (string) $warehouse['name'],
                     $actorId
                 );
+            $this->warehouses->createDefaultOperationTypes($companyId,$warehouseId);
             $this->locations
                 ->configureDefaultOperationLocations(
                     $companyId,
                     $warehouseId,
                     $locationIds
                 );
+            $readinessRows=$this->locations->readinessForCompany($companyId);$readiness=null;
+            foreach($readinessRows as $row){if((int)($row['warehouse_id']??0)===$warehouseId){$readiness=$row;break;}}
+            if(!is_array($readiness)||(int)$readiness['operational_location_count']!==6||(int)$readiness['mapped_operation_type_count']!==4)throw new RuntimeException('Warehouse provisioning did not produce six valid operational locations and four mapped routes.');
 
             $this->auditLogs->record(
                 $actorId,
@@ -396,6 +404,7 @@ final class WarehouseLocationManagementService
             'successful' => true,
             'errors' => [],
             'locationCount' => count($locationIds),
+            'routeCount'=>4,
             'warehouseName' =>
                 (string) $warehouse['name'],
         ];

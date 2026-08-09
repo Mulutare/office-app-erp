@@ -77,6 +77,12 @@ try {
     $check((float)$paidInvoice['residual_amount']===0.0 && $paidInvoice['payment_status']==='paid'
         && (float)$second['unallocatedAmount']===100.0,
         'Overpayment pays the invoice and preserves the excess as customer credit');
+    $paidOrder=$sales->orderDetail((int)$order['orderId']);
+    $check(
+        ($paidOrder['payment_state']??'')==='paid'
+        && (float)($paidOrder['credit_note_eligible_quantity']??-1)===0.0,
+        'Final payment reload does not invent credit eligibility when no completed return exists'
+    );
 
     $unbalancedRejected = false;
     try {

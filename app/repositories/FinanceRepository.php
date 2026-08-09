@@ -6,6 +6,15 @@ namespace App\Repositories;
 
 interface FinanceRepository
 {
+    /** @return list<array<string, mixed>> */
+    public function customerInvoices(int $companyId): array;
+
+    /** @return array<string, mixed>|null */
+    public function customerInvoice(int $companyId, int $invoiceId): ?array;
+
+    /** @return list<array<string, mixed>> */
+    public function customerPaymentJournals(int $companyId): array;
+
     /**
      * @return array<string, int>
      */
@@ -56,6 +65,12 @@ interface FinanceRepository
         int $companyId,
         int $orderId,
         string $invoicePolicy,
+        int $actorId
+    ): int;
+
+    public function createCustomerCreditFromOrder(
+        int $companyId,
+        int $orderId,
         int $actorId
     ): int;
 
