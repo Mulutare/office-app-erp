@@ -135,10 +135,54 @@ final class SalesService
 
     public function createCreditNote(int $orderId,int $actorId): array
     {
-        if($this->sales->orderDetail($this->tenant->companyId(),$orderId)===null)return['successful'=>false,'errors'=>['form'=>'Sales Order was not found.']];
-        try{$creditId=(new FinancePostingService())->createCustomerCreditFromOrder($this->tenant->companyId(),$orderId,$actorId);return['successful'=>true,'invoiceId'=>$creditId];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
-    }
+        $companyId = $this->tenant->companyId();
+        $order = $this->sales->orderDetail($companyId, $orderId);
 
+        if ($order === null) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' => 'Sales Order was not found.',
+                ],
+            ];
+        }
+
+        if (
+            (float) (
+                $order['credit_note_eligible_quantity'] ?? 0
+            ) <= 0.0005
+        ) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' =>
+                        'No completed returned quantity remains available for credit.',
+                ],
+            ];
+        }
+
+        try {
+            $creditId =
+                (new FinancePostingService())
+                    ->createCustomerCreditFromOrder(
+                        $companyId,
+                        $orderId,
+                        $actorId
+                    );
+
+            return [
+                'successful' => true,
+                'invoiceId' => $creditId,
+            ];
+        } catch (Throwable $e) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' => $e->getMessage(),
+                ],
+            ];
+        }
+    }
     public function updateQuotation(int $id, array $input, int $actorId): array
     {
         $companyId = $this->tenant->companyId();

@@ -26,6 +26,7 @@ final class FinanceSalesIntegrationHandler
                 'sales.order.confirmed',
                 'sales.payment.recorded',
                 'inventory.sales-order.fulfilled',
+                'inventory.customer-return.completed',
             ],
             true
         );
@@ -70,6 +71,13 @@ final class FinanceSalesIntegrationHandler
 
             'inventory.sales-order.fulfilled' =>
                 $this->handleInventoryFulfilled(
+                    $companyId,
+                    $event,
+                    $payload
+                ),
+
+            'inventory.customer-return.completed' =>
+                $this->handleInventoryReturned(
                     $companyId,
                     $event,
                     $payload
@@ -213,6 +221,95 @@ final class FinanceSalesIntegrationHandler
             $payload['actor_id'] ?? null
         );
 
+        $pickingId = $this->nullablePositiveInt(
+            $payload['picking_id'] ?? null
+        );
+
+        if ($pickingId === null) {
+            /*
+             * Compatibility with historical order-level events.
+             */
+            $journalBatchNumber =
+                'COGS-' . $orderId;
+
+            $journalSourceId =
+                (string) $orderId;
+
+            $journalSourceNumber =
+                $orderNumber;
+
+            $journalDescription =
+                'Inventory fulfilled for sales order '
+                . $orderNumber;
+
+            $journalIdempotencyKey =
+                'finance-inventory-fulfilled-'
+                . $companyId
+                . '-'
+                . $orderId;
+        } else {
+            /*
+             * New authoritative picking completion.
+             * The completion key distinguishes partial deliveries
+             * and backorders for the same sales order.
+             */
+            $completionKey = trim(
+                (string) (
+                    $payload['completion_key']
+                    ?? ''
+                )
+            );
+
+            $identity =
+                $completionKey !== ''
+                    ? $completionKey
+                    : (string) (
+                        $event['event_id']
+                        ?? ('picking-' . $pickingId)
+                    );
+
+            $suffix = substr(
+                hash('sha256', $identity),
+                0,
+                10
+            );
+
+            $pickingNumber = trim(
+                (string) (
+                    $payload['picking_number']
+                    ?? ''
+                )
+            );
+
+            $journalBatchNumber =
+                'COGS-'
+                . $pickingId
+                . '-'
+                . $suffix;
+
+            $journalSourceId =
+                (string) $pickingId;
+
+            $journalSourceNumber =
+                $pickingNumber !== ''
+                    ? $pickingNumber
+                    : ('PICK-' . $pickingId);
+
+            $journalDescription =
+                'Inventory delivered for sales order '
+                . $orderNumber
+                . ' via '
+                . $journalSourceNumber;
+
+            $journalIdempotencyKey =
+                'finance-inventory-fulfilled-'
+                . $companyId
+                . '-picking-'
+                . $pickingId
+                . '-'
+                . $suffix;
+        }
+
         $accounts =
             $this->posting->ensureSystemAccounts(
                 $companyId,
@@ -222,19 +319,17 @@ final class FinanceSalesIntegrationHandler
 
         $this->posting->postBalancedJournal(
             $companyId,
-            'COGS-' . $orderId,
+            $journalBatchNumber,
             'inventory_fulfilment',
-            (string) $orderId,
-            $orderNumber,
+            $journalSourceId,
+            $journalSourceNumber,
             $this->dateValue(
                 $payload['fulfilled_at']
                 ?? $this->eventDate($event)
             ),
             $currency,
-            'Inventory fulfilled for sales order '
-                . $orderNumber,
-            'finance-inventory-fulfilled-'
-                . $companyId . '-' . $orderId,
+            $journalDescription,
+            $journalIdempotencyKey,
             [
                 [
                     'account_id' =>
@@ -263,6 +358,149 @@ final class FinanceSalesIntegrationHandler
         );
     }
 
+    /**
+     * Post the cost-side reversal for a completed customer return.
+     *
+     * Debit  Inventory Asset
+     * Credit Cost of Goods Sold
+     *
+     * @param array<string, mixed> $event
+     * @param array<string, mixed> $payload
+     */
+    private function handleInventoryReturned(
+        int $companyId,
+        array $event,
+        array $payload
+    ): void {
+        $orderId = $this->positiveInt(
+            $payload['order_id'] ?? null,
+            'The returned sales order ID is invalid.'
+        );
+
+        $pickingId = $this->positiveInt(
+            $payload['picking_id'] ?? null,
+            'The customer return picking ID is invalid.'
+        );
+
+        $inventoryCost = round(
+            (float) (
+                $payload['inventory_cost'] ?? 0
+            ),
+            2
+        );
+
+        if ($inventoryCost <= 0) {
+            return;
+        }
+
+        $salesContext = $this->salesContext(
+            $companyId,
+            $orderId
+        );
+
+        $currency = $this->currency(
+            $salesContext['currency'] ?? null
+        );
+
+        $orderNumber = (string) (
+            $salesContext['order_number']
+            ?? $orderId
+        );
+
+        $branchId = $this->nullablePositiveInt(
+            $salesContext['branch_id'] ?? null
+        );
+
+        $actorId = $this->nullablePositiveInt(
+            $payload['actor_id'] ?? null
+        );
+
+        $completionKey = trim(
+            (string) (
+                $payload['completion_key'] ?? ''
+            )
+        );
+
+        $identity =
+            $completionKey !== ''
+                ? $completionKey
+                : (string) (
+                    $event['event_id']
+                    ?? ('return-' . $pickingId)
+                );
+
+        $suffix = substr(
+            hash('sha256', $identity),
+            0,
+            10
+        );
+
+        $pickingNumber = trim(
+            (string) (
+                $payload['picking_number'] ?? ''
+            )
+        );
+
+        $sourceNumber =
+            $pickingNumber !== ''
+                ? $pickingNumber
+                : ('RETURN-' . $pickingId);
+
+        $accounts =
+            $this->posting->ensureSystemAccounts(
+                $companyId,
+                $currency,
+                $actorId
+            );
+
+        $this->posting->postBalancedJournal(
+            $companyId,
+            'RET-' . $pickingId . '-' . $suffix,
+            'inventory_return',
+            (string) $pickingId,
+            $sourceNumber,
+            $this->dateValue(
+                $payload['returned_at']
+                ?? $this->eventDate($event)
+            ),
+            $currency,
+            'Inventory returned for sales order '
+                . $orderNumber
+                . ' via '
+                . $sourceNumber,
+            'finance-inventory-return-'
+                . $companyId
+                . '-picking-'
+                . $pickingId
+                . '-'
+                . $suffix,
+            [
+                [
+                    'account_id' =>
+                        $accounts[
+                            'inventory_asset'
+                        ],
+                    'branch_id' => $branchId,
+                    'debit' => $inventoryCost,
+                    'credit' => 0,
+                    'description' =>
+                        'Inventory asset restored',
+                ],
+                [
+                    'account_id' =>
+                        $accounts[
+                            'cost_of_goods_sold'
+                        ],
+                    'branch_id' => $branchId,
+                    'debit' => 0,
+                    'credit' => $inventoryCost,
+                    'description' =>
+                        'Cost of goods sold reversal',
+                ],
+            ],
+            $actorId
+        );
+    }
     /**
      * @param array<string, mixed> $payload
      */
@@ -380,51 +618,15 @@ final class FinanceSalesIntegrationHandler
                 ]
             );
 
-            if ($receipt->rowCount() > 0) {
-                $receivable =
-                    $connection->prepare(
-                        "UPDATE
-                            finance_sales_receivables
-                         SET
-                            paid_amount = LEAST(
-                                original_amount,
-                                paid_amount
-                                    + :paid_increment
-                            ),
-                            balance_amount =
-                                GREATEST(
-                                    original_amount
-                                    - (
-                                        paid_amount
-                                        + :balance_increment
-                                    ),
-                                    0
-                                ),
-                            status = CASE
-                                WHEN paid_amount
-                                    + :status_increment
-                                    >= original_amount
-                                THEN 'paid'
-                                ELSE 'partially_paid'
-                            END
-                         WHERE company_id =
-                                :company_id
-                           AND order_id =
-                                :order_id"
-                    );
-
-                $receivable->execute([
-                    'paid_increment' =>
-                        $payload['amount'],
-                    'balance_increment' =>
-                        $payload['amount'],
-                    'status_increment' =>
-                        $payload['amount'],
-                    'company_id' => $companyId,
-                    'order_id' =>
-                        $payload['order_id'],
-                ]);
-            }
+            /*
+             * postCustomerPayment() is authoritative for invoice
+             * allocation, journals, and finance_sales_receivables.
+             *
+             * finance_sales_receipts remains a compatibility/history
+             * projection for Sales-origin payments only. Updating the
+             * receivable here as well would apply the same payment
+             * twice.
+             */
 
             if ($ownsTransaction) {
                 $connection->commit();

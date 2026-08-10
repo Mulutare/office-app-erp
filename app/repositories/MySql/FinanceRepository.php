@@ -1114,6 +1114,133 @@ final class FinanceRepository extends MySqlRepository
                      WHERE company_id=:company_id AND invoice_id=:invoice_id"
                 )->execute(['amount'=>$allocationAmount,'status_amount'=>$allocationAmount,'company_id'=>$companyId,'invoice_id'=>$invoiceId]);
             }
+            /*
+             * Synchronize the Sales receivable projection from Finance
+             * payment allocations. The Finance payment and this projection
+             * update remain inside the same database transaction.
+             */
+            $salesAllocationStatement = $connection->prepare(
+                "SELECT
+                    invoices.sales_order_id AS order_id,
+                    SUM(allocations.amount) AS allocated_amount
+                 FROM finance_payment_allocations allocations
+                 INNER JOIN finance_invoices invoices
+                    ON invoices.company_id =
+                       allocations.company_id
+                   AND invoices.invoice_id =
+                       allocations.invoice_id
+                 WHERE allocations.company_id =
+                       :company_id
+                   AND allocations.payment_id =
+                       :payment_id
+                   AND invoices.document_type =
+                       'customer_invoice'
+                   AND invoices.sales_order_id IS NOT NULL
+                 GROUP BY invoices.sales_order_id"
+            );
+
+            $salesAllocationStatement->execute([
+                'company_id' => $companyId,
+                'payment_id' => $paymentId,
+            ]);
+
+            foreach (
+                $salesAllocationStatement->fetchAll(PDO::FETCH_ASSOC)
+                as $salesAllocation
+            ) {
+                $orderId =
+                    (int) $salesAllocation['order_id'];
+
+                $paidIncrement =
+                    round(
+                        (float) $salesAllocation['allocated_amount'],
+                        2
+                    );
+
+                if (
+                    $orderId <= 0
+                    || $paidIncrement <= 0
+                ) {
+                    continue;
+                }
+
+                $receivableStatement =
+                    $connection->prepare(
+                        "SELECT
+                            original_amount,
+                            paid_amount
+                         FROM finance_sales_receivables
+                         WHERE company_id = :company_id
+                           AND order_id = :order_id
+                         FOR UPDATE"
+                    );
+
+                $receivableStatement->execute([
+                    'company_id' => $companyId,
+                    'order_id' => $orderId,
+                ]);
+
+                $receivable =
+                    $receivableStatement->fetch(
+                        PDO::FETCH_ASSOC
+                    );
+
+                if (!is_array($receivable)) {
+                    continue;
+                }
+
+                $originalAmount =
+                    round(
+                        (float) $receivable['original_amount'],
+                        2
+                    );
+
+                $newPaid =
+                    min(
+                        $originalAmount,
+                        round(
+                            (float) $receivable['paid_amount']
+                            + $paidIncrement,
+                            2
+                        )
+                    );
+
+                $newBalance =
+                    max(
+                        0.0,
+                        round(
+                            $originalAmount - $newPaid,
+                            2
+                        )
+                    );
+
+                $newStatus =
+                    $newBalance <= 0.0001
+                        ? 'paid'
+                        : (
+                            $newPaid > 0.0001
+                                ? 'partially_paid'
+                                : 'open'
+                        );
+
+                $updateReceivable =
+                    $connection->prepare(
+                        "UPDATE finance_sales_receivables
+                         SET paid_amount = :paid_amount,
+                             balance_amount = :balance_amount,
+                             status = :status
+                         WHERE company_id = :company_id
+                           AND order_id = :order_id"
+                    );
+
+                $updateReceivable->execute([
+                    'paid_amount' => $newPaid,
+                    'balance_amount' => $newBalance,
+                    'status' => $newStatus,
+                    'company_id' => $companyId,
+                    'order_id' => $orderId,
+                ]);
+            }
             $connection->prepare("UPDATE finance_payments SET status='posted',journal_batch_id=:batch WHERE company_id=:company_id AND payment_id=:payment_id")
                 ->execute(['batch'=>$journalResult['journalBatchId'],'company_id'=>$companyId,'payment_id'=>$paymentId]);
             $connection->commit();

@@ -303,6 +303,76 @@ try {
         && (float)($returnedLine['net_delivered_quantity']??0)===1.0,
         'Customer return preserves delivered quantity and recalculates returned and net delivered quantities'
     );
+    $returnValuationStatement = db()->prepare(
+        "SELECT
+            movement_id,
+            product_id,
+            unit_cost,
+            related_movement_id
+         FROM inventory_stock_movements
+         WHERE company_id = :company_id
+           AND reference_type = 'inventory_picking'
+           AND reference_id = :reference_id
+           AND movement_type = 'return_in'
+           AND status = 'completed'
+         ORDER BY movement_id DESC
+         LIMIT 1"
+    );
+
+    $returnValuationStatement->execute([
+        'company_id' => $companyId,
+        'reference_id' => $returnId,
+    ]);
+
+    $returnValuation =
+        $returnValuationStatement->fetch(PDO::FETCH_ASSOC);
+
+    $relatedDelivery = false;
+
+    if (
+        is_array($returnValuation)
+        && (int) ($returnValuation['related_movement_id'] ?? 0) > 0
+    ) {
+        $relatedDeliveryStatement = db()->prepare(
+            "SELECT
+                movement_id,
+                reference_id,
+                product_id,
+                movement_type,
+                unit_cost
+             FROM inventory_stock_movements
+             WHERE company_id = :company_id
+               AND movement_id = :movement_id
+             LIMIT 1"
+        );
+
+        $relatedDeliveryStatement->execute([
+            'company_id' => $companyId,
+            'movement_id' =>
+                (int) $returnValuation['related_movement_id'],
+        ]);
+
+        $relatedDelivery =
+            $relatedDeliveryStatement->fetch(PDO::FETCH_ASSOC);
+    }
+
+    $check(
+        is_array($returnValuation)
+        && is_array($relatedDelivery)
+        && (int) $relatedDelivery['movement_id']
+            === (int) $returnValuation['related_movement_id']
+        && (int) $relatedDelivery['reference_id']
+            === $deliveryId
+        && (string) $relatedDelivery['movement_type']
+            === 'fulfilment'
+        && (int) $relatedDelivery['product_id']
+            === (int) $returnValuation['product_id']
+        && abs(
+            (float) $returnValuation['unit_cost']
+            - (float) $relatedDelivery['unit_cost']
+        ) < 0.000001,
+        'Customer return restores original delivery valuation and movement linkage'
+    );
 
     $historyStatement = db()->prepare(
         'SELECT COUNT(*) FROM sales_order_status_history

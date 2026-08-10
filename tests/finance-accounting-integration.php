@@ -60,6 +60,53 @@ try {
         && (float)($batch['total_debit'] ?? 0)===(float)($batch['total_credit'] ?? -1),
         'Invoice posting is balanced and idempotent');
 
+    /*
+     * Finance-origin payments must keep the Sales receivable projection
+     * synchronized with authoritative Finance allocations.
+     */
+    $receivableFixture = db()->prepare(
+        "INSERT INTO finance_sales_receivables
+            (
+                company_id,
+                order_id,
+                customer_id,
+                order_number,
+                currency,
+                original_amount,
+                paid_amount,
+                balance_amount,
+                due_date,
+                status
+            )
+         SELECT
+            company_id,
+            order_id,
+            customer_id,
+            order_number,
+            currency,
+            total_amount,
+            0,
+            total_amount,
+            due_date,
+            'open'
+         FROM sales_orders
+         WHERE company_id = :company_id
+           AND order_id = :order_id
+         ON DUPLICATE KEY UPDATE
+            customer_id = VALUES(customer_id),
+            order_number = VALUES(order_number),
+            currency = VALUES(currency),
+            original_amount = VALUES(original_amount),
+            paid_amount = 0,
+            balance_amount = VALUES(original_amount),
+            due_date = VALUES(due_date),
+            status = 'open'"
+    );
+
+    $receivableFixture->execute([
+        'company_id' => $companyId,
+        'order_id' => (int) $order['orderId'],
+    ]);
     $journals = $finance->ensureSystemJournals($companyId,'ETB',$actorId);
     $first = $finance->postCustomerPayment(
         $companyId,(int)$customer['id'],$journals['bank'],date('Y-m-d'),'ETB',100,'bank_transfer',
@@ -69,6 +116,28 @@ try {
     $check($residual===130.0 && (float)$first['allocatedAmount']===100.0,
         'Partial payment leaves the exact invoice residual');
 
+    $partialReceivable = db()->prepare(
+        'SELECT paid_amount, balance_amount, status
+         FROM finance_sales_receivables
+         WHERE company_id = :company_id
+           AND order_id = :order_id'
+    );
+
+    $partialReceivable->execute([
+        'company_id' => $companyId,
+        'order_id' => (int) $order['orderId'],
+    ]);
+
+    $partialReceivableRow =
+        $partialReceivable->fetch(PDO::FETCH_ASSOC);
+
+    $check(
+        is_array($partialReceivableRow)
+        && (float) $partialReceivableRow['paid_amount'] === 100.0
+        && (float) $partialReceivableRow['balance_amount'] === 130.0
+        && $partialReceivableRow['status'] === 'partially_paid',
+        'Finance-origin partial payment updates the Sales receivable projection'
+    );
     $second = $finance->postCustomerPayment(
         $companyId,(int)$customer['id'],$journals['bank'],date('Y-m-d'),'ETB',230,'bank_transfer',
         'OVER-'.$suffix,[['invoice_id'=>$invoiceId,'amount'=>130]],$actorId
@@ -77,6 +146,28 @@ try {
     $check((float)$paidInvoice['residual_amount']===0.0 && $paidInvoice['payment_status']==='paid'
         && (float)$second['unallocatedAmount']===100.0,
         'Overpayment pays the invoice and preserves the excess as customer credit');
+    $finalReceivable = db()->prepare(
+        'SELECT paid_amount, balance_amount, status
+         FROM finance_sales_receivables
+         WHERE company_id = :company_id
+           AND order_id = :order_id'
+    );
+
+    $finalReceivable->execute([
+        'company_id' => $companyId,
+        'order_id' => (int) $order['orderId'],
+    ]);
+
+    $finalReceivableRow =
+        $finalReceivable->fetch(PDO::FETCH_ASSOC);
+
+    $check(
+        is_array($finalReceivableRow)
+        && (float) $finalReceivableRow['paid_amount'] === 230.0
+        && (float) $finalReceivableRow['balance_amount'] === 0.0
+        && $finalReceivableRow['status'] === 'paid',
+        'Finance-origin final payment closes the Sales receivable projection'
+    );
     $paidOrder=$sales->orderDetail((int)$order['orderId']);
     $check(
         ($paidOrder['payment_state']??'')==='paid'

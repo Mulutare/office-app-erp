@@ -1953,6 +1953,20 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             $lines = $lineStatement->fetchAll(PDO::FETCH_ASSOC);
             $totalDone = 0.0;
             $remainingLines = [];
+
+            /*
+             * Accumulate the exact cost recorded by the authoritative
+             * stock movements created by this picking completion.
+             */
+            $accountingCost = 0.0;
+
+            $movementCostStatement = $connection->prepare(
+                "SELECT unit_cost
+                 FROM inventory_stock_movements
+                 WHERE company_id = :company_id
+                   AND idempotency_key = :idempotency_key
+                 LIMIT 1"
+            );
             foreach ($lines as $line) {
                 $lineId = (int) $line['picking_line_id'];
                 $quantity = (float) ($quantities[$lineId] ?? 0);
@@ -1963,6 +1977,76 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 if ($quantity > 0.0005) {
                     $movementType = (string) $header['picking_type'] === 'customer_return'
                         ? 'return_in' : ((string) $header['picking_type'] === 'vendor_return' ? 'return_out' : 'fulfilment');
+                    $unitCost = 0.0;
+                    $relatedMovementId = null;
+
+                    if ((string) $header['picking_type'] === 'customer_return') {
+                        $originalLineId = (int) (
+                            $line['original_picking_line_id'] ?? 0
+                        );
+
+                        if ($originalLineId <= 0) {
+                            throw new RuntimeException(
+                                'A customer return line is missing its original delivery line.'
+                            );
+                        }
+
+                        $originalMovementStatement = $connection->prepare(
+                            "SELECT
+                                movements.movement_id,
+                                movements.unit_cost
+                             FROM inventory_picking_lines original_line
+                             INNER JOIN inventory_stock_movements movements
+                                ON movements.company_id =
+                                   original_line.company_id
+                               AND movements.reference_type =
+                                   'inventory_picking'
+                               AND movements.reference_id =
+                                   original_line.picking_id
+                               AND movements.product_id =
+                                   original_line.product_id
+                               AND movements.source_location_id =
+                                   original_line.source_location_id
+                               AND movements.destination_location_id =
+                                   original_line.destination_location_id
+                               AND movements.movement_type =
+                                   'fulfilment'
+                               AND movements.status =
+                                   'completed'
+                             WHERE original_line.company_id =
+                                   :company_id
+                               AND original_line.picking_line_id =
+                                   :original_picking_line_id
+                             ORDER BY movements.movement_id DESC
+                             LIMIT 1
+                             FOR UPDATE"
+                        );
+
+                        $originalMovementStatement->execute([
+                            'company_id' => $companyId,
+                            'original_picking_line_id' => $originalLineId,
+                        ]);
+
+                        $originalMovement =
+                            $originalMovementStatement->fetch(
+                                PDO::FETCH_ASSOC
+                            );
+
+                        if ($originalMovement === false) {
+                            throw new RuntimeException(
+                                'The original delivery valuation could not be found for the customer return.'
+                            );
+                        }
+
+                        $unitCost =
+                            (float) $originalMovement['unit_cost'];
+
+                        $relatedMovementId =
+                            (int) $originalMovement['movement_id'];
+                    }
+
+                    $movementKey =
+                        $idempotencyKey . ':line:' . $lineId;
                     $this->completeStockMovement([
                         'companyId' => $companyId,
                         'productId' => (int) $line['product_id'],
@@ -1971,17 +2055,59 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                         'destinationWarehouseId' => (int) $header['warehouse_id'],
                         'destinationLocationId' => (int) $line['destination_location_id'],
                         'quantity' => $quantity,
-                        'unitCost' => 0,
+                        'unitCost' => $unitCost,
                         'movementType' => $movementType,
                         'operationTypeId' => (int) $header['operation_type_id'],
                         'referenceType' => 'inventory_picking',
                         'referenceId' => $pickingId,
                         'referenceNumber' => (string) $header['picking_number'],
-                        'idempotencyKey' => $idempotencyKey . ':line:' . $lineId,
+                        'idempotencyKey' => $movementKey,
                         'notes' => $line['notes'] ?? null,
                         'occurredAt' => $completedAt,
                         'actorId' => $actorId,
                     ]);
+
+                    /*
+                     * completeStockMovement() is authoritative for
+                     * the final posted unit cost. Resolve that exact
+                     * value for Finance rather than recalculating it.
+                     */
+                    $movementCostStatement->execute([
+                        'company_id' => $companyId,
+                        'idempotency_key' => $movementKey,
+                    ]);
+
+                    $postedUnitCost =
+                        $movementCostStatement->fetchColumn();
+
+                    if ($postedUnitCost === false) {
+                        throw new RuntimeException(
+                            'The completed stock movement cost could not be resolved.'
+                        );
+                    }
+
+                    $accountingCost +=
+                        $quantity * (float) $postedUnitCost;
+
+                    if ($relatedMovementId !== null) {
+                        $movementLinkStatement =
+                            $connection->prepare(
+                                "UPDATE inventory_stock_movements
+                                 SET related_movement_id =
+                                     :related_movement_id
+                                 WHERE company_id = :company_id
+                                   AND idempotency_key =
+                                       :idempotency_key
+                                   AND related_movement_id IS NULL"
+                            );
+
+                        $movementLinkStatement->execute([
+                            'related_movement_id' =>
+                                $relatedMovementId,
+                            'company_id' => $companyId,
+                            'idempotency_key' => $movementKey,
+                        ]);
+                    }
                     if ((string) $header['picking_type'] === 'delivery' && !empty($line['reservation_allocation_id'])) {
                         $this->consumePickingReservation($line, $quantity, $completedAt);
                     } elseif ((string) $header['picking_type'] === 'customer_return') {
@@ -2038,7 +2164,61 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             if (!empty($header['sales_order_id'])) {
                 $this->synchronizeSalesDeliveryStatus($companyId, (int) $header['sales_order_id']);
             }
-            $connection->commit();
+            /*
+         * Physical stock and its accounting event are committed
+         * atomically. A picking completion therefore cannot exist
+         * without its corresponding durable Finance event.
+         */
+        $accountingOrderId = (int) (
+            $header['sales_order_id'] ?? 0
+        );
+
+        $pickingType = (string) (
+            $header['picking_type'] ?? ''
+        );
+
+        if (
+            $accountingOrderId > 0
+            && $accountingCost > 0
+            && in_array(
+                $pickingType,
+                ['delivery', 'customer_return'],
+                true
+            )
+        ) {
+            $isCustomerReturn =
+                $pickingType === 'customer_return';
+
+            $this->enqueueIntegrationEvent(
+                $connection,
+                $companyId,
+                $isCustomerReturn
+                    ? 'inventory.customer-return.completed'
+                    : 'inventory.sales-order.fulfilled',
+                'inventory_picking',
+                (string) $pickingId,
+                [
+                    'order_id' =>
+                        $accountingOrderId,
+                    'picking_id' =>
+                        $pickingId,
+                    'picking_number' =>
+                        (string) $header['picking_number'],
+                    'actor_id' =>
+                        $actorId,
+                    'inventory_cost' =>
+                        round($accountingCost, 2),
+                    'completion_key' =>
+                        $idempotencyKey,
+                    (
+                        $isCustomerReturn
+                            ? 'returned_at'
+                            : 'fulfilled_at'
+                    ) => $completedAt,
+                ]
+            );
+        }
+        $connection->commit();
             return ['pickingId' => $pickingId, 'status' => $status, 'replayed' => false,
                 'completedQuantity' => $totalDone, 'backorderPickingId' => $backorderId];
         } catch (Throwable $exception) {
