@@ -1004,6 +1004,14 @@ final class FinanceRepository extends MySqlRepository
             $invoice = $statement->fetch(PDO::FETCH_ASSOC);
             if (!is_array($invoice)) { throw new RuntimeException('Invoice was not found.'); }
             if ($invoice['status'] === 'posted') {
+                /*
+                 * A replay also repairs the order-level receivable
+                 * projection if an older posting predates this rule.
+                 */
+                $this->syncSalesReceivableFromPostedInvoices(
+                    $connection,
+                    $invoice
+                );
                 $connection->commit();
                 return ['invoiceId'=>$invoiceId,'status'=>'posted','replayed'=>true];
             }
@@ -1031,6 +1039,14 @@ final class FinanceRepository extends MySqlRepository
                 "UPDATE finance_invoices SET status='posted',journal_batch_id=:batch,posted_by=:actor,posted_at=NOW()
                  WHERE company_id=:company_id AND invoice_id=:invoice_id"
             )->execute(['batch'=>$journal['journalBatchId'],'actor'=>$actorId,'company_id'=>$companyId,'invoice_id'=>$invoiceId]);
+            /*
+             * Invoice posting, not Sales Order confirmation, owns the
+             * order-level Finance receivable projection.
+             */
+            $this->syncSalesReceivableFromPostedInvoices(
+                $connection,
+                $invoice
+            );
             $connection->commit();
             return ['invoiceId'=>$invoiceId,'status'=>'posted','replayed'=>false,'journalBatchId'=>$journal['journalBatchId']];
         } catch (Throwable $exception) {
@@ -1039,6 +1055,157 @@ final class FinanceRepository extends MySqlRepository
         }
     }
 
+
+    /**
+     * Rebuild the compatibility order-level receivable from authoritative
+     * posted customer invoices. Recalculation makes posting/replay idempotent.
+     *
+     * @param array<string, mixed> $invoice
+     */
+    private function syncSalesReceivableFromPostedInvoices(
+        PDO $connection,
+        array $invoice
+    ): void {
+        if (
+            (string) ($invoice['document_type'] ?? '') !==
+                'customer_invoice'
+            || (int) ($invoice['sales_order_id'] ?? 0) <= 0
+        ) {
+            return;
+        }
+
+        $companyId = (int) $invoice['company_id'];
+        $orderId = (int) $invoice['sales_order_id'];
+
+        $totalsStatement = $connection->prepare(
+            "SELECT
+                COALESCE(SUM(total_amount), 0) AS original_amount,
+                COALESCE(
+                    SUM(total_amount - residual_amount),
+                    0
+                ) AS paid_amount,
+                COALESCE(
+                    MIN(
+                        CASE
+                            WHEN residual_amount > 0
+                            THEN due_date
+                            ELSE NULL
+                        END
+                    ),
+                    MAX(due_date)
+                ) AS due_date
+             FROM finance_invoices
+             WHERE company_id = :company_id
+               AND sales_order_id = :order_id
+               AND document_type = 'customer_invoice'
+               AND status = 'posted'"
+        );
+        $totalsStatement->execute([
+            'company_id' => $companyId,
+            'order_id' => $orderId,
+        ]);
+
+        $totals = $totalsStatement->fetch(PDO::FETCH_ASSOC);
+
+        if (!is_array($totals)) {
+            throw new RuntimeException(
+                'Posted customer invoice totals could not be reconciled.'
+            );
+        }
+
+        $orderStatement = $connection->prepare(
+            "SELECT order_number
+             FROM sales_orders
+             WHERE company_id = :company_id
+               AND order_id = :order_id
+               AND deleted_at IS NULL
+             LIMIT 1"
+        );
+        $orderStatement->execute([
+            'company_id' => $companyId,
+            'order_id' => $orderId,
+        ]);
+
+        $orderNumber = $orderStatement->fetchColumn();
+
+        if ($orderNumber === false) {
+            throw new RuntimeException(
+                'The sales order for the posted invoice was not found.'
+            );
+        }
+
+        $originalAmount = round(
+            (float) $totals['original_amount'],
+            2
+        );
+        $paidAmount = min(
+            $originalAmount,
+            round((float) $totals['paid_amount'], 2)
+        );
+        $balanceAmount = max(
+            0,
+            round($originalAmount - $paidAmount, 2)
+        );
+
+        $status = $balanceAmount <= 0
+            ? 'paid'
+            : ($paidAmount > 0 ? 'partially_paid' : 'open');
+
+        $receivable = $connection->prepare(
+            "INSERT INTO finance_sales_receivables
+                (
+                    company_id,
+                    order_id,
+                    customer_id,
+                    order_number,
+                    currency,
+                    original_amount,
+                    paid_amount,
+                    balance_amount,
+                    due_date,
+                    status
+                )
+             VALUES
+                (
+                    :company_id,
+                    :order_id,
+                    :customer_id,
+                    :order_number,
+                    :currency,
+                    :original_amount,
+                    :paid_amount,
+                    :balance_amount,
+                    :due_date,
+                    :status
+                )
+             ON DUPLICATE KEY UPDATE
+                customer_id = VALUES(customer_id),
+                order_number = VALUES(order_number),
+                currency = VALUES(currency),
+                original_amount = VALUES(original_amount),
+                paid_amount = VALUES(paid_amount),
+                balance_amount = VALUES(balance_amount),
+                due_date = VALUES(due_date),
+                status = VALUES(status)"
+        );
+
+        $receivable->execute([
+            'company_id' => $companyId,
+            'order_id' => $orderId,
+            'customer_id' => (int) $invoice['customer_id'],
+            'order_number' => (string) $orderNumber,
+            'currency' => (string) $invoice['currency'],
+            'original_amount' => $originalAmount,
+            'paid_amount' => $paidAmount,
+            'balance_amount' => $balanceAmount,
+            'due_date' =>
+                (string) (
+                    $totals['due_date']
+                    ?? $invoice['due_date']
+                ),
+            'status' => $status,
+        ]);
+    }
     public function postCustomerPayment(
         int $companyId, int $customerId, int $journalId, string $paymentDate,
         string $currency, mixed $amount, string $method, ?string $reference,

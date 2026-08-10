@@ -731,6 +731,41 @@ final class SalesService
     /** @param array<string, mixed> $input @return array<string, mixed> */
     public function recordPayment(int $orderId, array $input, int $actorId): array
     {
+        $companyId = $this->tenant->companyId();
+        $order = $this->sales->orderDetail($companyId, $orderId);
+
+        if ($order === null) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' => 'Sales Order was not found.',
+                ],
+            ];
+        }
+
+        $hasPostedCustomerInvoice = false;
+
+        foreach (($order['invoices'] ?? []) as $invoice) {
+            if (
+                is_array($invoice)
+                && ($invoice['document_type'] ?? '') === 'customer_invoice'
+                && ($invoice['status'] ?? '') === 'posted'
+            ) {
+                $hasPostedCustomerInvoice = true;
+                break;
+            }
+        }
+
+        if (!$hasPostedCustomerInvoice) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' =>
+                        'Post a customer invoice before recording payment.',
+                ],
+            ];
+        }
+
         $payment = [
             'receipt_number' => strtoupper(trim((string) ($input['receipt_number'] ?? ''))),
             'payment_date' => $this->date($input['payment_date'] ?? null),

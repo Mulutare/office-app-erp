@@ -102,17 +102,16 @@ final class FinanceSalesIntegrationHandler
             $payload['order_id'] ?? null,
             'The confirmed sales order ID is invalid.'
         );
-        $actorId = $this->nullablePositiveInt($payload['actor_id'] ?? null)
-            ?? $this->salesOrderActor($companyId, $orderId);
-        $invoiceId = $this->posting->createCustomerInvoiceFromOrder(
-            $companyId,
-            $orderId,
-            'ordered',
-            $actorId
-        );
-        $this->posting->postInvoice($companyId, $invoiceId, $actorId);
-        /* Compatibility cache: its values are sourced from the posted invoice. */
-        $this->openReceivable($companyId, $payload);
+
+        /*
+         * Sales confirmation is the Inventory commitment boundary.
+         * It is not an accounting invoice event.
+         *
+         * Customer invoices are created explicitly from Sales/Finance
+         * using the selected invoice policy and become authoritative
+         * only when the Finance invoice is posted.
+         */
+        $this->salesContext($companyId, $orderId);
     }
 
     /**

@@ -121,7 +121,26 @@ try {
         'active' => true,
     ], $actorId);
     $created['warehouse'] = (int) ($warehouse['warehouseId'] ?? 0);
-    $locationStatement = db()->prepare(
+
+$check(
+    !empty($warehouse['successful'])
+    && $created['warehouse'] > 0,
+    'Inventory warehouse fixture is created'
+);
+
+if (
+    empty($warehouse['successful'])
+    || $created['warehouse'] < 1
+) {
+    throw new RuntimeException(
+        'Warehouse fixture creation failed: '
+        . json_encode(
+            $warehouse['errors'] ?? $warehouse,
+            JSON_UNESCAPED_SLASHES
+        )
+    );
+}
+$locationStatement = db()->prepare(
         "SELECT location_id FROM inventory_warehouse_locations
          WHERE company_id = :company_id AND warehouse_id = :warehouse_id
            AND code = :code AND location_usage = 'internal'"
@@ -133,7 +152,21 @@ try {
     ]);
     $created['location'] = (int) $locationStatement->fetchColumn();
 
-    $stockStatement = db()->prepare(
+
+$check(
+    $created['location'] > 0,
+    'Inventory warehouse STOCK location is provisioned'
+);
+
+if ($created['location'] < 1) {
+    throw new RuntimeException(
+        'Warehouse STOCK location was not provisioned for warehouse '
+        . $created['warehouse']
+        . ' code '
+        . $warehouseCode
+    );
+}
+$stockStatement = db()->prepare(
         "INSERT INTO inventory_stock_balances (
             company_id,
             warehouse_id,
@@ -257,26 +290,95 @@ try {
         .' AND sales_order_id='.(int)$created['order']." AND picking_type='delivery' ORDER BY picking_id LIMIT 1"
     )->fetchColumn();
     $delivery=$service->delivery($deliveryId);
-    $deliveryQuantities=[];
-    foreach((array)($delivery['lines']??[]) as $line){
-        $deliveryQuantities[(int)$line['picking_line_id']] = (float)$line['remaining_quantity'];
+    $deliveryQuantities = [];
+$partialDeliveryQuantities = [];
+$partialQuantityAssigned = false;
+
+foreach ((array) ($delivery['lines'] ?? []) as $line) {
+    $pickingLineId = (int) ($line['picking_line_id'] ?? 0);
+    $remainingQuantity = (float) ($line['remaining_quantity'] ?? 0);
+
+    $deliveryQuantities[$pickingLineId] = $remainingQuantity;
+    $partialDeliveryQuantities[$pickingLineId] = 0.0;
+
+    if (
+        !$partialQuantityAssigned
+        && $pickingLineId > 0
+        && $remainingQuantity > 0
+    ) {
+        $partialDeliveryQuantities[$pickingLineId] =
+            min(1.0, $remainingQuantity);
+        $partialQuantityAssigned = true;
     }
-    $deliveryCompletion=$service->completeDelivery($deliveryId,[
-        'completed_quantity'=>$deliveryQuantities,
-        'create_backorder'=>'',
-        'idempotency_key'=>'sales-return-delivery-'.$suffix,
-    ],$approverId);
-    $check(!empty($deliveryCompletion['successful']),'Authoritative delivery is completed before return');
-    $stableCompletedDelivery=$service->delivery($deliveryId);
-    $stableCompletedOrder=$service->orderDetail($created['order']);
-    $stableCompletedLine=(array)(($stableCompletedOrder['lines']??[])[0]??[]);
-    $check(
-        ($stableCompletedDelivery['status']??'')==='done'
-        && (float)($stableCompletedLine['delivered_quantity']??0)===2.0
-        && (float)($stableCompletedLine['returned_quantity']??0)===0.0
-        && (float)($stableCompletedOrder['credit_note_eligible_quantity']??-1)===0.0,
-        'Completed delivery remains authoritative on repeated delivery and Sales Order reloads'
-    );
+}
+
+$deliveryCompletion = $service->completeDelivery(
+    $deliveryId,
+    [
+        'completed_quantity' => $partialDeliveryQuantities,
+        'create_backorder' => '1',
+        'idempotency_key' =>
+            'sales-return-delivery-' . $suffix,
+    ],
+    $approverId
+);
+
+$backorderDeliveryId = (int) (
+    $deliveryCompletion['backorderPickingId'] ?? 0
+);
+
+$backorderDelivery = $service->delivery($backorderDeliveryId);
+$backorderDeliveryQuantities = [];
+
+foreach ((array) ($backorderDelivery['lines'] ?? []) as $line) {
+    $backorderDeliveryQuantities[
+        (int) ($line['picking_line_id'] ?? 0)
+    ] = (float) ($line['remaining_quantity'] ?? 0);
+}
+
+$backorderDeliveryCompletion = $service->completeDelivery(
+    $backorderDeliveryId,
+    [
+        'completed_quantity' => $backorderDeliveryQuantities,
+        'create_backorder' => '',
+        'idempotency_key' =>
+            'sales-return-delivery-backorder-' . $suffix,
+    ],
+    $approverId
+);
+
+$check(
+    $partialQuantityAssigned
+    && !empty($deliveryCompletion['successful'])
+    && $backorderDeliveryId > 0
+    && is_array($backorderDelivery)
+    && !empty($backorderDeliveryCompletion['successful']),
+    'Partial delivery creates and completes an authoritative backorder'
+);
+
+$stableCompletedDelivery = $service->delivery($deliveryId);
+$stableCompletedBackorder =
+    $service->delivery($backorderDeliveryId);
+$stableCompletedOrder =
+    $service->orderDetail($created['order']);
+$stableCompletedLine = (array) (
+    ($stableCompletedOrder['lines'] ?? [])[0] ?? []
+);
+
+$check(
+    in_array(
+        (string) ($stableCompletedDelivery['status'] ?? ''),
+        ['done', 'partially_done'],
+        true
+    )
+    && ($stableCompletedBackorder['status'] ?? '') === 'done'
+    && (float) ($stableCompletedLine['delivered_quantity'] ?? 0) === 2.0
+    && (float) ($stableCompletedLine['returned_quantity'] ?? 0) === 0.0
+    && (float) (
+        $stableCompletedOrder['credit_note_eligible_quantity'] ?? -1
+    ) === 0.0,
+    'Partial delivery and backorder remain authoritative on Sales Order reloads'
+);
 
     $completedDelivery=$service->delivery($deliveryId);
     $firstDeliveryLine=(array)(($completedDelivery['lines']??[])[0]??[]);
@@ -407,7 +509,29 @@ try {
     $commissionApproval = $service->transitionCommission($commissionId, 'approve', $actorId);
     $check(!empty($commissionApproval['successful']), 'Accrued DSA commission is approved');
 
-    $payment = $service->recordPayment($created['order'], [
+    $paymentFinance = new \App\Services\FinancePostingService();
+
+$paymentInvoiceId =
+    $paymentFinance->createCustomerInvoiceFromOrder(
+        $companyId,
+        (int) $created['order'],
+        'delivered',
+        $actorId
+    );
+
+$paymentInvoicePosting =
+    $paymentFinance->postInvoice(
+        $companyId,
+        $paymentInvoiceId,
+        $actorId
+    );
+
+$check(
+    ($paymentInvoicePosting['status'] ?? '') === 'posted',
+    'Posted customer invoice establishes the receivable before payment'
+);
+
+$payment = $service->recordPayment($created['order'], [
         'receipt_number' => 'R-' . $suffix,
         'payment_date' => date('Y-m-d'),
         'amount' => '300',
@@ -500,6 +624,298 @@ try {
         'Finance projection receives the order and payment'
     );
 
+    $inventoryMovementCost = static function (
+        int $pickingId,
+        string $movementType
+    ) use ($companyId): float {
+        $statement = db()->prepare(
+            "SELECT COALESCE(
+                SUM(completed_quantity * unit_cost),
+                0
+             )
+             FROM inventory_stock_movements
+             WHERE company_id = :company_id
+               AND reference_type = 'inventory_picking'
+               AND reference_id = :picking_id
+               AND movement_type = :movement_type
+               AND status = 'completed'"
+        );
+
+        $statement->execute([
+            'company_id' => $companyId,
+            'picking_id' => $pickingId,
+            'movement_type' => $movementType,
+        ]);
+
+        return round(
+            (float) $statement->fetchColumn(),
+            2
+        );
+    };
+
+    $inventoryCostJournals = static function (
+        string $sourceType,
+        int $sourceId
+    ) use ($companyId): array {
+        $statement = db()->prepare(
+            "SELECT
+                batches.journal_batch_id,
+                batches.total_debit,
+                batches.total_credit,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN accounts.account_name = 'Cost of Goods Sold'
+                            THEN entries.debit_amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS cogs_debit,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN accounts.account_name = 'Cost of Goods Sold'
+                            THEN entries.credit_amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS cogs_credit,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN accounts.account_name = 'Inventory Asset'
+                            THEN entries.debit_amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS inventory_debit,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN accounts.account_name = 'Inventory Asset'
+                            THEN entries.credit_amount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS inventory_credit
+             FROM finance_journal_batches batches
+             INNER JOIN finance_journal_entries entries
+                ON entries.company_id = batches.company_id
+               AND entries.journal_batch_id =
+                   batches.journal_batch_id
+             INNER JOIN finance_accounts accounts
+                ON accounts.company_id = entries.company_id
+               AND accounts.account_id = entries.account_id
+             WHERE batches.company_id = :company_id
+               AND batches.source_type = :source_type
+               AND batches.source_id = :source_id
+             GROUP BY
+                batches.journal_batch_id,
+                batches.total_debit,
+                batches.total_credit
+             ORDER BY batches.journal_batch_id"
+        );
+
+        $statement->execute([
+            'company_id' => $companyId,
+            'source_type' => $sourceType,
+            'source_id' => (string) $sourceId,
+        ]);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    };
+
+    $moneyMatches = static function (
+        float $left,
+        float $right
+    ): bool {
+        return abs($left - $right) < 0.005;
+    };
+
+    $deliveryMovementCost = $inventoryMovementCost(
+    $deliveryId,
+    'fulfilment'
+);
+
+$backorderMovementCost = $inventoryMovementCost(
+    $backorderDeliveryId,
+    'fulfilment'
+);
+
+$returnMovementCost = $inventoryMovementCost(
+    $returnId,
+    'return_in'
+);
+
+$deliveryCostJournals = $inventoryCostJournals(
+    'inventory_fulfilment',
+    $deliveryId
+);
+
+$backorderCostJournals = $inventoryCostJournals(
+    'inventory_fulfilment',
+    $backorderDeliveryId
+);
+
+$returnCostJournals = $inventoryCostJournals(
+    'inventory_return',
+    $returnId
+);
+
+$deliveryJournal =
+    count($deliveryCostJournals) === 1
+        ? $deliveryCostJournals[0]
+        : null;
+
+$backorderJournal =
+    count($backorderCostJournals) === 1
+        ? $backorderCostJournals[0]
+        : null;
+
+$returnJournal =
+    count($returnCostJournals) === 1
+        ? $returnCostJournals[0]
+        : null;
+
+$check(
+    $deliveryMovementCost > 0
+    && $backorderMovementCost > 0
+    && $returnMovementCost > 0
+    && is_array($deliveryJournal)
+    && is_array($backorderJournal)
+    && is_array($returnJournal)
+
+    && $moneyMatches(
+        (float) $deliveryJournal['cogs_debit'],
+        $deliveryMovementCost
+    )
+    && $moneyMatches(
+        (float) $deliveryJournal['inventory_credit'],
+        $deliveryMovementCost
+    )
+    && $moneyMatches(
+        (float) $deliveryJournal['total_debit'],
+        $deliveryMovementCost
+    )
+    && $moneyMatches(
+        (float) $deliveryJournal['total_credit'],
+        $deliveryMovementCost
+    )
+
+    && $moneyMatches(
+        (float) $backorderJournal['cogs_debit'],
+        $backorderMovementCost
+    )
+    && $moneyMatches(
+        (float) $backorderJournal['inventory_credit'],
+        $backorderMovementCost
+    )
+    && $moneyMatches(
+        (float) $backorderJournal['total_debit'],
+        $backorderMovementCost
+    )
+    && $moneyMatches(
+        (float) $backorderJournal['total_credit'],
+        $backorderMovementCost
+    )
+
+    && $moneyMatches(
+        (float) $returnJournal['inventory_debit'],
+        $returnMovementCost
+    )
+    && $moneyMatches(
+        (float) $returnJournal['cogs_credit'],
+        $returnMovementCost
+    )
+    && $moneyMatches(
+        (float) $returnJournal['total_debit'],
+        $returnMovementCost
+    )
+    && $moneyMatches(
+        (float) $returnJournal['total_credit'],
+        $returnMovementCost
+    ),
+    'Partial delivery, backorder, and return post balanced cost journals at persisted movement valuation'
+);
+
+    $deliveryReplay = $service->completeDelivery(
+    $deliveryId,
+    [
+        'completed_quantity' => $partialDeliveryQuantities,
+        'create_backorder' => '1',
+        'idempotency_key' =>
+            'sales-return-delivery-' . $suffix,
+    ],
+    $approverId
+);
+
+$backorderDeliveryReplay = $service->completeDelivery(
+    $backorderDeliveryId,
+    [
+        'completed_quantity' =>
+            $backorderDeliveryQuantities,
+        'create_backorder' => '',
+        'idempotency_key' =>
+            'sales-return-delivery-backorder-' . $suffix,
+    ],
+    $approverId
+);
+
+$returnReplay = $service->completeDelivery(
+    $returnId,
+    [
+        'completed_quantity' => $returnQuantities,
+        'create_backorder' => '',
+        'idempotency_key' =>
+            'sales-return-complete-' . $suffix,
+    ],
+    $approverId
+);
+
+$replayDispatch =
+    (new IntegrationDispatcherService())->dispatch(50);
+
+$costBatchCountStatement = db()->prepare(
+    "SELECT COUNT(*)
+     FROM finance_journal_batches
+     WHERE company_id = :company_id
+       AND (
+            (
+                source_type = 'inventory_fulfilment'
+                AND source_id IN (
+                    :delivery_id,
+                    :backorder_delivery_id
+                )
+            )
+            OR
+            (
+                source_type = 'inventory_return'
+                AND source_id = :return_id
+            )
+       )"
+);
+
+$costBatchCountStatement->execute([
+    'company_id' => $companyId,
+    'delivery_id' => (string) $deliveryId,
+    'backorder_delivery_id' =>
+        (string) $backorderDeliveryId,
+    'return_id' => (string) $returnId,
+]);
+
+$check(
+    !empty($deliveryReplay['successful'])
+    && !empty($backorderDeliveryReplay['successful'])
+    && !empty($returnReplay['successful'])
+    && $replayDispatch['failed'] === 0
+    && (int) $costBatchCountStatement->fetchColumn() === 3,
+    'Partial picking, backorder, and return replay do not duplicate inventory cost journals'
+);
+
     $commitmentStatement = db()->prepare(
         'SELECT COUNT(*) FROM inventory_sales_commitments
          WHERE company_id = :company_id AND order_id = :order_id
@@ -590,6 +1006,45 @@ try {
         );
         $pickingIds->execute(['company_id'=>$companyId,'order_id'=>$created['order']]);
         $pickingIds = array_map('intval',$pickingIds->fetchAll(PDO::FETCH_COLUMN));
+
+        if ($pickingIds !== []) {
+            $pickingPlaceholders = implode(
+                ',',
+                array_fill(0, count($pickingIds), '?')
+            );
+
+            $deleteCompletionReferences = db()->prepare(
+                'DELETE FROM inventory_picking_completions
+                 WHERE company_id = ?
+                   AND (
+                        picking_id IN (' . $pickingPlaceholders . ')
+                        OR backorder_picking_id IN (' . $pickingPlaceholders . ')
+                   )'
+            );
+
+            $deleteCompletionReferences->execute(
+                array_merge(
+                    [$companyId],
+                    $pickingIds,
+                    $pickingIds
+                )
+            );
+
+            $detachPickingReferences = db()->prepare(
+                'UPDATE inventory_pickings
+                 SET backorder_of_id = NULL,
+                     original_picking_id = NULL
+                 WHERE company_id = ?
+                   AND picking_id IN (' . $pickingPlaceholders . ')'
+            );
+
+            $detachPickingReferences->execute(
+                array_merge(
+                    [$companyId],
+                    $pickingIds
+                )
+            );
+        }
         foreach (array_reverse($pickingIds) as $pickingId) {
             db()->prepare("DELETE FROM inventory_stock_movements WHERE company_id=:company_id AND reference_type='inventory_picking' AND reference_id=:id")
                 ->execute(['company_id'=>$companyId,'id'=>$pickingId]);
