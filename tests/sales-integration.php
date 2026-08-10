@@ -202,24 +202,57 @@ try {
         'Order uses the controlled tenant document sequence'
     );
 
-    $selfApproval = $service->transitionOrder(
-        $created['order'], 'approve', null, $actorId, 'sales-test-self-' . $suffix
-    );
-    $check(empty($selfApproval['successful']), 'Order creator cannot approve the same order');
-
     $approvalKey = 'sales-test-approve-' . $suffix;
     $approval = $service->transitionOrder(
-        $created['order'], 'approve', null, $approverId, $approvalKey
+        $created['order'], 'approve', null, $actorId, $approvalKey
     );
-    $check(!empty($approval['successful']), 'Submitted order is approved');
-    $automaticPicking=(int)db()->query('SELECT COUNT(*) FROM inventory_pickings WHERE company_id='.(int)$companyId.' AND sales_order_id='.(int)$created['order']." AND picking_type='delivery'")->fetchColumn();
-    $check($automaticPicking>0,'Order approval automatically prepares an authoritative Inventory delivery picking');
-    $approvalReplay = $service->transitionOrder(
-        $created['order'], 'approve', null, $approverId, $approvalKey
+    $approvedOrder = $service->orderDetail($created['order']);
+    $check(
+        !empty($approval['successful'])
+        && ($approvedOrder['status'] ?? '') === 'approved',
+        'Order creator with approval privilege can manually approve the submitted order'
     );
-    $check(!empty($approvalReplay['successful']), 'Repeated approval request is idempotent');
 
-    $deliveryId=(int)db()->query(
+    $pickingBeforeConfirm=(int)db()->query(
+        'SELECT COUNT(*) FROM inventory_pickings WHERE company_id='.(int)$companyId
+        .' AND sales_order_id='.(int)$created['order']." AND picking_type='delivery'"
+    )->fetchColumn();
+    $check(
+        $pickingBeforeConfirm===0,
+        'Manual approval does not prepare Inventory delivery before confirmation'
+    );
+
+    $approvalReplay = $service->transitionOrder(
+        $created['order'], 'approve', null, $actorId, $approvalKey
+    );
+    $check(
+        !empty($approvalReplay['successful']) && !empty($approvalReplay['replayed']),
+        'Repeated manual approval request is idempotent'
+    );
+
+    $confirmKey = 'sales-test-confirm-' . $suffix;
+    $confirmation = $service->transitionOrder(
+        $created['order'], 'confirm', null, $actorId, $confirmKey
+    );
+    $confirmedOrder = $service->orderDetail($created['order']);
+    $automaticPicking=(int)db()->query(
+        'SELECT COUNT(*) FROM inventory_pickings WHERE company_id='.(int)$companyId
+        .' AND sales_order_id='.(int)$created['order']." AND picking_type='delivery'"
+    )->fetchColumn();
+    $check(
+        !empty($confirmation['successful'])
+        && ($confirmedOrder['status'] ?? '') === 'confirmed'
+        && $automaticPicking>0,
+        'Manual confirmation confirms the order and prepares authoritative Inventory delivery'
+    );
+
+    $confirmationReplay = $service->transitionOrder(
+        $created['order'], 'confirm', null, $actorId, $confirmKey
+    );
+    $check(
+        !empty($confirmationReplay['successful']) && !empty($confirmationReplay['replayed']),
+        'Repeated manual confirmation request is idempotent'
+    );$deliveryId=(int)db()->query(
         'SELECT picking_id FROM inventory_pickings WHERE company_id='.(int)$companyId
         .' AND sales_order_id='.(int)$created['order']." AND picking_type='delivery' ORDER BY picking_id LIMIT 1"
     )->fetchColumn();
@@ -276,7 +309,7 @@ try {
          WHERE company_id = :company_id AND order_id = :order_id'
     );
     $historyStatement->execute(['company_id' => $companyId, 'order_id' => $created['order']]);
-    $check((int) $historyStatement->fetchColumn() === 2, 'Order creation and approval have immutable transition history');
+    $check((int) $historyStatement->fetchColumn() === 3, 'Order submission, approval and confirmation have immutable transition history');
 
     $serials = $service->registerSerialNumbers([
         'product_id' => $created['products'][0],
@@ -313,7 +346,15 @@ try {
     ], $actorId);
     $check(!empty($payment['successful']), 'Partial customer payment is recorded');
 
-    $dispatch = (new IntegrationDispatcherService())->dispatch(50);
+    $dispatch = ['processed' => 0, 'failed' => 0];
+    for ($dispatchPass = 0; $dispatchPass < 6; $dispatchPass++) {
+        $batch = (new IntegrationDispatcherService())->dispatch(50);
+        $dispatch['processed'] += (int) $batch['processed'];
+        $dispatch['failed'] += (int) $batch['failed'];
+        if ($batch['failed'] > 0 || ($batch['processed'] === 0 && $batch['failed'] === 0)) {
+            break;
+        }
+    }
     if ($dispatch['failed'] > 0) {
         $diagnostic = db()->prepare(
             "SELECT event_type, last_error
@@ -321,7 +362,7 @@ try {
              WHERE company_id = :company_id
                AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.order_id'))
                     = :order_id
-             ORDER BY created_at"
+             ORDER BY outbox_sequence"
         );
         $diagnostic->execute([
             'company_id' => $companyId,
@@ -336,14 +377,40 @@ try {
         }
     }
     $check(
-        $dispatch['processed'] >= 2 && $dispatch['failed'] === 0,
-        'Order and payment integration events are dispatched'
+        $dispatch['processed'] >= 3 && $dispatch['failed'] === 0,
+        'Approval, confirmation and payment integration events are dispatched'
     );
-    $webhookEventDispatch = (new IntegrationDispatcherService())->dispatch(50);
+
+    $orderedEventStatement = db()->prepare(
+        "SELECT event_type, status, outbox_sequence
+         FROM integration_outbox
+         WHERE company_id = :company_id
+           AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.order_id')) = :order_id
+           AND event_type IN ('sales.order.approved','sales.order.confirmed','sales.payment.recorded')
+         ORDER BY outbox_sequence"
+    );
+    $orderedEventStatement->execute([
+        'company_id' => $companyId,
+        'order_id' => (string) $created['order'],
+    ]);
+    $orderedEvents = $orderedEventStatement->fetchAll(PDO::FETCH_ASSOC);
+    $eventPositions = [];
+    $allOrderedEventsProcessed = true;
+    foreach ($orderedEvents as $position => $orderedEvent) {
+        $eventPositions[(string) $orderedEvent['event_type']] ??= $position;
+        $allOrderedEventsProcessed = $allOrderedEventsProcessed
+            && ($orderedEvent['status'] ?? '') === 'processed';
+    }
     $check(
-        $webhookEventDispatch['processed'] === 1
-        && $webhookEventDispatch['failed'] === 0,
-        'Ordered Sales webhook event is released after its internal predecessor'
+        isset(
+            $eventPositions['sales.order.approved'],
+            $eventPositions['sales.order.confirmed'],
+            $eventPositions['sales.payment.recorded']
+        )
+        && $eventPositions['sales.order.approved'] < $eventPositions['sales.order.confirmed']
+        && $eventPositions['sales.order.confirmed'] < $eventPositions['sales.payment.recorded']
+        && $allOrderedEventsProcessed,
+        'Approval, confirmation and payment preserve order-level outbox causality'
     );
 
     $receivableStatement = db()->prepare(

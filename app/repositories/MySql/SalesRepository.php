@@ -363,8 +363,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             "UPDATE sales_orders o
              INNER JOIN sales_quotations q
                 ON q.company_id=o.company_id AND q.sales_order_id=o.order_id
-             SET o.status='approved', o.confirmed_at=COALESCE(o.confirmed_at,NOW()),
-                 o.approved_by=:actor, o.updated_at=NOW()
+             SET o.submitted_at=COALESCE(o.submitted_at,NOW()),
+                 o.updated_by=:actor, o.updated_at=NOW()
              WHERE o.company_id=:company_id AND o.order_id=:order_id
                AND q.quotation_id=:quotation_id AND q.status='confirmed'
                AND o.status='submitted'"
@@ -663,6 +663,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             $allowed = [
                 'submit' => ['draft'],
                 'approve' => ['submitted'],
+                'confirm' => ['approved'],
                 'cancel' => ['draft', 'submitted', 'approved', 'confirmed'],
                 'fulfill' => ['approved', 'confirmed'],
             ];
@@ -677,12 +678,11 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             if ($action === 'cancel' && ($reason === null || mb_strlen($reason) < 10)) {
                 throw new RuntimeException('Provide a cancellation reason of at least 10 characters.');
             }
-            if ($action === 'approve' && (int) ($order['created_by'] ?? 0) === $actorId) {
-                throw new RuntimeException('The order creator cannot approve the same order.');
-            }
+
             $newStatus = match ($action) {
                 'submit' => 'submitted',
                 'approve' => 'approved',
+                'confirm' => 'confirmed',
                 'cancel' => 'cancelled',
                 'fulfill' => $current,
             };
@@ -692,6 +692,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                     submitted_at = CASE WHEN :is_submit = 1 THEN NOW() ELSE submitted_at END,
                     approved_by = CASE WHEN :is_approve = 1 THEN :actor_approve ELSE approved_by END,
                     approved_at = CASE WHEN :is_approve_time = 1 THEN NOW() ELSE approved_at END,
+                    confirmed_at = CASE WHEN :is_confirm = 1 THEN NOW() ELSE confirmed_at END,
                     cancelled_by = CASE WHEN :is_cancel = 1 THEN :actor_cancel ELSE cancelled_by END,
                     cancelled_at = CASE WHEN :is_cancel_time = 1 THEN NOW() ELSE cancelled_at END,
                     cancellation_reason = CASE WHEN :is_cancel_reason = 1 THEN :reason ELSE cancellation_reason END,
@@ -704,6 +705,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'is_approve' => $action === 'approve' ? 1 : 0,
                 'actor_approve' => $actorId,
                 'is_approve_time' => $action === 'approve' ? 1 : 0,
+                'is_confirm' => $action === 'confirm' ? 1 : 0,
                 'is_cancel' => $action === 'cancel' ? 1 : 0,
                 'actor_cancel' => $actorId,
                 'is_cancel_time' => $action === 'cancel' ? 1 : 0,
@@ -713,17 +715,18 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'company_id' => $companyId,
                 'order_id' => $orderId,
             ]);
-            if ($action === 'approve') {
+            if ($action === 'confirm') {
                 $this->accrueCommission($connection, $companyId, $orderId, $order);
                 $this->enqueueOrderConfirmed($connection, $companyId, $orderId, $order);
             }
             $webhookEvent = match ($action) {
                 'submit' => 'sales.order.submitted',
                 'approve' => 'sales.order.approved',
+                'confirm' => 'sales.order.confirmed',
                 'cancel' => 'sales.order.cancelled',
                 'fulfill' => 'sales.order.fulfilled',
             };
-            if (!($action === 'approve' && $webhookEvent === 'sales.order.confirmed')) {
+            if ($action !== 'confirm') {
                 $this->enqueue(
                     $connection,
                     $companyId,
@@ -943,8 +946,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 $connection,
                 $companyId,
                 'sales.payment.recorded',
-                'sales_payment',
-                (string) $paymentId,
+                'sales_order',
+                (string) $orderId,
                 [
                     'payment_id' => $paymentId,
                     'order_id' => $orderId,

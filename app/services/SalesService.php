@@ -161,16 +161,9 @@ final class SalesService
                 $this->tenant->companyId(), $id, $action, $actorId
             );
             if ($action === 'confirm' && !empty($result['orderId'])) {
-                $orderId = (int) $result['orderId'];
-                $order = $this->sales->orderDetail($this->tenant->companyId(), $orderId);
-                if (($order['status'] ?? null) === 'submitted') {
-                    $this->sales->activateOrderFromConfirmedQuotation(
-                        $this->tenant->companyId(), $id, $orderId, $actorId
-                    );
-                    $result += $this->prepareDelivery(
-                        $this->tenant->companyId(), $orderId, $actorId
-                    );
-                }
+                $this->sales->activateOrderFromConfirmedQuotation(
+                    $this->tenant->companyId(), $id, (int) $result['orderId'], $actorId
+                );
             }
             return ['successful' => true] + $result;
         } catch (Throwable $e) {
@@ -601,8 +594,8 @@ final class SalesService
     {
         $companyId = $this->tenant->companyId();
         try {
-            if($action==='fulfill'){
-                return ['successful'=>true]+$this->prepareDelivery($companyId,$orderId,$actorId);
+            if ($action === 'fulfill') {
+                $action = 'confirm';
             }
             $key = trim((string) $idempotencyKey);
             if ($key === '' || strlen($key) > 100) {
@@ -611,7 +604,7 @@ final class SalesService
             $transition = $this->sales->transitionOrder(
                 $companyId, $orderId, $action, $reason, $actorId, $key
             );
-            $delivery=$action==='approve'?$this->prepareDelivery($companyId,$orderId,$actorId):[];
+            $delivery=$action==='confirm'?$this->prepareDelivery($companyId,$orderId,$actorId):[];
             if (!empty($transition['replayed'])) {
                 return ['successful' => true, 'replayed' => true]+$delivery;
             }

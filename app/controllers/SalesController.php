@@ -298,6 +298,7 @@ final class SalesController
         $permission = match ($action) {
             'submit' => 'sales.orders.submit',
             'approve' => 'sales.orders.approve',
+            'confirm' => 'sales.orders.confirm',
             'fulfill' => 'sales.orders.confirm',
             'cancel' => 'sales.orders.cancel',
             default => 'sales.orders.approve',

@@ -33,10 +33,20 @@ $tier=$s->createPricelist(['name'=>'Tier '.$x,'currency'=>'ETB','product_id'=>$p
 $check((float)$s->quotation((int)$one['id'])['lines'][0]['unit_price']===95.0&&(float)$s->quotation((int)$five['id'])['lines'][0]['unit_price']===75.0&&empty($invalid['successful']),'Minimum quantity precedence is deterministic and invalid validity is rejected');
 $confirmed=$s->transitionQuotation((int)$quote['id'],'confirm',$actor);$replay=$s->transitionQuotation((int)$quote['id'],'confirm',$actor);
 $count=(int)db()->query('SELECT COUNT(*) FROM sales_orders WHERE order_id='.(int)($confirmed['orderId']??0))->fetchColumn();
-$check(!empty($confirmed['successful'])&&$count===1&& !empty($replay['replayed']),'Quotation confirmation creates one idempotent sales order');
-$invoice=$s->createInvoice((int)$confirmed['orderId'],'ordered',$actor);$invoiceReplay=$s->createInvoice((int)$confirmed['orderId'],'ordered',$actor);$orderDetail=$s->orderDetail((int)$confirmed['orderId']);
-$check(($orderDetail['status']??'')==='approved'&&!empty($invoice['successful'])&&!empty($invoiceReplay['successful'])&&(int)$invoice['invoiceId']===(int)$invoiceReplay['invoiceId']&&(float)$orderDetail['lines'][0]['invoiced_quantity']===3.0,'Quotation confirmation automatically approves and prepares the Sales Order; ordered-policy replay does not duplicate quantity');
-$locked=$s->updateQuotation((int)$quote['id'],['customer_id'=>$customer['id'],'quotation_date'=>date('Y-m-d'),'currency'=>'ETB','lines'=>[['product_id'=>$product['id'],'quantity'=>1]]],$actor);
+$orderId=(int)($confirmed['orderId']??0);$submittedOrder=$s->orderDetail($orderId);
+$pickingBeforeApproval=(int)db()->query('SELECT COUNT(*) FROM inventory_pickings WHERE sales_order_id='.$orderId." AND picking_type='delivery'")->fetchColumn();
+$check(!empty($confirmed['successful'])&&$count===1&&!empty($replay['replayed'])&&($submittedOrder['status']??'')==='submitted'&&$pickingBeforeApproval===0,'Quotation confirmation creates one idempotent Submitted sales order without auto-approval or delivery');
+
+$approval=$s->transitionOrder($orderId,'approve',null,$actor,'commercial-approve-'.$x);$approvedOrder=$s->orderDetail($orderId);
+$pickingBeforeConfirm=(int)db()->query('SELECT COUNT(*) FROM inventory_pickings WHERE sales_order_id='.$orderId." AND picking_type='delivery'")->fetchColumn();
+$check(!empty($approval['successful'])&&($approvedOrder['status']??'')==='approved'&&$pickingBeforeConfirm===0,'Sales Order requires explicit manual approval and approval does not prepare delivery');
+
+$confirmation=$s->transitionOrder($orderId,'confirm',null,$actor,'commercial-confirm-'.$x);$confirmedOrder=$s->orderDetail($orderId);
+$pickingAfterConfirm=(int)db()->query('SELECT COUNT(*) FROM inventory_pickings WHERE sales_order_id='.$orderId." AND picking_type='delivery'")->fetchColumn();
+$check(!empty($confirmation['successful'])&&($confirmedOrder['status']??'')==='confirmed'&&$pickingAfterConfirm===0&&empty($confirmation['deliveryRequired']),'Explicit manual confirmation confirms a service-only Sales Order without creating Inventory delivery');
+
+$invoice=$s->createInvoice($orderId,'ordered',$actor);$invoiceReplay=$s->createInvoice($orderId,'ordered',$actor);$orderDetail=$s->orderDetail($orderId);
+$check(($orderDetail['status']??'')==='confirmed'&&!empty($invoice['successful'])&&!empty($invoiceReplay['successful'])&&(int)$invoice['invoiceId']===(int)$invoiceReplay['invoiceId']&&(float)$orderDetail['lines'][0]['invoiced_quantity']===3.0,'Confirmed Sales Order supports idempotent ordered-policy invoicing without duplicating quantity');$locked=$s->updateQuotation((int)$quote['id'],['customer_id'=>$customer['id'],'quotation_date'=>date('Y-m-d'),'currency'=>'ETB','lines'=>[['product_id'=>$product['id'],'quantity'=>1]]],$actor);
 $check(empty($locked['successful']),'Confirmed quotation cannot be edited');
 }catch(Throwable $e){$f[]=$e::class.': '.$e->getMessage();fwrite(STDERR,'FAIL '.end($f).PHP_EOL);}
 fwrite(STDOUT,"Sales commercial integration: ".count($f)." failure(s)\n");exit($f===[]?0:1);
