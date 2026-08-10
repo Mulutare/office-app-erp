@@ -10,6 +10,7 @@ RUN composer install \
     --no-dev \
     --no-interaction \
     --no-progress \
+    --ignore-platform-req=ext-gd \
     --prefer-dist \
     --optimize-autoloader
 
@@ -21,13 +22,17 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev \
-        libonig-dev; \
+        libonig-dev \
+        libpng-dev \
+        libzip-dev; \
     docker-php-ext-install -j"$(nproc)" \
         bcmath \
         curl \
+        gd \
         mbstring \
         opcache \
-        pdo_mysql; \
+        pdo_mysql \
+        zip; \
     a2enmod rewrite headers; \
     sed -ri 's!Listen 80!Listen 8080!' \
         /etc/apache2/ports.conf; \

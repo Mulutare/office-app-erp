@@ -327,9 +327,10 @@ final class MigrationRunner
             } catch (Throwable $exception) {
                 throw new RuntimeException(
                     sprintf(
-                        'Migration %s failed at statement %d.',
+                        'Migration %s failed at statement %d: %s',
                         $migration['version'],
-                        $index + 1
+                        $index + 1,
+                        $exception->getMessage()
                     ),
                     0,
                     $exception

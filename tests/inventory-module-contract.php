@@ -442,9 +442,9 @@ $check(
 $check(
     str_contains(
         $testRunnerSource,
-        '$migrationLedgerCount === 30'
+        '$migrationLedgerCount === 31'
     ),
-    'Main test runner expects thirty MySQL migrations'
+    'Main test runner expects thirty-one MySQL migrations'
 );
 
 $inventoryRepositorySource = $contents(

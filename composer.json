@@ -9,7 +9,8 @@
         "ext-json": "*",
         "ext-mbstring": "*",
         "ext-openssl": "*",
-        "minishlink/web-push": "^9.0"
+        "minishlink/web-push": "^9.0",
+        "phpoffice/phpspreadsheet": "5.8.1"
     },
     "config": {
         "platform": {

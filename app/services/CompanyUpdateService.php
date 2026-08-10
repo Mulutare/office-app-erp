@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\User;
+use App\Models\Role;
 use DateTimeImmutable;
 use DateTimeZone;
 use Throwable;
@@ -22,12 +23,14 @@ final class CompanyUpdateService
     private Company $companies;
     private AuditLog $auditLogs;
     private User $users;
+    private Role $roles;
 
     public function __construct()
     {
         $this->companies = new Company();
         $this->auditLogs = new AuditLog();
         $this->users = new User();
+        $this->roles = new Role();
     }
 
     /**
@@ -158,6 +161,7 @@ final class CompanyUpdateService
                     ];
 
             if (!$changed) {
+                $this->roles->copyPermissionTemplatesToCompany($companyId, $updatedBy);
                 \db()->commit();
 
                 return [
@@ -199,6 +203,9 @@ final class CompanyUpdateService
                         $updatedBy
                     );
             }
+            // Re-apply reviewed permission templates whenever licensing is
+            // changed. This covers modules enabled after company creation.
+            $this->roles->copyPermissionTemplatesToCompany($companyId, $updatedBy);
 
             $this->auditLogs->record(
                 $updatedBy,

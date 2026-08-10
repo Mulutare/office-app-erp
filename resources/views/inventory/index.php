@@ -52,7 +52,7 @@ $canViewInventoryWarehouses = in_array(
     $inventoryDashboardPermissions,
     true
 );?>
-<div class="details-toolbar"><a href="/office_app/public/inventory/receipts" class="btn btn-primary">Receipts</a><?php if(in_array('inventory.receipts.create',$inventoryDashboardPermissions,true)):?><a href="/office_app/public/inventory/receipts/create" class="btn btn-secondary">New Receipt</a><?php endif;?></div>
+<div class="details-toolbar"><a href="/office_app/public/inventory/receipts" class="btn btn-primary">Receipts</a><a href="/office_app/public/data-exchange/stock/export/configure" class="btn btn-secondary">Export Stock</a><?php if(in_array('inventory.receipts.create',$inventoryDashboardPermissions,true)):?><a href="/office_app/public/inventory/receipts/create" class="btn btn-secondary">New Receipt</a><?php endif;?></div>
 <?php if ($canViewInventoryWarehouses): ?>
     <div class="details-toolbar">
         <a

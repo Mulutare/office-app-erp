@@ -47,6 +47,8 @@ $sectionLabels = [
 
 <header class="page-header">
     <div><p class="eyebrow">Sales</p><h1><?= e($sectionLabels[$section] ?? 'Sales') ?></h1></div>
+    <?php $exchangeEntity=['customers'=>'customers','products'=>'products','pricelists'=>'pricelists','teams'=>'sales-teams','quotations'=>'quotations','orders'=>'sales-orders'][$section]??null; ?>
+    <?php if($exchangeEntity!==null):?><div class="filter-actions"><?php if(in_array($exchangeEntity,['customers','products','quotations'],true)):?><a class="btn btn-secondary" href="/office_app/public/data-exchange/<?=e($exchangeEntity)?>/import">Import</a><?php endif;?><a class="btn btn-secondary" href="/office_app/public/data-exchange/<?=e($exchangeEntity)?>/export/configure">Export</a><?php if(in_array($exchangeEntity,['customers','products','quotations'],true)):?><a class="btn btn-secondary" href="/office_app/public/data-exchange/<?=e($exchangeEntity)?>/template?format=xlsx">Download Template</a><?php endif;?></div><?php endif;?>
     <?php if ($section === 'quotations' && !empty($data['canCreateOrders'])): ?>
         <a class="btn btn-primary" href="/office_app/public/sales/quotations/create">New quotation</a>
     <?php endif; ?>
@@ -84,6 +86,7 @@ $sectionLabels = [
 <section class="card table-card"><div class="table-summary"><strong>Shared product catalogue</strong><span><?=e(count($products))?> products</span></div><div class="table-responsive"><table class="data-table"><thead><tr><th>Product</th><th>Category</th><th>Semantics</th><th>UoM</th><th>Sales price</th><th>Status</th></tr></thead><tbody><?php if($products===[]):?><tr><td colspan="6" class="empty-state">No products yet.</td></tr><?php endif;?><?php foreach($products as $product):?><tr><td><strong><a href="/office_app/public/sales/products/<?=e($product['product_id'])?>"><?=e($product['sku'].' - '.$product['name'])?></a></strong></td><td><?=e($product['category']??'Uncategorised')?></td><td><?=e(str_replace('_',' ',$product['product_type']))?></td><td><?=e($product['unit_of_measure'])?></td><td><?=e($money($product['unit_price']))?></td><td><?=!empty($product['active'])?'Active':'Archived'?></td></tr><?php endforeach;?></tbody></table></div></section>
 <?php endif; ?>
 
+<?php if($section==='orders')ob_start(); ?>
 <section class="finance-summary-grid sales-summary-grid" aria-label="Sales summary">
     <article class="card finance-summary-card sales-summary-card"><span>Orders</span><strong><?= e($summary['orderCount'] ?? 0) ?></strong></article>
     <article class="card finance-summary-card sales-summary-card"><span>Total sales</span><strong><?= e($money($summary['salesTotal'] ?? 0)) ?></strong></article>
@@ -91,8 +94,10 @@ $sectionLabels = [
     <article class="card finance-summary-card sales-summary-card"><span>Overdue</span><strong><?= e($money($summary['overdueTotal'] ?? 0)) ?></strong></article>
     <article class="card finance-summary-card sales-summary-card"><span>Accrued commission</span><strong><?= e($money($summary['commissionTotal'] ?? 0)) ?></strong></article>
 </section>
+<?php if($section==='orders')$ordersSummary=(string)ob_get_clean(); ?>
 
 <?php if (!empty($data['canCreateOrders']) && in_array($section, ['dashboard','quotations','orders'], true)): ?>
+<?php if($section==='orders')ob_start(); ?>
 <section id="new-quotation" class="card finance-filter-panel sales-order-composer">
     <h2><?= $section === 'orders' ? 'Create sales order' : 'New quotation' ?></h2>
     <p class="page-description">Add up to three product lines per order. Prices and commissions are taken from the controlled product catalogue.</p>
@@ -115,10 +120,11 @@ $sectionLabels = [
         <div class="filter-actions"><button class="btn btn-primary" type="submit" name="confirm" value="1">Confirm and submit</button><button class="btn btn-secondary" type="submit">Save quotation draft</button></div>
     </form>
 </section>
+<?php if($section==='orders')$ordersCreateForm=(string)ob_get_clean(); ?>
 <?php endif; ?>
 
 <section class="card table-card">
-    <div class="table-summary"><strong>Recent orders and receivables</strong><span><?php if (!empty($data['canExportReports'])): ?><a class="btn btn-secondary btn-compact" href="/office_app/public/sales/export">Export CSV</a><?php endif; ?> <?= e(count($orders)) ?> orders</span></div>
+    <div class="table-summary"><strong><?= $section==='orders'?'Sales Orders':'Recent orders and receivables' ?></strong><span><?php if (!empty($data['canExportReports'])): ?><a class="btn btn-secondary btn-compact" href="/office_app/public/sales/export">Export CSV</a><?php endif; ?> <?= e(count($orders)) ?> orders</span></div>
     <div class="table-responsive"><table class="data-table"><thead><tr><th>Order</th><th>Customer</th><th>Date / due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><?php if ($canOrderActions): ?><th>Order action</th><?php endif; ?><?php if (!empty($data['canRecordPayments'])): ?><th>Receipt</th><?php endif; ?></tr></thead><tbody>
     <?php if ($orders === []): ?><tr><td colspan="8" class="empty-state">No sales orders have been created.</td></tr><?php endif; ?>
     <?php foreach ($orders as $order): ?><tr>
@@ -131,6 +137,7 @@ $sectionLabels = [
         <?php if (!empty($data['canRecordPayments'])): ?><td><?php if (in_array($order['status'], ['approved', 'confirmed', 'fulfilled', 'partially_paid'], true)): ?><form method="post" action="/office_app/public/sales/payments"><?= csrfField() ?><input type="hidden" name="order_id" value="<?= e($order['order_id']) ?>"><input name="receipt_number" placeholder="Receipt #" maxlength="50" required><input name="payment_date" type="date" value="<?= e($today) ?>" required><input name="amount" type="number" min="0.01" max="<?= e($order['balance_due']) ?>" step="0.01" placeholder="Amount" required><select name="payment_method"><option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option><option value="mobile_money">Mobile money</option><option value="card">Card</option></select><input name="reference_number" placeholder="Reference"><button class="btn btn-secondary btn-compact" type="submit">Record</button></form><?php else: ?>-<?php endif; ?></td><?php endif; ?>
     </tr><?php endforeach; ?></tbody></table></div>
 </section>
+<?php if($section==='orders'){echo $ordersCreateForm??'';echo $ordersSummary??'';} ?>
 
 <?php if (!empty($data['canManageCatalogue'])): ?>
 <section class="finance-summary-grid sales-management-grid">

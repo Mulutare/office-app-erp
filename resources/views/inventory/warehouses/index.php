@@ -34,6 +34,7 @@ $canManage = !empty($data['canManage']);
         </div>
 
         <div class="details-toolbar">
+            <a href="/office_app/public/data-exchange/warehouses/export/configure" class="btn btn-secondary">Export</a>
             <a
                 href="/office_app/public/inventory"
                 class="btn btn-secondary"

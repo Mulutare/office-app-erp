@@ -82,11 +82,6 @@ ALTER TABLE inventory_stock_movements
         ),
     ADD CONSTRAINT ck_inventory_movement_status
         CHECK (status IN ('draft', 'ready', 'completed', 'cancelled')),
-    ADD CONSTRAINT ck_inventory_movement_endpoints
-        CHECK (
-            source_location_id IS NOT NULL
-            OR destination_location_id IS NOT NULL
-        ),
     ADD CONSTRAINT ck_inventory_movement_distinct_locations
         CHECK (
             source_location_id IS NULL
@@ -144,6 +139,14 @@ SET requested_quantity = ABS(quantity_delta),
     completed_at = occurred_at,
     completed_by = recorded_by
 WHERE requested_quantity IS NULL
+SQL,
+        <<<'SQL'
+ALTER TABLE inventory_stock_movements
+    ADD CONSTRAINT ck_inventory_movement_endpoints
+        CHECK (
+            source_location_id IS NOT NULL
+            OR destination_location_id IS NOT NULL
+        )
 SQL,
         <<<'SQL'
 ALTER TABLE inventory_stock_movements

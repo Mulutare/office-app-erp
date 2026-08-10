@@ -11,6 +11,7 @@ use App\Controllers\BranchController;
 use App\Controllers\CompanyAdministrationController;
 use App\Controllers\CompanyContextController;
 use App\Controllers\DashboardController;
+use App\Controllers\DataExchangeController;
 use App\Controllers\DepartmentController;
 use App\Controllers\EmployeeActivityController;
 use App\Controllers\EmployeePositionController;
@@ -66,6 +67,7 @@ $warehouseController = new WarehouseController();
 $warehouseLocationController =
     new WarehouseLocationController();
 $salesController = new SalesController();
+$dataExchangeController = new DataExchangeController();
 $apiV1SalesController = new ApiV1SalesController();
 $moduleAdministrationController =
     new ModuleAdministrationController();
@@ -299,6 +301,12 @@ $router->post(
     [$warehouseLocationController, 'provision']
 );
 $router->get('/sales', [$salesController, 'index']);
+$router->get('/data-exchange/{entity}/import', [$dataExchangeController, 'show']);
+$router->post('/data-exchange/{entity}/preview', [$dataExchangeController, 'preview']);
+$router->post('/data-exchange/{entity}/import', [$dataExchangeController, 'execute']);
+$router->get('/data-exchange/{entity}/template', [$dataExchangeController, 'template']);
+$router->get('/data-exchange/{entity}/export/configure', [$dataExchangeController, 'exportForm']);
+$router->get('/data-exchange/{entity}/export', [$dataExchangeController, 'export']);
 $router->get('/sales/customers', [$salesController, 'customers']);
 $router->get('/sales/products', [$salesController, 'products']);
 $router->get('/sales/customers/{id}', [$salesController, 'showCustomer']);

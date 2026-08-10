@@ -10,6 +10,7 @@ $money = static fn (mixed $amount, string $currency): string =>
     <nav class="card details-toolbar">
         <a class="btn btn-secondary" href="/office_app/public/finance">Finance</a>
         <a class="btn btn-primary" href="/office_app/public/finance/customer-invoices">Customer Invoices</a>
+        <a class="btn btn-secondary" href="/office_app/public/data-exchange/invoices/export/configure">Export</a>
     </nav>
     <section class="card table-card">
         <h2>Customer invoices</h2>
