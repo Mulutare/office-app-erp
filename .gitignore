@@ -36,3 +36,6 @@ Thumbs.db
 config/database.php
 config/app.local.php
 dist/
+
+backups/
+*.before-*

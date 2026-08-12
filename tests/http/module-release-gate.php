@@ -51,12 +51,12 @@ $b = tempnam(sys_get_temp_dir(), 'officeapp-b-');
 $check(is_string($a) && authenticate($base, 'test_tenant_a_admin', $password, $a), 'Company A authorized user authenticates');
 $check(is_string($b) && authenticate($base, 'test_tenant_b_user', $password, $b), 'Company B user authenticates');
 
-$aGet = request($base, '/assets', $a);
-$check($aGet['status'] === 200 && str_contains($aGet['body'], 'Assets'), 'Company A licensed, enabled, authorized GET /assets succeeds');
-$bGet = request($base, '/assets', $b);
-$check(in_array($bGet['status'], [403, 404], true), 'Company B unlicensed GET /assets is denied');
+$aGet = request($base, '/assets-management', $a);
+$check($aGet['status'] === 200 && str_contains($aGet['body'], 'Assets'), 'Company A licensed, enabled, authorized GET /assets-management succeeds');
+$bGet = request($base, '/assets-management', $b);
+$check(in_array($bGet['status'], [403, 404], true), 'Company B unlicensed GET /assets-management is denied');
 
-foreach (['/assets', '/assets/categories', '/assets/1/activate', '/assets/1/depreciation/1/post', '/assets/1/dispose'] as $path) {
+foreach (['/assets-management', '/assets-management/categories', '/assets-management/1/activate', '/assets-management/1/depreciation/1/post', '/assets-management/1/dispose'] as $path) {
     $response = request($base, $path, $b, 'POST', ['_token' => 'direct-manipulation']);
     $check(in_array($response['status'], [403, 404], true), 'Company B unlicensed POST ' . $path . ' is denied');
 }

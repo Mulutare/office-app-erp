@@ -7,7 +7,6 @@ namespace App\Services;
 use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\User;
-use App\Models\Role;
 use DateTimeImmutable;
 use DateTimeZone;
 use Throwable;
@@ -23,14 +22,12 @@ final class CompanyUpdateService
     private Company $companies;
     private AuditLog $auditLogs;
     private User $users;
-    private Role $roles;
 
     public function __construct()
     {
         $this->companies = new Company();
         $this->auditLogs = new AuditLog();
         $this->users = new User();
-        $this->roles = new Role();
     }
 
     /**
@@ -117,7 +114,7 @@ final class CompanyUpdateService
                 ];
             }
 
-            $beforeModules = $this->enabledModuleCodes(
+            $beforeModules = $this->assignedModuleCodes(
                 $this->companies
                     ->modulesForCompany($companyId)
             );
@@ -161,7 +158,6 @@ final class CompanyUpdateService
                     ];
 
             if (!$changed) {
-                $this->roles->copyPermissionTemplatesToCompany($companyId, $updatedBy);
                 \db()->commit();
 
                 return [
@@ -201,10 +197,6 @@ final class CompanyUpdateService
                         $updatedBy
                     );
             }
-            // Re-apply reviewed permission templates whenever licensing is
-            // changed. This covers modules enabled after company creation.
-            $this->roles->copyPermissionTemplatesToCompany($companyId, $updatedBy);
-
             $this->auditLogs->record(
                 $updatedBy,
                 'UPDATE_COMPANY',
@@ -514,7 +506,7 @@ final class CompanyUpdateService
      *
      * @return list<string>
      */
-    private function enabledModuleCodes(
+    private function assignedModuleCodes(
         array $modules
     ): array {
         return array_values(array_map(
@@ -535,12 +527,6 @@ final class CompanyUpdateService
             )
         ));
     }
-
-    /**
-     * @param array<string, mixed> $company
-     *
-     * @return array<string, mixed>
-     */
     private function profileSnapshot(
         array $company
     ): array {

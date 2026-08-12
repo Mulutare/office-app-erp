@@ -169,9 +169,10 @@ final class WarehouseLocationController
 
     private function authorize(string $permission): void
     {
-        $this->authorization->requireModule('inventory');
-        $this->authorization
-            ->requireTenantPermission($permission);
+        $this->authorization->requireModulePermission(
+            'inventory',
+            $permission
+        );
     }
 
     private function canManage(): bool

@@ -82,6 +82,19 @@ final class CompanyAdministrationController
             ->requirePlatformAdministrator();
         $options = $this->companies
             ->formOptions();
+        $companyModules = [];
+
+        foreach ($details['modules'] as $module) {
+            $companyModules[(string) $module['code']] = $module;
+        }
+
+        foreach ($options['modules'] as &$module) {
+            $module += $companyModules[
+                (string) $module['code']
+            ] ?? [];
+        }
+
+        unset($module);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -494,8 +507,7 @@ final class CompanyAdministrationController
                     array_filter(
                         $details['modules'],
                         static fn (array $module): bool =>
-                            !empty($module['enabled'])
-                            && in_array(
+                        in_array(
                                 (string) (
                                     $module[
                                         'license_status'

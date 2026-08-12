@@ -34,7 +34,7 @@ $modules = [
     [
         'title' => 'Company modules',
         'description' =>
-            'Enable licensed modules for the configured workspace.',
+            'Manage module availability for configured customer workspaces.',
         'path' =>
             '/office_app/public/administration/modules',
         'permission' =>

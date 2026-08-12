@@ -81,6 +81,14 @@ final class AuthorizationService
         }
     }
 
+    public function requireModulePermission(
+        string $moduleCode,
+        string $permissionCode
+    ): void {
+        $this->requireModule($moduleCode);
+        $this->requireTenantPermission($permissionCode);
+    }
+
     /**
      * @param list<string> $permissionCodes
      */

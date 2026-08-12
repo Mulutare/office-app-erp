@@ -112,8 +112,10 @@ final class FinanceController
 
     private function authorizeOperations(string $permission): void
     {
-        $this->authorization->requireModule('finance');
-        $this->authorization->requireTenantPermission($permission);
+        $this->authorization->requireModulePermission(
+            'finance',
+            $permission
+        );
     }
 
     public function index(): void

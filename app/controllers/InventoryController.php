@@ -82,13 +82,9 @@ final class InventoryController
     private function authorize(
         string $permission
     ): void {
-        $this->authorization->requireModule(
-            'inventory'
+        $this->authorization->requireModulePermission(
+            'inventory',
+            $permission
         );
-
-        $this->authorization
-            ->requireTenantPermission(
-                $permission
-            );
     }
 }

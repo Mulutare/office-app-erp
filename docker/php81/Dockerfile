@@ -6,13 +6,17 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev \
-        libonig-dev; \
+        libonig-dev \
+        libpng-dev \
+        libzip-dev; \
     docker-php-ext-install -j"$(nproc)" \
         bcmath \
         curl \
+        gd \
         mbstring \
         opcache \
-        pdo_mysql; \
+        pdo_mysql \
+        zip; \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /var/www/html/office_app

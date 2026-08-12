@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\CompanyModule;
 use PDO;
 
 final class ApiSecurityService
@@ -151,16 +152,12 @@ final class ApiSecurityService
 
     private function assertSalesLicensed(int $companyId): void
     {
-        $statement = \db()->prepare(
-            "SELECT COUNT(*) FROM company_modules company_module
-             INNER JOIN erp_modules module ON module.module_id = company_module.module_id
-             WHERE company_module.company_id = :company_id AND module.code = 'sales'
-               AND module.release_status = 'released' AND company_module.enabled = TRUE
-               AND company_module.license_status IN ('active','trial')
-               AND (company_module.expires_at IS NULL OR company_module.expires_at > NOW())"
+        $enabled = array_column(
+            (new CompanyModule())->enabledForCompany($companyId),
+            'code'
         );
-        $statement->execute(['company_id' => $companyId]);
-        if ((int) $statement->fetchColumn() !== 1) {
+
+        if (!in_array('sales', $enabled, true)) {
             throw new ApiException(403, 'module_unavailable', 'The Sales module is not actively licensed.');
         }
     }

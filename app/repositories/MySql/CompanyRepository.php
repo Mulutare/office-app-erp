@@ -533,41 +533,68 @@ class CompanyRepository extends MySqlRepository
         ?string $expiresAt,
         int $updatedBy
     ): void {
+        $effectiveLicenseStatus = $licensed
+            ? $licenseStatus
+            : 'not_licensed';
+
+        $enabled = $licensed
+            && in_array(
+                $effectiveLicenseStatus,
+                ['active', 'trial'],
+                true
+            );
+
         $statement = $this->connection()->prepare(
-            'UPDATE company_modules
-             SET enabled = CASE
-                    WHEN :licensed = 1
-                     AND license_status IN (\'active\', \'trial\')
-                        THEN enabled
-                    ELSE FALSE
-                 END,
-                 license_status = :license_status,
-                 licensed_at = CASE
-                    WHEN :licensed_for_date = 1
+            'INSERT INTO company_modules
+                (
+                    company_id,
+                    module_id,
+                    enabled,
+                    license_status,
+                    licensed_at,
+                    expires_at,
+                    updated_by
+                )
+             VALUES
+                (
+                    :company_id,
+                    :module_id,
+                    :enabled,
+                    :license_status,
+                    CASE
+                        WHEN :licensed_for_date = 1
+                            THEN NOW()
+                        ELSE NULL
+                    END,
+                    :expires_at,
+                    :updated_by
+                )
+             ON DUPLICATE KEY UPDATE
+                enabled = VALUES(enabled),
+                license_status = VALUES(license_status),
+                licensed_at = CASE
+                    WHEN VALUES(license_status)
+                         IN (\'active\', \'trial\')
                      AND licensed_at IS NULL
                         THEN NOW()
                     ELSE licensed_at
-                 END,
-                 expires_at = :expires_at,
-                 updated_by = :updated_by
-             WHERE company_id = :company_id
-               AND module_id = :module_id'
+                END,
+                expires_at = VALUES(expires_at),
+                updated_by = VALUES(updated_by)'
         );
+
         $statement->execute([
-            'licensed' => $licensed ? 1 : 0,
-            'license_status' => $licensed
-                ? $licenseStatus
-                : 'not_licensed',
+            'company_id' => $companyId,
+            'module_id' => $moduleId,
+            'enabled' => $enabled ? 1 : 0,
+            'license_status' => $effectiveLicenseStatus,
             'licensed_for_date' => $licensed ? 1 : 0,
             'expires_at' => $licensed
                 ? $expiresAt
                 : null,
             'updated_by' => $updatedBy,
-            'company_id' => $companyId,
-            'module_id' => $moduleId,
         ]);
     }
-
     public function suspend(
         int $companyId
     ): bool {

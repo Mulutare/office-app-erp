@@ -38,7 +38,7 @@ $actorId = (int) ($actor['user_id'] ?? 0);
 $check($companyId > 0 && $actorId > 0, 'Module lifecycle test actors exist');
 $check(
     ($modules['assets']['release_status'] ?? null) === 'released'
-    && ($modules['assets']['route_path'] ?? null) === '/assets'
+    && ($modules['assets']['route_path'] ?? null) === '/assets-management'
     && ($modules['assets']['introduced_migration'] ?? null) === '046'
     && array_key_exists('first_release_version', $modules['assets'])
     && $modules['assets']['first_release_version'] === null,

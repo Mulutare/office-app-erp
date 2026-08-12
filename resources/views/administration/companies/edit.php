@@ -402,6 +402,14 @@ if (!preg_match(
                         $code = (string) (
                             $module['code'] ?? ''
                         );
+                        $licensed = in_array(
+                            (string) ($module['license_status'] ?? ''),
+                            ['active', 'trial'],
+                            true
+                        ) && (
+                            empty($module['expires_at'])
+                            || strtotime((string) $module['expires_at']) > time()
+                        );
                         ?>
                         <label class="company-module-option">
                             <input
@@ -443,6 +451,11 @@ if (!preg_match(
                                             ] ?? ''
                                             : 'Roadmap - not available for licensing'
                                     ) ?>
+                                </small>
+                                <small>
+                                    <?= $licensed
+                                        ? 'Licensed'
+                                        : 'Not Licensed' ?>
                                 </small>
                             </span>
                         </label>

@@ -39,9 +39,9 @@ final class SalesController
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage')]);
     }
     public function createInvoice(string $id): void
-    {$this->authorize('sales.view');$this->authorization->requireModule('finance');$this->authorization->requireTenantPermission('finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+    {$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
     public function createCreditNote(string $id): void
-    {$this->authorize('sales.view');$this->authorization->requireModule('finance');$this->authorization->requireTenantPermission('finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createCreditNote((int)$id,$this->actorId());$this->finishTo($result,'sales_invoice','Customer credit note created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+    {$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createCreditNote((int)$id,$this->actorId());$this->finishTo($result,'sales_invoice','Customer credit note created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
     public function pricelists(): void { $this->renderWorkspace('pricelists'); }
     public function teams(): void { $this->renderWorkspace('teams'); }
     public function deliveries(): void
@@ -57,16 +57,16 @@ final class SalesController
     }
     public function completeDelivery(string $id): void
     {
-        $this->authorize('inventory.transfers.manage');$this->requireCsrf('sales_delivery');
+        $this->authorizeInventoryDelivery();$this->requireCsrf('sales_delivery');
         $document=$this->sales->delivery((int)$id);
         $result=$this->sales->completeDelivery((int)$id,['completed_quantity'=>$_POST['completed_quantity']??[],'create_backorder'=>\postString('create_backorder'),'idempotency_key'=>\postString('idempotency_key')],$this->actorId());
         $message=is_array($document)&&($document['picking_type']??'')==='customer_return'?'Return validated in Inventory.':'Delivery quantities validated in Inventory.';
         $this->finishTo($result,'sales_delivery',$message,[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)($result['backorderPickingId']??$id));
     }
     public function reserveDelivery(string $id): void
-    {$this->authorize('inventory.transfers.manage');$this->requireCsrf('sales_delivery_reserve');$result=$this->sales->reserveDelivery((int)$id,$this->actorId());$this->finishTo($result,'sales_delivery_reserve','Stock reserved. The delivery is ready for validation.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)$id);}
+    {$this->authorizeInventoryDelivery();$this->requireCsrf('sales_delivery_reserve');$result=$this->sales->reserveDelivery((int)$id,$this->actorId());$this->finishTo($result,'sales_delivery_reserve','Stock reserved. The delivery is ready for validation.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)$id);}
     public function createReturn(string $id): void
-    {$this->authorize('inventory.transfers.manage');$this->requireCsrf('sales_delivery_return');$result=$this->sales->createReturn((int)$id,$_POST,$this->actorId());$this->finishTo($result,'sales_delivery_return','Return document created. Validate it to move returned stock.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)($result['returnPickingId']??$id));}
+    {$this->authorizeInventoryDelivery();$this->requireCsrf('sales_delivery_return');$result=$this->sales->createReturn((int)$id,$_POST,$this->actorId());$this->finishTo($result,'sales_delivery_return','Return document created. Validate it to move returned stock.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)($result['returnPickingId']??$id));}
     public function showPricelist(string $id): void{$this->authorize('sales.view');$this->renderCommercial('pricelist',(int)$id);}
     public function showTeam(string $id): void{$this->authorize('sales.view');$this->renderCommercial('team',(int)$id);}
     private function renderCommercial(string $type,int $id): void
@@ -365,8 +365,16 @@ final class SalesController
 
     private function authorize(string $permission): void
     {
+        $this->authorization->requireModulePermission('sales', $permission);
+    }
+
+    private function authorizeInventoryDelivery(): void
+    {
         $this->authorization->requireModule('sales');
-        $this->authorization->requireTenantPermission($permission);
+        $this->authorization->requireModulePermission(
+            'inventory',
+            'inventory.transfers.manage'
+        );
     }
 
     private function requireCsrf(string $form): void

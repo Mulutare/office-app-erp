@@ -663,7 +663,7 @@ class RoleRepository extends MySqlRepository
         int $grantedBy
     ): void {
         $statement = $this->connection()->prepare(
-            'INSERT INTO company_role_permissions
+            'INSERT IGNORE INTO company_role_permissions
                 (
                     company_id,
                     role_id,
@@ -675,9 +675,7 @@ class RoleRepository extends MySqlRepository
                 templates.role_id,
                 templates.permission_id,
                 :granted_by
-             FROM role_permissions templates
-             ON DUPLICATE KEY UPDATE
-                granted_by = VALUES(granted_by)'
+             FROM role_permissions templates'
         );
         $statement->execute([
             'company_id' => $companyId,
