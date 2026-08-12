@@ -74,7 +74,7 @@ final class CompanyUpdateService
             array_filter(
                 $catalog,
                 static fn (array $module): bool =>
-                    !empty($module['available'])
+                    ($module['release_status'] ?? 'roadmap') === 'released'
             )
         ));
         $errors = $this->validate(
@@ -182,9 +182,7 @@ final class CompanyUpdateService
                 $code = (string) (
                     $module['code'] ?? ''
                 );
-                $enabled = !empty(
-                    $module['available']
-                ) && in_array(
+                $enabled = ($module['release_status'] ?? 'roadmap') === 'released' && in_array(
                     $code,
                     $selectedCodes,
                     true

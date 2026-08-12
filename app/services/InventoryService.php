@@ -104,6 +104,20 @@ final class InventoryService
         }
     }
 
+    /** @return array<string,mixed> */
+    public function capitalizeAssetStock(int $warehouseId,int $locationId,int $productId,float $quantity,int $assetId,string $assetNumber,int $actorId): array
+    {
+        if($warehouseId<1||$locationId<1||$productId<1||$quantity<=0||$assetId<1||$actorId<1)throw new RuntimeException('Valid source stock, asset, quantity and actor are required.');
+        return $this->inventory->completeStockMovement([
+            'companyId'=>$this->tenant->companyId(),'sourceWarehouseId'=>$warehouseId,'sourceLocationId'=>$locationId,
+            'destinationWarehouseId'=>null,'destinationLocationId'=>null,'productId'=>$productId,'quantity'=>$quantity,
+            'movementType'=>'issue','currency'=>(string)($_SESSION['auth']['company']['default_currency']??'ETB'),
+            'referenceType'=>'asset_capitalization','referenceId'=>$assetId,'referenceNumber'=>$assetNumber,
+            'idempotencyKey'=>'asset-capitalization-'.$this->tenant->companyId().'-'.$assetId,
+            'notes'=>'Stock issued to Internal Asset Use','occurredAt'=>date('Y-m-d H:i:s'),'actorId'=>$actorId,
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */

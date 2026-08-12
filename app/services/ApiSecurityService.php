@@ -155,7 +155,7 @@ final class ApiSecurityService
             "SELECT COUNT(*) FROM company_modules company_module
              INNER JOIN erp_modules module ON module.module_id = company_module.module_id
              WHERE company_module.company_id = :company_id AND module.code = 'sales'
-               AND module.available = TRUE AND company_module.enabled = TRUE
+               AND module.release_status = 'released' AND company_module.enabled = TRUE
                AND company_module.license_status IN ('active','trial')
                AND (company_module.expires_at IS NULL OR company_module.expires_at > NOW())"
         );

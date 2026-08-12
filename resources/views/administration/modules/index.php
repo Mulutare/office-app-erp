@@ -28,7 +28,7 @@ $releasedCount = 0;
 $enabledCount = 0;
 
 foreach ($modules as $module) {
-    if (!empty($module['available'])) {
+    if (($module['release_status'] ?? 'roadmap') === 'released') {
         $releasedCount++;
     }
 
@@ -187,6 +187,12 @@ foreach ($modules as $module) {
                     </code>
                 </div>
 
+                <dl class="module-company-metrics">
+                    <div><dt>Release</dt><dd><?= e($module['availabilityLabel'] ?? '') ?></dd></div>
+                    <div><dt>License</dt><dd><?= e($module['licenseLabel'] ?? '') ?></dd></div>
+                    <div><dt>Company</dt><dd><?= e($module['companyLabel'] ?? '') ?></dd></div>
+                </dl>
+
                 <label class="module-toggle">
                     <input
                         type="checkbox"
@@ -208,9 +214,7 @@ foreach ($modules as $module) {
                                 : 'Disabled' ?>
                         </strong>
                         <small>
-                            <?= $canToggle
-                                ? 'Available to authorized users'
-                                : 'Requires release and licensing' ?>
+                            <?= e($module['stateExplanation'] ?? '') ?>
                         </small>
                     </span>
                 </label>

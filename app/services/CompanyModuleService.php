@@ -108,9 +108,7 @@ final class CompanyModuleService
         $now = time();
 
         foreach ($modules as &$module) {
-            $available = !empty(
-                $module['available']
-            );
+            $released = ($module['release_status'] ?? 'roadmap') === 'released';
             $licenseStatus = (string) (
                 $module['license_status']
                 ?? 'not_licensed'
@@ -130,12 +128,15 @@ final class CompanyModuleService
             );
 
             $module['canToggle'] =
-                $available && $licenseCurrent;
+                $released && $licenseCurrent;
             $module['isEnabled'] =
                 $module['canToggle']
                 && !empty($module['enabled']);
+            $module['isEffective'] =
+                $module['isEnabled']
+                && !empty($module['dependencies_satisfied']);
             $module['availabilityLabel'] =
-                $available
+                $released
                     ? 'Released'
                     : 'Roadmap';
             $module['licenseLabel'] =
@@ -143,13 +144,23 @@ final class CompanyModuleService
                     $licenseStatus
                 );
             $module['availabilityTone'] =
-                $available
+                $released
                     ? 'success'
                     : 'muted';
             $module['licenseTone'] =
                 $licenseCurrent
                     ? 'success'
                     : 'muted';
+            $module['companyLabel'] = $module['isEnabled']
+                ? 'Enabled'
+                : 'Disabled';
+            $module['stateExplanation'] = match (true) {
+                !$released => 'Requires platform release and licensing',
+                !$licenseCurrent => 'Module is released but is not licensed for this company',
+                empty($module['enabled']) => 'Module is licensed but disabled for this company',
+                empty($module['dependencies_satisfied']) => 'Required module dependencies are not enabled',
+                default => 'Available to authorized users',
+            };
         }
 
         unset($module);
@@ -198,6 +209,27 @@ final class CompanyModuleService
                     'modules' =>
                         'One or more selected modules cannot be enabled.',
                 ],
+            ];
+        }
+
+        $catalog = $this->modules->catalogForCompany($companyId);
+        $dependencyErrors = [];
+        foreach ($catalog as $module) {
+            $code = (string) ($module['code'] ?? '');
+            if (!in_array($code, $selected, true)) {
+                continue;
+            }
+            $required = array_values(array_filter(explode(',', (string) ($module['required_dependency_codes'] ?? ''))));
+            $missing = array_diff($required, $selected);
+            if ($missing !== []) {
+                $dependencyErrors[] = $code . ' requires ' . implode(', ', $missing);
+            }
+        }
+        if ($dependencyErrors !== []) {
+            return [
+                'successful' => false,
+                'changed' => false,
+                'errors' => ['modules' => implode('. ', $dependencyErrors) . '.'],
             ];
         }
 

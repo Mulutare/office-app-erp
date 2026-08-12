@@ -135,7 +135,7 @@ final class CompanyProvisioningService
 
         foreach ($modules as &$module) {
             $module['canLicense'] =
-                !empty($module['available']);
+                ($module['release_status'] ?? 'roadmap') === 'released';
         }
 
         unset($module);
@@ -200,7 +200,7 @@ final class CompanyProvisioningService
                 array_filter(
                     $catalog,
                     static fn (array $module): bool =>
-                        !empty($module['available'])
+                        ($module['release_status'] ?? 'roadmap') === 'released'
                 )
             )
         );
@@ -1102,7 +1102,7 @@ final class CompanyProvisioningService
             ?? 'not_licensed'
         );
         $current = !empty($module['enabled'])
-            && !empty($module['available'])
+            && ($module['release_status'] ?? 'roadmap') === 'released'
             && in_array(
                 $status,
                 ['active', 'trial'],
@@ -1132,9 +1132,7 @@ final class CompanyProvisioningService
 
         return [
             'isCurrent' => false,
-            'licenseLabel' => !empty(
-                $module['available']
-            )
+            'licenseLabel' => ($module['release_status'] ?? 'roadmap') === 'released'
                 ? 'Not licensed'
                 : 'Roadmap',
             'licenseTone' => 'muted',

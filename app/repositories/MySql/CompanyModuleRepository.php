@@ -86,13 +86,43 @@ class CompanyModuleRepository extends MySqlRepository
                 modules.permission_namespace,
                 modules.icon_text,
                 modules.sort_order,
+                modules.release_status,
+                modules.first_release_version,
+                modules.introduced_migration,
                 modules.available,
                 modules.active AS module_active,
                 entitlements.enabled,
                 entitlements.license_status,
                 entitlements.licensed_at,
                 entitlements.expires_at,
-                entitlements.updated_at
+                entitlements.updated_at,
+                (
+                    SELECT GROUP_CONCAT(required_module.code ORDER BY required_module.code SEPARATOR \',\')
+                    FROM erp_module_dependencies dependency
+                    INNER JOIN erp_modules required_module
+                       ON required_module.module_id=dependency.required_module_id
+                    WHERE dependency.module_id=modules.module_id
+                      AND dependency.dependency_type=\'required\'
+                ) AS required_dependency_codes,
+                NOT EXISTS (
+                    SELECT 1
+                    FROM erp_module_dependencies dependency
+                    INNER JOIN erp_modules required_module
+                       ON required_module.module_id=dependency.required_module_id
+                    LEFT JOIN company_modules required_entitlement
+                       ON required_entitlement.company_id=:dependency_company_id
+                      AND required_entitlement.module_id=dependency.required_module_id
+                    WHERE dependency.module_id=modules.module_id
+                      AND dependency.dependency_type=\'required\'
+                      AND (
+                          required_module.release_status<>\'released\'
+                          OR required_module.active<>TRUE
+                          OR required_entitlement.module_id IS NULL
+                          OR required_entitlement.license_status NOT IN(\'active\',\'trial\')
+                          OR required_entitlement.enabled<>TRUE
+                          OR (required_entitlement.expires_at IS NOT NULL AND required_entitlement.expires_at<=NOW())
+                      )
+                ) AS dependencies_satisfied
              FROM erp_modules modules
              LEFT JOIN company_modules entitlements
                  ON entitlements.module_id =
@@ -106,6 +136,7 @@ class CompanyModuleRepository extends MySqlRepository
         );
         $statement->execute([
             'company_id' => $companyId,
+            'dependency_company_id' => $companyId,
         ]);
         $modules = $statement->fetchAll(
             \PDO::FETCH_ASSOC
@@ -154,7 +185,7 @@ class CompanyModuleRepository extends MySqlRepository
                         > NOW()
                )
                AND modules.active = TRUE
-               AND modules.available = TRUE
+               AND modules.release_status = \'released\'
                AND entitlements.enabled = TRUE
                AND entitlements.license_status IN (
                     \'active\',
@@ -163,6 +194,25 @@ class CompanyModuleRepository extends MySqlRepository
                AND (
                     entitlements.expires_at IS NULL
                     OR entitlements.expires_at > NOW()
+               )
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM erp_module_dependencies dependencies
+                    INNER JOIN erp_modules required_module
+                       ON required_module.module_id=dependencies.required_module_id
+                    LEFT JOIN company_modules required_entitlement
+                       ON required_entitlement.company_id=entitlements.company_id
+                      AND required_entitlement.module_id=dependencies.required_module_id
+                    WHERE dependencies.module_id=modules.module_id
+                      AND dependencies.dependency_type=\'required\'
+                      AND (
+                          required_module.release_status<>\'released\'
+                          OR required_module.active<>TRUE
+                          OR required_entitlement.module_id IS NULL
+                          OR required_entitlement.license_status NOT IN(\'active\',\'trial\')
+                          OR required_entitlement.enabled<>TRUE
+                          OR (required_entitlement.expires_at IS NOT NULL AND required_entitlement.expires_at<=NOW())
+                      )
                )
              ORDER BY
                 modules.sort_order,
@@ -213,7 +263,7 @@ class CompanyModuleRepository extends MySqlRepository
                         > NOW()
                )
                AND modules.active = TRUE
-               AND modules.available = TRUE
+               AND modules.release_status = \'released\'
                AND entitlements.license_status IN (
                     \'active\',
                     \'trial\'

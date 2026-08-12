@@ -161,6 +161,7 @@ class CompanyRepository extends MySqlRepository
                 description,
                 icon_text,
                 sort_order,
+                release_status,
                 available
              FROM erp_modules
              WHERE active = TRUE
@@ -301,9 +302,7 @@ class CompanyRepository extends MySqlRepository
             $code = (string) (
                 $module['code'] ?? ''
             );
-            $licensed = !empty(
-                $module['available']
-            ) && in_array(
+            $licensed = ($module['release_status'] ?? 'roadmap') === 'released' && in_array(
                 $code,
                 $selectedCodes,
                 true
@@ -313,7 +312,8 @@ class CompanyRepository extends MySqlRepository
                 'company_id' => $companyId,
                 'module_id' =>
                     (int) $module['module_id'],
-                'enabled' => $licensed ? 1 : 0,
+                // Vendor licensing and company enablement are separate actions.
+                'enabled' => 0,
                 'license_status' => $licensed
                     ? $licenseStatus
                     : 'not_licensed',
@@ -528,17 +528,22 @@ class CompanyRepository extends MySqlRepository
     public function updateModuleEntitlement(
         int $companyId,
         int $moduleId,
-        bool $enabled,
+        bool $licensed,
         string $licenseStatus,
         ?string $expiresAt,
         int $updatedBy
     ): void {
         $statement = $this->connection()->prepare(
             'UPDATE company_modules
-             SET enabled = :enabled,
+             SET enabled = CASE
+                    WHEN :licensed = 1
+                     AND license_status IN (\'active\', \'trial\')
+                        THEN enabled
+                    ELSE FALSE
+                 END,
                  license_status = :license_status,
                  licensed_at = CASE
-                    WHEN :enabled_for_date = 1
+                    WHEN :licensed_for_date = 1
                      AND licensed_at IS NULL
                         THEN NOW()
                     ELSE licensed_at
@@ -549,12 +554,12 @@ class CompanyRepository extends MySqlRepository
                AND module_id = :module_id'
         );
         $statement->execute([
-            'enabled' => $enabled ? 1 : 0,
-            'license_status' => $enabled
+            'licensed' => $licensed ? 1 : 0,
+            'license_status' => $licensed
                 ? $licenseStatus
                 : 'not_licensed',
-            'enabled_for_date' => $enabled ? 1 : 0,
-            'expires_at' => $enabled
+            'licensed_for_date' => $licensed ? 1 : 0,
+            'expires_at' => $licensed
                 ? $expiresAt
                 : null,
             'updated_by' => $updatedBy,
@@ -649,6 +654,7 @@ class CompanyRepository extends MySqlRepository
                 modules.name,
                 modules.description,
                 modules.icon_text,
+                modules.release_status,
                 modules.available,
                 entitlements.enabled,
                 entitlements.license_status,

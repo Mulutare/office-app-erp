@@ -16,6 +16,7 @@ use App\Controllers\DepartmentController;
 use App\Controllers\EmployeeActivityController;
 use App\Controllers\EmployeePositionController;
 use App\Controllers\FinanceController;
+use App\Controllers\AssetController;
 use App\Controllers\InventoryController;
 use App\Controllers\WarehouseController;
 use App\Controllers\WarehouseLocationController;
@@ -62,6 +63,7 @@ $employeeActivityController =
 $employeePositionController =
     new EmployeePositionController();
 $financeController = new FinanceController();
+$assetController = new AssetController();
 $inventoryController = new InventoryController();
 $warehouseController = new WarehouseController();
 $warehouseLocationController =
@@ -269,6 +271,16 @@ $router->post(
 $router->get('/inventory/receipts',[$inventoryController,'receipts']);
 $router->get('/inventory/receipts/create',[$inventoryController,'createReceipt']);
 $router->post('/inventory/receipts',[$inventoryController,'storeReceipt']);
+$router->get('/assets',[$assetController,'index']);
+$router->post('/assets/categories',[$assetController,'storeCategory']);
+$router->post('/assets',[$assetController,'storeAsset']);
+$router->post('/assets/capitalize',[$assetController,'capitalize']);
+$router->post('/assets/{id}/activate',[$assetController,'activate']);
+$router->post('/assets/{id}/depreciation/{lineId}/post',[$assetController,'postDepreciation']);
+$router->post('/assets/{id}/transfer',[$assetController,'transfer']);
+$router->post('/assets/{id}/maintenance',[$assetController,'maintenance']);
+$router->post('/assets/{id}/dispose',[$assetController,'dispose']);
+$router->get('/assets/{id}',[$assetController,'show']);
 $router->get('/inventory/receipts/{id}',[$inventoryController,'showReceipt']);
 $router->post('/inventory/receipts/{id}/approve',[$inventoryController,'approveReceipt']);
 $router->post('/inventory/receipts/{id}/post',[$inventoryController,'postReceipt']);

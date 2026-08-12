@@ -81,12 +81,19 @@ use App\Repositories\MySql\FinanceRepository
     as MySqlFinanceRepository;
 use App\Repositories\MySql\IntegrationEventRepository
     as MySqlIntegrationEventRepository;
+use App\Repositories\MySql\AssetRepository
+    as MySqlAssetRepository;
 
 /**
  * Selects repository implementations from the allowlisted database driver.
  */
 final class RepositoryFactory
 {
+    public static function assets(): AssetRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') return new MySqlAssetRepository();
+        throw new RuntimeException('No Fixed Assets repository is available for the configured database driver.');
+    }
     public static function integrationEvents():
         IntegrationEventRepository
     {

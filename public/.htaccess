@@ -1,6 +1,22 @@
 Options -Indexes
+ServerSignature Off
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header always set X-Permitted-Cross-Domain-Policies "none"
+    Header always set Strict-Transport-Security "max-age=86400"
+</IfModule>
 
 RewriteEngine On
+DirectorySlash Off
+
+# The ERP Fixed Assets route intentionally shares the public static-assets
+# prefix. Route business requests through the front controller before the
+# directory exclusion below can hand them to Apache's directory handler.
+RewriteRule ^assets(?:/[0-9]+(?:/(?:activate|transfer|maintenance|dispose|depreciation/[0-9]+/post))?|/categories|/capitalize)?/?$ index.php [QSA,L]
 
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
