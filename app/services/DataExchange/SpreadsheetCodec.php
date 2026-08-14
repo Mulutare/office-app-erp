@@ -8,6 +8,7 @@ use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use RuntimeException;
 
 final class SpreadsheetCodec
@@ -48,11 +49,28 @@ final class SpreadsheetCodec
         foreach ($headers as $index => $header) {
             $sheet->setCellValueExplicit([$index + 1, 1], $header, DataType::TYPE_STRING);
         }
+        $fieldTypes = [];
+        if ($schema !== null) foreach ($schema->fields as $field) $fieldTypes[$field->label] = $field->type;
         foreach ($rows as $rowIndex => $row) {
             foreach (array_values($row) as $columnIndex => $value) {
-                $sheet->setCellValueExplicit([$columnIndex + 1, $rowIndex + 2], (string) ($value ?? ''), DataType::TYPE_STRING);
+                $type = $fieldTypes[$headers[$columnIndex] ?? ''] ?? 'string';
+                $cell = [$columnIndex + 1, $rowIndex + 2];
+                if (in_array($type, ['decimal','integer'], true) && is_numeric($value)) {
+                    $sheet->setCellValueExplicit($cell, $type === 'integer' ? (int)$value : (float)$value, DataType::TYPE_NUMERIC);
+                    $sheet->getStyle($cell)->getNumberFormat()->setFormatCode($type === 'integer' ? '#,##0' : '#,##0.00');
+                } elseif ($type === 'date' && is_string($value) && strtotime($value) !== false) {
+                    $sheet->setCellValue($cell, ExcelDate::PHPToExcel(new \DateTimeImmutable($value)));
+                    $sheet->getStyle($cell)->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+                } else {
+                    $text = (string)($value ?? '');
+                    if ($text !== '' && in_array($text[0], ['=','+','-','@'], true)) $text = "'".$text;
+                    $sheet->setCellValueExplicit($cell, $text, DataType::TYPE_STRING);
+                }
             }
         }
+        $sheet->getStyle('1:1')->getFont()->setBold(true);
+        $sheet->getStyle('1:1')->getFill()->setFillType('solid')->getStartColor()->setARGB('FFDCE7F7');
+        foreach (range(1, count($headers)) as $column) $sheet->getColumnDimensionByColumn($column)->setAutoSize(true);
         $sheet->freezePane('A2');
         $sheet->setAutoFilter($sheet->calculateWorksheetDimension());
         if ($schema !== null) {

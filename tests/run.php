@@ -485,6 +485,19 @@ try {
 
     foreach ($mysqlMigrationFiles as $migrationFile) {
         $definition = require $migrationFile;
+        $version = is_array($definition)
+            ? ($definition['version'] ?? null)
+            : null;
+        $preflight = is_array($definition)
+            ? ($definition['preflight'] ?? null)
+            : null;
+        if ($preflight === null && is_string($version)) {
+            $recoveryFile = dirname($migrationFile)
+                . '/recovery/' . $version . '.php';
+            $preflight = is_file($recoveryFile)
+                ? require $recoveryFile
+                : null;
+        }
 
         if (
             !is_array($definition)
@@ -497,9 +510,7 @@ try {
             || !is_array(
                 $definition['statements'] ?? null
             )
-            || !is_callable(
-                $definition['preflight'] ?? null
-            )
+            || !is_callable($preflight)
         ) {
             $mysqlMigrationDefinitionsValid = false;
 
@@ -547,6 +558,12 @@ try {
                 '045',
                 '046',
                 '047',
+                '048',
+                '049',
+                '050',
+                '051',
+                '052',
+                '053',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -588,13 +605,18 @@ try {
                 \'044\',
                 \'045\',
                 \'046\',
-                \'047\'
+                \'047\',
+                \'048\',
+                \'049\',
+                \'050\',
+                \'051\'
+                ,\'052\',\'053\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 33,
+        $migrationLedgerCount === 39,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -774,14 +796,14 @@ try {
             'SELECT COUNT(*)
              FROM information_schema.tables
              WHERE table_schema = DATABASE()
-               AND table_name <> \'schema_migrations\'
+               AND table_name NOT IN (\'schema_migrations\',\'schema_migration_steps\')
                AND table_type = \'BASE TABLE\''
         )
         ->fetchColumn();
 
     $check(
-        $tableCount === 105,
-        'All 105 application tables were created'
+        $tableCount === 113,
+        'All 113 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -793,8 +815,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 388,
-        'All 388 foreign-key relationships were created'
+        $foreignKeyCount === 425,
+        'All 425 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();

@@ -845,3 +845,59 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
+
+document.querySelectorAll('[data-dynamic-lines]').forEach((editor) => {
+    const body = editor.querySelector('[data-line-body]');
+    const template = editor.querySelector('[data-line-template]');
+    const add = editor.querySelector('[data-add-line]');
+    const limit = Number.parseInt(editor.dataset.lineLimit || '50', 10);
+    if (!(body instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) return;
+
+    const renumber = () => {
+        body.querySelectorAll('[data-line-row]').forEach((row, index) => {
+            row.querySelectorAll('[name], [data-name]').forEach((field) => {
+                const key = field.dataset.name || (field.name.match(/\[([^\]]+)\]$/)?.[1] ?? '');
+                if (key) field.name = `lines[${index}][${key}]`;
+            });
+        });
+    };
+    const recalculate = () => {
+        let subtotal = 0, discountTotal = 0, taxTotal = 0;
+        body.querySelectorAll('[data-line-row]').forEach((row) => {
+            const product = row.querySelector('[data-line-product]');
+            const quantity = Number.parseFloat(row.querySelector('[data-line-quantity]')?.value || '0');
+            const discount = Number.parseFloat(row.querySelector('[data-line-discount]')?.value || '0');
+            const taxRate = Number.parseFloat(row.querySelector('[data-line-tax]')?.value || '0');
+            const price = Number.parseFloat(product?.selectedOptions?.[0]?.dataset.price || '0');
+            const gross = Math.max(0, quantity) * Math.max(0, price);
+            const appliedDiscount = Math.min(Math.max(0, discount), gross);
+            const tax = Math.max(0, gross - appliedDiscount) * Math.max(0, taxRate) / 100;
+            subtotal += gross; discountTotal += appliedDiscount; taxTotal += tax;
+            const priceOutput = row.querySelector('[data-line-price]');
+            const totalOutput = row.querySelector('[data-line-total]');
+            if (priceOutput) priceOutput.textContent = price.toFixed(2);
+            if (totalOutput) totalOutput.textContent = (gross - appliedDiscount + tax).toFixed(2);
+        });
+        const values = {subtotal, discount: discountTotal, tax: taxTotal, total: subtotal - discountTotal + taxTotal};
+        Object.entries(values).forEach(([key, value]) => {
+            const output = editor.querySelector(`[data-preview-${key}]`);
+            if (output) output.textContent = value.toFixed(2);
+        });
+    };
+    body.addEventListener('input', recalculate);
+    body.addEventListener('change', recalculate);
+    body.addEventListener('click', (event) => {
+        const remove = event.target.closest('[data-remove-line]');
+        if (!remove) return;
+        const rows = body.querySelectorAll('[data-line-row]');
+        if (rows.length === 1) {
+            rows[0].querySelectorAll('input, select').forEach((field) => field.value = field.matches('[data-line-discount], [data-line-tax]') ? '0' : '');
+        } else remove.closest('[data-line-row]')?.remove();
+        renumber(); recalculate();
+    });
+    add?.addEventListener('click', () => {
+        if (body.querySelectorAll('[data-line-row]').length >= limit) return;
+        body.append(template.content.cloneNode(true)); renumber(); recalculate();
+    });
+    renumber(); recalculate();
+});

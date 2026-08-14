@@ -26,13 +26,23 @@ final class FinanceController
     public function customerInvoices(): void
     {
         $this->authorizeOperations('finance.records.view');
+        $filters = [
+            'search' => $this->queryString('search'),
+            'payment' => $this->queryString('payment'),
+            'date_from' => $this->queryString('date_from'),
+            'date_to' => $this->queryString('date_to'),
+            'customer' => $this->queryString('customer'),
+        ];
+        $allInvoices = $this->operations->customerInvoices();
         \view('layouts.app', [
             'applicationName' => \config('name', 'OfficeApp ERP'),
             'environment' => \config('environment', 'unknown'),
             'pageTitle' => 'Customer Invoices',
             'pageDescription' => 'Posted customer invoices, residuals and payment states.',
             'contentView' => 'finance.customer-invoices',
-            'invoices' => $this->operations->customerInvoices(),
+            'invoices' => $this->operations->customerInvoices($filters),
+            'invoiceFilters' => $filters,
+            'invoiceCustomers' => array_values(array_unique(array_filter(array_column($allInvoices, 'customer_name')))),
             'user' => $_SESSION['auth'],
         ]);
     }

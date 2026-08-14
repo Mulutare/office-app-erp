@@ -18,6 +18,7 @@ use App\Controllers\EmployeePositionController;
 use App\Controllers\FinanceController;
 use App\Controllers\AssetController;
 use App\Controllers\InventoryController;
+use App\Controllers\ProcurementController;
 use App\Controllers\WarehouseController;
 use App\Controllers\WarehouseLocationController;
 use App\Controllers\SalesController;
@@ -65,6 +66,7 @@ $employeePositionController =
 $financeController = new FinanceController();
 $assetController = new AssetController();
 $inventoryController = new InventoryController();
+$procurementController = new ProcurementController();
 $warehouseController = new WarehouseController();
 $warehouseLocationController =
     new WarehouseLocationController();
@@ -264,6 +266,21 @@ $router->get(
     '/inventory',
     [$inventoryController, 'index']
 );
+$router->get('/procurement',[$procurementController,'index']);
+$router->get('/procurement/{id}',[$procurementController,'showOrder']);
+$router->post('/procurement/suppliers',[$procurementController,'supplier']);
+$router->post('/procurement/suppliers/{id}',[$procurementController,'updateSupplier']);
+$router->post('/procurement/suppliers/{id}/active',[$procurementController,'supplierActive']);
+$router->post('/procurement/requisitions',[$procurementController,'requisition']);
+$router->post('/procurement/requisitions/{id}/action',[$procurementController,'requisitionAction']);
+$router->post('/procurement/orders',[$procurementController,'order']);
+$router->post('/procurement/{id}/action',[$procurementController,'orderAction']);
+$router->post('/procurement/{id}/receipts',[$procurementController,'receipt']);
+$router->post('/procurement/{id}/bills',[$procurementController,'bill']);
+$router->post('/procurement/bills/{id}/post',[$procurementController,'postBill']);
+$router->post('/procurement/bills/{id}/payments',[$procurementController,'payBill']);
+$router->post('/procurement/bills/{id}/reverse',[$procurementController,'reverseBill']);
+$router->post('/procurement/{id}/returns',[$procurementController,'vendorReturn']);
 $router->post(
     '/inventory/transfers/post',
     [$inventoryController, 'postTransfer']

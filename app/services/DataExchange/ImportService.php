@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\DataExchange;
 
 use App\Services\SalesService;
+use App\Services\ProcurementService;
 use App\Services\TenantContext;
 use RuntimeException;
 use Throwable;
@@ -18,6 +19,7 @@ final class ImportService
         private ?ExternalIdService $externalIds = null,
         private ?TenantContext $tenant = null,
         private ?SalesService $sales = null,
+        private ?ProcurementService $procurement = null,
     ) {
         $this->schemas ??= new SchemaRegistry();
         $this->guard ??= new FileGuard();
@@ -25,6 +27,7 @@ final class ImportService
         $this->externalIds ??= new ExternalIdService();
         $this->tenant ??= new TenantContext();
         $this->sales ??= new SalesService();
+        $this->procurement ??= new ProcurementService();
     }
 
     /** @return array{headers:list<string>,rows:list<list<mixed>>,mapping:array<int,string|null>,schema:ExchangeSchema} */
@@ -50,7 +53,7 @@ final class ImportService
         /** @var ImportResult $result */
         $result = $validated['result'];
         if ($result->errors !== []) return $result;
-        if (!in_array($entity, ['customers','products','quotations'], true)) {
+        if (!in_array($entity, ['suppliers','customers','products','quotations'], true)) {
             $result->addError(0, 'Object', 'Final import for this object is not yet connected to its domain service.');
             return $result;
         }
@@ -60,6 +63,20 @@ final class ImportService
             if ($ownsTransaction) $connection->beginTransaction();
             if ($entity === 'quotations') {
                 $this->importQuotations($validated['rows'], $actorId, $result);
+                if ($ownsTransaction) $connection->commit();
+                return $result;
+            }
+            if ($entity === 'suppliers') {
+                $existingCodes = [];
+                foreach ($this->procurement->workspace()['suppliers'] as $supplier) $existingCodes[strtoupper((string)$supplier['supplier_code'])] = true;
+                foreach ($validated['rows'] as $row) {
+                    $code = strtoupper(trim((string)($row['supplier_code'] ?? '')));
+                    if (isset($existingCodes[$code])) throw new RuntimeException('Supplier code '.$code.' already exists. Supplier imports are create-only.');
+                    $id = $this->procurement->createSupplier($row, $actorId);
+                    $external = trim((string)($row['external_id'] ?? '')) ?: sprintf('supplier_%d_%d', $this->tenant->companyId(), $id);
+                    $this->externalIds->assign($this->tenant->companyId(), 'suppliers', $id, $external);
+                    $existingCodes[$code] = true; ++$result->created;
+                }
                 if ($ownsTransaction) $connection->commit();
                 return $result;
             }

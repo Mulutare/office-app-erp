@@ -13,6 +13,7 @@ final class SchemaRegistry
     {
         $external = new ExchangeField('external_id', 'External ID', false, 'string', ['xml id'], 'customer_acme');
         $schemas = [
+            $this->schema('suppliers', 'Suppliers', 'procurement', [$external, $this->f('supplier_code','Supplier Code',true), $this->f('business_name','Business Name',true), $this->f('contact_person','Contact Person'), $this->f('phone','Phone'), $this->f('email','Email',false,'email'), $this->f('address','Address'), $this->f('tax_number','Tax / TIN'), $this->f('payment_terms_days','Payment Terms (Days)',false,'integer'), $this->f('currency','Currency',true), $this->f('active','Active')]),
             $this->schema('customers', 'Customers', 'sales', [$external, $this->f('customer_number','Customer Code',true), $this->f('name','Name',true), $this->f('email','Email',false,'email'), $this->f('phone','Phone'), $this->f('mobile','Mobile'), $this->f('street','Street'), $this->f('street2','Street 2'), $this->f('city','City'), $this->f('state_region','State/Region'), $this->f('postal_code','Postal Code'), $this->f('country','Country'), $this->f('credit_limit','Credit Limit',false,'decimal'), $this->f('payment_terms_days','Payment Terms (Days)',false,'integer'), $this->f('preferred_currency','Currency'), $this->f('active','Active')]),
             $this->schema('products', 'Products', 'sales', [$external, $this->f('sku','SKU',true), $this->f('name','Name',true), $this->f('description','Description'), $this->f('category','Category'), $this->f('unit_of_measure','UoM'), $this->f('unit_price','Sale Price',false,'decimal'), $this->f('cost','Cost',false,'decimal'), $this->f('product_type','Product Type'), $this->f('serial_tracking','Serial Tracking'), $this->f('active','Active')]),
             $this->schema('pricelists', 'Pricelists', 'sales', [$external, $this->f('name','Name',true), $this->f('currency','Currency',true), $this->f('product','Product'), $this->f('minimum_quantity','Minimum Quantity',false,'decimal'), $this->f('calculation','Calculation'), $this->f('fixed_price','Fixed Price',false,'decimal'), $this->f('percentage_adjustment','Percentage Adjustment',false,'decimal'), $this->f('valid_from','Valid From',false,'date'), $this->f('valid_to','Valid To',false,'date'), $this->f('priority','Priority',false,'integer')]),
@@ -29,8 +30,16 @@ final class SchemaRegistry
             $this->schema('chart-of-accounts', 'Chart of Accounts', 'finance', [$external, $this->f('code','Account Code',true), $this->f('name','Account Name',true), $this->f('type','Account Type',true), $this->f('currency','Currency'), $this->f('reconcile','Allow Reconciliation'), $this->f('active','Active')]),
             $this->schema('journals', 'Journals', 'finance', [$external, $this->f('code','Journal Code',true), $this->f('name','Journal Name',true), $this->f('type','Journal Type',true), $this->f('currency','Currency'), $this->f('active','Active')]),
             $this->schema('journal-entries', 'Journal Entries', 'finance', [$external, $this->f('journal','Journal',true), $this->f('date','Date',true,'date'), $this->f('reference','Reference'), $this->f('line_external_id','Line External ID'), $this->f('account','Account',true), $this->f('partner','Partner'), $this->f('label','Label'), $this->f('debit','Debit',false,'decimal'), $this->f('credit','Credit',false,'decimal'), $this->f('currency','Currency')], true),
-            $this->financeDocument('invoices','Customer Invoices'), $this->financeDocument('credit-notes','Credit Notes'),
+            $this->readonly('invoices','Customer Invoices','finance',[
+                $this->f('invoice','Invoice'), $this->f('customer','Customer'), $this->f('sales_order','Sales Order'),
+                $this->f('date','Date',false,'date'), $this->f('due','Due',false,'date'),
+                $this->f('total','Total',false,'decimal'), $this->f('residual','Residual',false,'decimal'),
+                $this->f('state','State'), $this->f('payment','Payment'),
+            ]), $this->financeDocument('credit-notes','Credit Notes'),
             $this->schema('payments', 'Payments', 'finance', [$external, $this->f('date','Date',true,'date'), $this->f('partner','Partner',true), $this->f('journal','Journal',true), $this->f('amount','Amount',true,'decimal'), $this->f('currency','Currency'), $this->f('reference','Reference')]),
+            $this->readonly('finance-journals','Journal Postings','finance',[$this->f('batch','Batch'),$this->f('source','Source'),$this->f('description','Description'),$this->f('posting_date','Posting Date',false,'date'),$this->f('debit','Debit',false,'decimal'),$this->f('credit','Credit',false,'decimal'),$this->f('status','Status')]),
+            $this->readonly('expenses','Expense Requests','finance',[$this->f('request','Request'),$this->f('requester','Requester'),$this->f('category','Category'),$this->f('expense_date','Expense Date',false,'date'),$this->f('currency','Currency'),$this->f('amount','Amount',false,'decimal'),$this->f('status','Status'),$this->f('submitted','Submitted',false,'date')]),
+            $this->readonly('purchase-orders','Purchase Orders','procurement',[$this->f('po','PO'),$this->f('supplier','Supplier'),$this->f('date','Date',false,'date'),$this->f('expected','Expected',false,'date'),$this->f('status','Status'),$this->f('received','Received',false,'decimal'),$this->f('billed','Billed',false,'decimal'),$this->f('currency','Currency'),$this->f('total','Total',false,'decimal')]),
             $this->schema('bank-transactions', 'Bank Transactions', 'finance', [$external, $this->f('date','Date',true,'date'), $this->f('journal','Bank Journal',true), $this->f('reference','Reference',true), $this->f('partner','Partner'), $this->f('amount','Amount',true,'decimal'), $this->f('currency','Currency')]),
         ];
         foreach (['general-ledger'=>'General Ledger','trial-balance'=>'Trial Balance','profit-loss'=>'Profit & Loss','balance-sheet'=>'Balance Sheet','cash-flow'=>'Cash Flow','aged-receivable'=>'Aged Receivable','aged-payable'=>'Aged Payable','partner-ledger'=>'Partner Ledger','customer-statement'=>'Customer Statement','budget-report'=>'Budget Report'] as $entity => $label) {
@@ -42,12 +51,13 @@ final class SchemaRegistry
             // to an existing domain service. Other registered datasets remain
             // explicit export-only objects instead of presenting a dead end.
             $connectedExports = [
-                'customers', 'products', 'pricelists', 'sales-teams',
+                'suppliers', 'customers', 'products', 'pricelists', 'sales-teams',
                 'quotations', 'sales-orders', 'warehouses', 'locations',
                 'stock', 'receipts', 'deliveries', 'returns', 'invoices',
-                'credit-notes',
+                'credit-notes', 'finance-journals', 'expenses', 'purchase-orders',
             ];
             if (($schema->canImport && !in_array($schema->entity, [
+                'suppliers',
                 'customers',
                 'products',
                 'quotations',

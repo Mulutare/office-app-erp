@@ -25,25 +25,15 @@ $canOrderActions = !empty($data['canSubmitOrders'])
     || !empty($data['canApproveOrders'])
     || !empty($data['canFulfillOrders'])
     || !empty($data['canCancelOrders']);
-$section = (string) ($data['salesSection'] ?? 'dashboard');
+$section = (string) ($data['salesSection'] ?? 'orders');
 $sectionLabels = [
-    'dashboard' => 'Dashboard', 'quotations' => 'Quotations',
-    'orders' => 'Sales Orders', 'customers' => 'Customers',
+    'orders' => 'Sales Orders', 'quotations' => 'Quotations', 'customers' => 'Customers',
     'products' => 'Products', 'pricelists' => 'Pricelists',
     'teams' => 'Sales Teams', 'deliveries' => 'Deliveries',
 ];
 ?>
 
-<div class="sales-workspace">
-
-<nav class="card" aria-label="Sales navigation">
-    <div class="filter-actions">
-    <?php foreach ($sectionLabels as $key => $label): ?>
-        <a class="btn <?= $section === $key ? 'btn-primary' : 'btn-secondary' ?> btn-compact"
-           href="/office_app/public/sales<?= $key === 'dashboard' ? '' : '/'.$key ?>"><?= e($label) ?></a>
-    <?php endforeach; ?>
-    </div>
-</nav>
+<div class="sales-workspace" data-section="<?= e($section) ?>">
 
 <header class="page-header">
     <div><p class="eyebrow">Sales</p><h1><?= e($sectionLabels[$section] ?? 'Sales') ?></h1></div>
@@ -96,33 +86,28 @@ $sectionLabels = [
 </section>
 <?php if($section==='orders')$ordersSummary=(string)ob_get_clean(); ?>
 
-<?php if (!empty($data['canCreateOrders']) && in_array($section, ['dashboard','quotations','orders'], true)): ?>
+<?php if (!empty($data['canCreateOrders']) && $section === 'orders'): ?>
 <?php if($section==='orders')ob_start(); ?>
 <section id="new-quotation" class="card finance-filter-panel sales-order-composer">
     <h2><?= $section === 'orders' ? 'Create sales order' : 'New quotation' ?></h2>
-    <p class="page-description">Add up to three product lines per order. Prices and commissions are taken from the controlled product catalogue.</p>
-    <form method="post" action="/office_app/public/sales/<?= $section === 'quotations' ? 'quotations' : 'orders' ?>" class="finance-filter-form">
+    <p class="page-description">Add products as needed. Authoritative prices and commissions come from the controlled product catalogue.</p>
+    <form method="post" action="/office_app/public/sales/orders" data-dynamic-lines data-line-limit="50">
         <?= csrfField() ?>
-        <div class="form-field"><label for="customer_id">Customer</label><select id="customer_id" name="customer_id" required><option value="">Select customer</option><?php foreach ($customers as $customer): ?><option value="<?= e($customer['customer_id']) ?>"><?= e($customer['customer_number'] . ' - ' . $customer['name']) ?></option><?php endforeach; ?></select></div>
-        <?php for ($line = 1; $line <= 3; $line++): ?>
-            <div class="form-field"><label>Line <?= e($line) ?> product</label><select name="product_id[]" <?= $line === 1 ? 'required' : '' ?>><option value="">Select product</option><?php foreach ($products as $product): ?><option value="<?= e($product['product_id']) ?>"><?= e($product['sku'] . ' - ' . $product['name'] . ' (' . $money($product['unit_price']) . ')') ?></option><?php endforeach; ?></select></div>
-            <div class="form-field"><label>Line <?= e($line) ?> quantity</label><input name="quantity[]" type="number" min="0.001" step="0.001" value="<?= $line === 1 ? '1' : '' ?>"></div>
-            <div class="form-field"><label>Line <?= e($line) ?> discount</label><input name="discount_amount[]" type="number" min="0" step="0.01" value="0"></div>
-            <div class="form-field"><label>Line <?= e($line) ?> tax (%)</label><input name="tax_rate[]" type="number" min="0" max="100" step="0.01" value="0"></div>
-        <?php endfor; ?>
+        <div class="finance-filter-form"><div class="form-field"><label for="customer_id">Customer</label><select id="customer_id" name="customer_id" required><option value="">Select customer</option><?php foreach ($customers as $customer): ?><option value="<?= e($customer['customer_id']) ?>"><?= e($customer['customer_number'] . ' - ' . $customer['name']) ?></option><?php endforeach; ?></select></div>
         <div class="form-field"><label for="order_date">Order date</label><input id="order_date" name="order_date" type="date" value="<?= e($today) ?>" required></div>
         <div class="form-field"><label for="due_date">Due date</label><input id="due_date" name="due_date" type="date" value="<?= e($today) ?>" required></div>
         <div class="form-field"><label for="currency">Currency</label><input id="currency" name="currency" maxlength="3" value="<?= e($currency) ?>" required></div>
         <div class="form-field"><label for="territory_id">Territory</label><select id="territory_id" name="territory_id"><option value="">Not assigned</option><?php foreach ($territories as $territory): ?><option value="<?= e($territory['territory_id']) ?>"><?= e($territory['name']) ?></option><?php endforeach; ?></select></div>
         <div class="form-field"><label for="agent_id">DSA / DSP</label><select id="agent_id" name="agent_id"><option value="">Not assigned</option><?php foreach ($agents as $agent): ?><option value="<?= e($agent['agent_id']) ?>"><?= e($agent['agent_code'] . ' - ' . $agent['name']) ?></option><?php endforeach; ?></select></div>
-        <?php if($section==='quotations'): ?><div class="form-field"><label>Expiration date</label><input name="expiration_date" type="date"></div><div class="form-field"><label>Sales team</label><select name="team_id"><option value="">Not assigned</option><?php foreach($salesTeams as $team):?><option value="<?=e($team['team_id'])?>"><?=e($team['name'])?></option><?php endforeach;?></select></div><div class="form-field"><label>Pricelist</label><select name="pricelist_id"><option value="">Standard price</option><?php foreach($pricelists as $p):?><option value="<?=e($p['pricelist_id'])?>"><?=e($p['name'])?></option><?php endforeach;?></select></div><div class="form-field"><label>Billing address</label><input name="billing_address" maxlength="500"></div><div class="form-field"><label>Delivery address</label><input name="delivery_address" maxlength="500"></div><input type="hidden" name="quotation_date" value="<?=e($today)?>"><input type="hidden" name="payment_terms_days" value="0"><?php endif; ?>
         <div class="form-field"><label for="order_notes">Notes</label><input id="order_notes" name="notes" maxlength="500"></div>
-        <div class="filter-actions"><button class="btn btn-primary" type="submit" name="confirm" value="1">Confirm and submit</button><button class="btn btn-secondary" type="submit">Save quotation draft</button></div>
+        </div><div class="section-heading"><h3>Items</h3><button class="btn btn-secondary" type="button" data-add-line>+ Add item</button></div><div class="table-responsive quotation-lines"><table class="data-table"><thead><tr><th class="quotation-product">Product</th><th>Quantity</th><th>Unit price</th><th>Discount</th><th>Tax %</th><th>Line total</th><th>Action</th></tr></thead><tbody data-line-body><tr data-line-row><td><select name="lines[0][product_id]" data-line-product required><option value="">Select product</option><?php foreach($products as $product):?><option value="<?=e($product['product_id'])?>" data-price="<?=e($product['unit_price'])?>"><?=e($product['sku'].' - '.$product['name'])?></option><?php endforeach;?></select></td><td><input name="lines[0][quantity]" type="number" min="0.001" step="0.001" value="1" data-line-quantity></td><td><output data-line-price>0.00</output></td><td><input name="lines[0][discount_amount]" type="number" min="0" step="0.01" value="0" data-line-discount></td><td><input name="lines[0][tax_rate]" type="number" min="0" max="100" step="0.01" value="0" data-line-tax></td><td><output data-line-total>0.00</output></td><td><button class="btn btn-secondary btn-compact" type="button" data-remove-line>Remove</button></td></tr></tbody></table></div><template data-line-template><tr data-line-row><td><select data-name="product_id" data-line-product><option value="">Select product</option><?php foreach($products as $product):?><option value="<?=e($product['product_id'])?>" data-price="<?=e($product['unit_price'])?>"><?=e($product['sku'].' - '.$product['name'])?></option><?php endforeach;?></select></td><td><input data-name="quantity" type="number" min="0.001" step="0.001" data-line-quantity></td><td><output data-line-price>0.00</output></td><td><input data-name="discount_amount" type="number" min="0" step="0.01" value="0" data-line-discount></td><td><input data-name="tax_rate" type="number" min="0" max="100" step="0.01" value="0" data-line-tax></td><td><output data-line-total>0.00</output></td><td><button class="btn btn-secondary btn-compact" type="button" data-remove-line>Remove</button></td></tr></template><div class="quotation-total-preview"><span>Preview subtotal <strong data-preview-subtotal>0.00</strong></span><span>Discount <strong data-preview-discount>0.00</strong></span><span>Tax <strong data-preview-tax>0.00</strong></span><span>Preview total <strong data-preview-total>0.00</strong></span></div>
+        <div class="page-actions"><button class="btn btn-primary" type="submit" name="confirm" value="1">Confirm and submit</button><button class="btn btn-secondary" type="submit">Save draft</button></div>
     </form>
 </section>
 <?php if($section==='orders')$ordersCreateForm=(string)ob_get_clean(); ?>
 <?php endif; ?>
 
+<?php if ($section==='orders'): ?>
 <section class="card table-card">
     <div class="table-summary"><strong><?= $section==='orders'?'Sales Orders':'Recent orders and receivables' ?></strong><span><?php if (!empty($data['canExportReports'])): ?><a class="btn btn-secondary btn-compact" href="/office_app/public/sales/export">Export CSV</a><?php endif; ?> <?= e(count($orders)) ?> orders</span></div>
     <div class="table-responsive"><table class="data-table"><thead><tr><th>Order</th><th>Customer</th><th>Date / due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><?php if ($canOrderActions): ?><th>Order action</th><?php endif; ?><?php if (!empty($data['canRecordPayments'])): ?><th>Receipt</th><?php endif; ?></tr></thead><tbody>
@@ -138,17 +123,24 @@ $sectionLabels = [
     </tr><?php endforeach; ?></tbody></table></div>
 </section>
 <?php if($section==='orders'){echo $ordersCreateForm??'';echo $ordersSummary??'';} ?>
+<?php endif; ?>
+<?php if(in_array($section,['orders','quotations','pricelists'],true)){echo '</div>';return;} ?>
 
-<?php if (!empty($data['canManageCatalogue'])): ?>
+<?php if (!empty($data['canManageCatalogue']) && in_array($section, ['teams','customers','products'], true)): ?>
 <section class="finance-summary-grid sales-management-grid">
+    <?php if ($section==='teams'): ?>
     <article class="card"><h2>Add territory</h2><form method="post" action="/office_app/public/sales/territories"><?= csrfField() ?><div class="form-field"><label>Code</label><input name="code" maxlength="40" required></div><div class="form-field"><label>Name</label><input name="name" maxlength="120" required></div><button class="btn btn-primary" type="submit">Add territory</button></form></article>
     <article class="card"><h2>Add DSA / DSP</h2><form method="post" action="/office_app/public/sales/agents"><?= csrfField() ?><div class="form-field"><label>Code</label><input name="agent_code" maxlength="40" required></div><div class="form-field"><label>Name</label><input name="name" maxlength="160" required></div><div class="form-field"><label>Type</label><select name="agent_type"><option value="DSA">DSA</option><option value="DSP">DSP</option></select></div><div class="form-field"><label>Territory</label><select name="territory_id"><option value="">Not assigned</option><?php foreach ($territories as $territory): ?><option value="<?= e($territory['territory_id']) ?>"><?= e($territory['name']) ?></option><?php endforeach; ?></select></div><div class="form-field"><label>Phone</label><input name="phone" maxlength="40"></div><button class="btn btn-primary" type="submit">Add DSA/DSP</button></form></article>
+    <?php elseif ($section==='customers'): ?>
     <article class="card"><h2>Add customer</h2><form method="post" action="/office_app/public/sales/customers"><?= csrfField() ?><div class="form-field"><label>Customer number</label><input name="customer_number" maxlength="40" required></div><div class="form-field"><label>Name</label><input name="name" maxlength="160" required></div><div class="form-field"><label>Type</label><select name="customer_type"><option value="business">Business</option><option value="individual">Individual</option><option value="agent">Agent</option><option value="government">Government</option></select></div><div class="form-field"><label>Email</label><input name="email" type="email"></div><div class="form-field"><label>Phone</label><input name="phone"></div><div class="form-field"><label>Preferred currency</label><input name="preferred_currency" maxlength="3" value="<?= e($currency) ?>" required></div><div class="form-field"><label>Credit policy</label><select name="credit_mode"><option value="no_credit">No credit allowed</option><option value="fixed">Fixed credit limit</option><option value="unlimited">Unlimited credit</option></select></div><div class="form-field"><label>Credit limit</label><input name="credit_limit" type="number" min="0" step="0.01" value="0"></div><div class="form-field"><label>Payment terms (days)</label><input name="payment_terms_days" type="number" min="0" value="0"></div><button class="btn btn-primary" type="submit">Add customer</button></form></article>
+    <?php elseif ($section==='products'): ?>
     <article class="card"><h2>Add telecom product</h2><form method="post" action="/office_app/public/sales/products"><?= csrfField() ?><div class="form-field"><label>SKU</label><input name="sku" maxlength="60" required></div><div class="form-field"><label>Name</label><input name="name" maxlength="160" required></div><div class="form-field"><label>Category</label><input name="category" maxlength="80"></div><input type="hidden" name="product_type" value="telecom_product"><div class="form-field"><label>Unit</label><input name="unit_of_measure" value="unit" maxlength="20"></div><div class="form-field"><label>Unit price</label><input name="unit_price" type="number" min="0" step="0.01" required></div><div class="form-field"><label>Commission rate (%)</label><input name="commission_rate" type="number" min="0" max="100" step="0.01" value="0"></div><label><input name="serial_tracking" type="checkbox" value="1"> Track serial numbers</label><div><button class="btn btn-primary" type="submit">Add product</button></div></form></article>
+    <?php endif; ?>
 </section>
 <?php endif; ?>
+<?php if($section==='customers'){echo '</div>';return;} ?>
 
-<?php if (!empty($data['canManageSerials'])): ?>
+<?php if ($section==='products' && !empty($data['canManageSerials'])): ?>
 <section class="card finance-filter-panel"><h2>Register telecom serial numbers</h2><p class="page-description">Enter IMEI, ICCID, device or voucher serials separated by a new line or comma.</p><form method="post" action="/office_app/public/sales/serials" class="finance-filter-form"><?= csrfField() ?><div class="form-field"><label>Serial-tracked product</label><select name="product_id" required><option value="">Select product</option><?php foreach ($products as $product): ?><?php if (!empty($product['serial_tracking'])): ?><option value="<?= e($product['product_id']) ?>"><?= e($product['sku'] . ' - ' . $product['name']) ?></option><?php endif; ?><?php endforeach; ?></select></div><div class="form-field"><label>Serial numbers</label><textarea name="serial_numbers" rows="5" required></textarea></div><button class="btn btn-primary" type="submit">Register serials</button></form></section>
 <?php endif; ?>
 

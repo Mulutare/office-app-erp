@@ -72,6 +72,11 @@ $pagination = is_array(
 $totalRequests = (int) (
     $pagination['total'] ?? 0
 );
+$financeSection = (string) ($_GET['section'] ?? 'receivables');
+$financeSections = ['receivables', 'journals', 'receipts', 'expenses'];
+if (!in_array($financeSection, $financeSections, true)) {
+    $financeSection = 'receivables';
+}
 
 $formatDate = static function (mixed $value): string {
     if (!is_string($value) || trim($value) === '') {
@@ -89,7 +94,9 @@ function financeDashboardUrl(
     array $filters,
     array $overrides = []
 ): string {
+    global $financeSection;
     $query = array_merge(
+        ['section' => $financeSection],
         $filters,
         $overrides
     );
@@ -107,10 +114,7 @@ function financeDashboardUrl(
 }
 ?>
 
-<nav class="card details-toolbar">
-    <a class="btn btn-primary" href="/office_app/public/finance/customer-invoices">Customer Invoices</a>
-</nav>
-
+<?php if ($financeSection === 'receivables'): ?>
 <section
     class="finance-overview"
     aria-labelledby="finance-overview-title"
@@ -529,6 +533,9 @@ function financeDashboardUrl(
         </nav>
     <?php endif; ?>
 </section>
+<?php endif; ?>
+<?php if ($financeSection === 'journals'): ?>
+<div class="page-actions"><a class="btn btn-secondary" href="/office_app/public/data-exchange/finance-journals/export?format=xlsx">Export Excel</a></div>
 <section
     class="card table-card"
     aria-labelledby="recent-journals-title"
@@ -698,6 +705,8 @@ function financeDashboardUrl(
         </table>
     </div>
 </section>
+<?php endif; ?>
+<?php if ($financeSection === 'receipts'): ?>
 <section
     class="card table-card"
     aria-labelledby="recent-receipts-title"
@@ -824,6 +833,10 @@ function financeDashboardUrl(
         </table>
     </div>
 </section>
+<?php endif; ?>
+<?php if ($financeSection === 'expenses'): ?>
+<?php $expenseExportQuery=http_build_query(array_filter(['format'=>'xlsx','search'=>$filters['search']??'','status'=>$filters['status']??''],static fn(mixed $value):bool=>$value!=='')); ?>
+<div class="page-actions"><a class="btn btn-secondary" href="/office_app/public/data-exchange/expenses/export?<?=e($expenseExportQuery)?>">Export Excel</a></div>
 <section
     class="section-heading"
     aria-labelledby="expense-requests-title"
@@ -874,6 +887,7 @@ function financeDashboardUrl(
         action="/office_app/public/finance"
         class="finance-filter-form"
     >
+        <input type="hidden" name="section" value="expenses">
         <div class="form-field finance-search-field">
             <label for="finance-search">
                 Search expense requests
@@ -924,7 +938,7 @@ function financeDashboardUrl(
                 Apply filters
             </button>
             <a
-                href="/office_app/public/finance"
+                href="/office_app/public/finance?section=expenses"
                 class="btn btn-secondary"
             >
                 Reset
@@ -1103,3 +1117,4 @@ function financeDashboardUrl(
         </nav>
     <?php endif; ?>
 </section>
+<?php endif; ?>

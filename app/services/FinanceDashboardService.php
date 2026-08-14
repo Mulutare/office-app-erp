@@ -202,6 +202,21 @@ final class FinanceDashboardService
         ];
     }
 
+    /** @return list<array<string,mixed>> */
+    public function exportJournals(int $limit): array
+    {
+        return $this->repository->recentJournalBatches($this->tenant->companyId(),$limit);
+    }
+
+    /** @param array<string,string> $filters @return list<array<string,mixed>> */
+    public function exportExpenses(array $filters,int $limit): array
+    {
+        $safe=['search'=>mb_substr(trim((string)($filters['search']??'')),0,100),'status'=>(string)($filters['status']??'')];
+        if(!array_key_exists($safe['status'],self::STATUSES))$safe['status']='';
+        $rows=$this->requests->page($this->tenant->companyId(),$safe,$limit,0);
+        foreach($rows as &$row)$row=$this->present($row);unset($row);return $rows;
+    }
+
     /**
      * @param array<string, mixed> $request
      *

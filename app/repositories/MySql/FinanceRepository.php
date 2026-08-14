@@ -16,7 +16,7 @@ final class FinanceRepository extends MySqlRepository
     public function customerInvoices(int $companyId): array
     {
         $statement = $this->connection()->prepare(
-            "SELECT i.invoice_id,i.invoice_number,i.invoice_date,i.due_date,i.currency,
+            "SELECT i.invoice_id,i.invoice_number,i.invoice_date,i.due_date,i.currency,i.document_type,
                     i.status,i.payment_status,i.total_amount,i.residual_amount,
                     c.name customer_name,o.order_number
              FROM finance_invoices i

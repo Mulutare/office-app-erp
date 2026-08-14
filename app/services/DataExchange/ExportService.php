@@ -6,7 +6,7 @@ namespace App\Services\DataExchange;
 
 final class ExportService
 {
-    public function __construct(private ?SchemaRegistry $schemas = null){$this->schemas??=new SchemaRegistry();}
+    public function __construct(private ?SchemaRegistry $schemas = null,private ?ExportDefinitionRegistry $definitions=null){$this->schemas??=new SchemaRegistry();$this->definitions??=new ExportDefinitionRegistry();}
 
     /** @return array{contents:string,mime:string,filename:string} */
     public function template(string $entity,string $format): array
@@ -23,10 +23,11 @@ final class ExportService
     public function export(string $entity,string $format,array $rows,?array $selected=null): array
     {
         $schema=$this->schemas->get($entity);if(!$schema->canExport)throw new \RuntimeException('This object does not support export.');
-        $map=$schema->fieldMap();$keys=$selected===null?array_keys($map):array_values(array_filter($selected,static fn(string $k):bool=>isset($map[$k])));
+        $definition=$this->definitions->get($entity);$exportSchema=new ExchangeSchema($entity,$schema->label,$schema->module,$definition['fields'],false,true,false);
+        $map=$exportSchema->fieldMap();$keys=$selected===null?array_keys($map):array_values(array_filter($selected,static fn(string $k):bool=>isset($map[$k])));
         $headers=[];foreach($keys as $key)$headers[]=$map[$key]->label;
         $output=[];foreach($rows as $source){$row=[];foreach($keys as $key)$row[$key]=$source[$key]??'';$output[]=$row;}
-        return $this->file($entity.'-export',$format,$headers,$output,null);
+        return $this->file($definition['filename'].'_'.date('Y-m-d'),$format,$headers,$output,$exportSchema);
     }
 
     /** @param list<string> $headers @param list<array<string,mixed>> $rows @return array{contents:string,mime:string,filename:string} */

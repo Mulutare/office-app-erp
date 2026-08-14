@@ -21,9 +21,30 @@ final class FinanceOperationsService
     }
 
     /** @return list<array<string, mixed>> */
-    public function customerInvoices(): array
+    public function customerInvoices(array $filters = []): array
     {
-        return $this->finance->customerInvoices($this->tenant->companyId());
+        $rows = $this->finance->customerInvoices($this->tenant->companyId());
+        $search = strtolower(trim((string) ($filters['search'] ?? '')));
+        $payment = strtolower(trim((string) ($filters['payment'] ?? '')));
+        $dateFrom = trim((string) ($filters['date_from'] ?? ''));
+        $dateTo = trim((string) ($filters['date_to'] ?? ''));
+        $customer = trim((string) ($filters['customer'] ?? ''));
+        return array_values(array_filter($rows, static function (array $row) use ($search, $payment, $dateFrom, $dateTo, $customer): bool {
+            if (($row['document_type'] ?? '') !== 'customer_invoice') return false;
+            if ($payment !== '' && strtolower((string) ($row['payment_status'] ?? '')) !== $payment) return false;
+            if ($dateFrom !== '' && (string) ($row['invoice_date'] ?? '') < $dateFrom) return false;
+            if ($dateTo !== '' && (string) ($row['invoice_date'] ?? '') > $dateTo) return false;
+            if ($customer !== '' && (string) ($row['customer_name'] ?? '') !== $customer) return false;
+            if ($search !== '') {
+                $haystack = strtolower(implode(' ', [
+                    (string) ($row['invoice_number'] ?? ''),
+                    (string) ($row['customer_name'] ?? ''),
+                    (string) ($row['order_number'] ?? ''),
+                ]));
+                if (!str_contains($haystack, $search)) return false;
+            }
+            return true;
+        }));
     }
 
     /** @return array<string, mixed>|null */

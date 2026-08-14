@@ -9,6 +9,7 @@ use App\Services\DataExchange\ExportService;
 use App\Services\DataExchange\ExportDataProvider;
 use App\Services\DataExchange\ImportService;
 use App\Services\DataExchange\SchemaRegistry;
+use App\Services\DataExchange\ExportDefinitionRegistry;
 use RuntimeException;
 use Throwable;
 
@@ -18,13 +19,14 @@ final class DataExchangeController
     private SchemaRegistry $schemas;
     private ImportService $imports;
     private ExportService $exports;
+    private ExportDefinitionRegistry $exportDefinitions;
 
-    public function __construct(){ $this->authorization=new AuthorizationService();$this->schemas=new SchemaRegistry();$this->imports=new ImportService();$this->exports=new ExportService(); }
+    public function __construct(){ $this->authorization=new AuthorizationService();$this->schemas=new SchemaRegistry();$this->imports=new ImportService();$this->exports=new ExportService();$this->exportDefinitions=new ExportDefinitionRegistry(); }
 
     public function show(string $entity): void
     {
         $schema=$this->schema($entity,'import');
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Import '.$schema->label,'pageDescription'=>'Map, preview and test spreadsheet rows before any data is written.','contentView'=>'data-exchange.import','schema'=>$schema,'user'=>$_SESSION['auth'],'preview'=>null,'result'=>null,'error'=>null]);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Import '.$schema->label,'pageDescription'=>'Map, preview and test spreadsheet rows before any data is written.','contentView'=>'data-exchange.import','schema'=>$schema,'user'=>$_SESSION['auth'],'preview'=>null,'result'=>null,'error'=>null,'moduleContext'=>$this->moduleContext($schema)]);
     }
 
     public function preview(string $entity): void
@@ -66,7 +68,9 @@ final class DataExchangeController
     public function exportForm(string $entity): void
     {
         $schema=$this->schema($entity,'export');
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Export '.$schema->label,'pageDescription'=>'Choose the file type and arrange the exported fields.','contentView'=>'data-exchange.export','schema'=>$schema,'user'=>$_SESSION['auth']]);
+        $definition=$this->exportDefinitions->get($entity);
+        $schema=new \App\Services\DataExchange\ExchangeSchema($schema->entity,$schema->label,$schema->module,$definition['fields'],false,$schema->canExport,false);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Export '.$schema->label,'pageDescription'=>'Choose the file type and arrange the exported fields.','contentView'=>'data-exchange.export','schema'=>$schema,'user'=>$_SESSION['auth'],'moduleContext'=>$this->moduleContext($schema)]);
     }
 
     public function export(string $entity): void
@@ -77,7 +81,10 @@ final class DataExchangeController
             $fields=isset($_GET['fields'])&&is_string($_GET['fields'])?array_values(array_filter(explode(',',$_GET['fields']))):null;
             $compatible=isset($_GET['import_compatible'])&&$_GET['import_compatible']==='1';
             if($compatible){$fields=$fields??[];$fields=array_values(array_diff($fields,['external_id']));array_unshift($fields,'external_id');}
-            $rows=(new ExportDataProvider())->rows($entity);
+            $filters=$this->exportFilters($entity);
+            $rows=(new ExportDataProvider())->rows($entity,$filters);
+            $limit=max(1,(int)\config('data_exchange.export_max_rows',10000));
+            if(count($rows)>$limit)throw new RuntimeException('This export exceeds the '.$limit.' row limit. Narrow the current filters and try again.');
             $selected=isset($_GET['selected'])&&is_string($_GET['selected'])?array_values(array_filter(array_map('intval',explode(',',$_GET['selected'])))):[];
             if($selected!==[]){$idKey=['customers'=>'customer_id','products'=>'product_id','pricelists'=>'pricelist_id','sales-teams'=>'team_id','quotations'=>'quotation_id','sales-orders'=>'order_id','warehouses'=>'warehouse_id','locations'=>'location_id','stock'=>'stock_balance_id','receipts'=>'goods_receipt_id','deliveries'=>'picking_id','returns'=>'picking_id','invoices'=>'invoice_id','credit-notes'=>'invoice_id'][$entity]??null;if($idKey!==null)$rows=array_values(array_filter($rows,static fn(array $r):bool=>in_array((int)($r[$idKey]??0),$selected,true)));}
             $this->download($this->exports->export($entity,$format,$rows,$fields));
@@ -86,12 +93,44 @@ final class DataExchangeController
 
     private function schema(string $entity,string $operation): \App\Services\DataExchange\ExchangeSchema
     {
-        $schema=$this->schemas->get($entity);$this->authorization->requireModule($schema->module);$this->authorization->requireTenantPermission($schema->module.'.'.$operation);
+        $schema=$this->schemas->get($entity);$this->authorization->requireModule($schema->module);
+        $permission=$schema->module.'.'.$operation;
+        if($schema->module==='procurement')$permission=$operation==='import'?'procurement.suppliers.manage':'procurement.view';
+        $this->authorization->requireTenantPermission($permission);
+        if($operation==='export'&&$schema->entity==='invoices')$this->authorization->requireTenantPermission('finance.records.view');
         if($operation==='import'&&!$schema->canImport)throw new RuntimeException('This object is export-only.');
         if($operation==='export'&&!$schema->canExport)throw new RuntimeException('Export is not connected for this object.');
         return $schema;
     }
+
+    /** @return array<string,string> */
+    private function exportFilters(string $entity): array
+    {
+        $allowed = $entity === 'invoices'
+            ? ['search','payment','date_from','date_to','customer']
+            : ($entity === 'expenses' ? ['search','status'] : [])
+            ;
+        $filters = [];
+        foreach ($allowed as $key) {
+            $value = $_GET[$key] ?? '';
+            $filters[$key] = is_string($value) ? trim($value) : '';
+        }
+        return $filters;
+    }
     /** @param array{contents:string,mime:string,filename:string} $file */
     private function download(array $file):never{header('Content-Type: '.$file['mime']);header('Content-Disposition: attachment; filename="'.$file['filename'].'"');header('X-Content-Type-Options: nosniff');header('Content-Length: '.strlen($file['contents']));echo $file['contents'];exit;}
-    private function render(object $schema,?array $preview,?object $result,?string $error):void{\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Import '.$schema->label,'pageDescription'=>'Map, preview and test spreadsheet rows before any data is written.','contentView'=>'data-exchange.import','schema'=>$schema,'user'=>$_SESSION['auth'],'preview'=>$preview,'result'=>$result,'error'=>$error]);}
+    private function render(object $schema,?array $preview,?object $result,?string $error):void{\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Import '.$schema->label,'pageDescription'=>'Map, preview and test spreadsheet rows before any data is written.','contentView'=>'data-exchange.import','schema'=>$schema,'user'=>$_SESSION['auth'],'preview'=>$preview,'result'=>$result,'error'=>$error,'moduleContext'=>$this->moduleContext($schema)]);}
+
+    /** @return array{module:string,section:string} */
+    private function moduleContext(object $schema): array
+    {
+        $sections = [
+            'suppliers'=>'suppliers','customers'=>'customers','products'=>'products','pricelists'=>'pricelists','sales-teams'=>'teams',
+            'quotations'=>'quotations','sales-orders'=>'orders','deliveries'=>'deliveries',
+            'warehouses'=>'warehouses','locations'=>'locations','stock'=>'stock','receipts'=>'receipts','transfers'=>'movements',
+            'invoices'=>'invoices','credit-notes'=>'invoices','journals'=>'journals','journal-entries'=>'journals','finance-journals'=>'journals','expenses'=>'expenses','purchase-orders'=>'orders',
+            'payments'=>'receipts','bank-transactions'=>'receipts',
+        ];
+        return ['module'=>(string)$schema->module,'section'=>$sections[$schema->entity]??($schema->module==='finance'?'receivables':'overview')];
+    }
 }

@@ -163,6 +163,16 @@ final class MigrationRunner
                         DEFAULT CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
             );
+            $this->connection->exec(
+                'CREATE TABLE IF NOT EXISTS schema_migration_steps (
+                    version VARCHAR(50) NOT NULL,
+                    statement_number INT UNSIGNED NOT NULL,
+                    migration_checksum CHAR(64) NOT NULL,
+                    statement_checksum CHAR(64) NOT NULL,
+                    applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (version, statement_number)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+            );
 
             return;
         }
@@ -213,6 +223,13 @@ final class MigrationRunner
         $description = $migration['description'] ?? null;
         $statements = $migration['statements'] ?? null;
         $preflight = $migration['preflight'] ?? null;
+        if ($preflight === null) {
+            $recoveryFile = dirname($file) . DIRECTORY_SEPARATOR
+                . 'recovery' . DIRECTORY_SEPARATOR . (string) $version . '.php';
+            if (is_file($recoveryFile)) {
+                $preflight = require $recoveryFile;
+            }
+        }
 
         if (
             !is_string($version)
@@ -322,8 +339,38 @@ final class MigrationRunner
             $migration['statements']
             as $index => $sql
         ) {
+            $statementNumber = $index + 1;
+            $statementChecksum = hash('sha256', $sql);
+            $completed = $this->connection->prepare(
+                'SELECT migration_checksum, statement_checksum
+                 FROM schema_migration_steps
+                 WHERE version=:version AND statement_number=:statement_number'
+            );
+            $completed->execute([
+                'version' => $migration['version'],
+                'statement_number' => $statementNumber,
+            ]);
+            $step = $completed->fetch(PDO::FETCH_ASSOC);
+            if (is_array($step)) {
+                if (!hash_equals((string)$step['migration_checksum'], $checksum)
+                    || !hash_equals((string)$step['statement_checksum'], $statementChecksum)) {
+                    throw new RuntimeException('A partially applied migration was modified: '.$migration['version']);
+                }
+                continue;
+            }
             try {
                 $this->connection->exec($sql);
+                $recordStep=$this->connection->prepare(
+                    'INSERT INTO schema_migration_steps
+                        (version,statement_number,migration_checksum,statement_checksum)
+                     VALUES(:version,:statement_number,:migration_checksum,:statement_checksum)'
+                );
+                $recordStep->execute([
+                    'version'=>$migration['version'],
+                    'statement_number'=>$statementNumber,
+                    'migration_checksum'=>$checksum,
+                    'statement_checksum'=>$statementChecksum,
+                ]);
             } catch (Throwable $exception) {
                 throw new RuntimeException(
                     sprintf(
@@ -342,6 +389,10 @@ final class MigrationRunner
             $migration,
             $checksum
         );
+        $cleanup=$this->connection->prepare(
+            'DELETE FROM schema_migration_steps WHERE version=:version'
+        );
+        $cleanup->execute(['version'=>$migration['version']]);
     }
 
     /**

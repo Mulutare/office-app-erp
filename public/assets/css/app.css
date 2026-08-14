@@ -7705,3 +7705,122 @@ a {
         grid-template-columns: 1fr;
     }
 }
+/* Shared focused-module workspace primitives. */
+.app-main,
+.module-shell,
+.proc-shell,
+.card,
+.form-field,
+.proc-form-grid > *,
+.proc-line > * {
+    min-width: 0;
+}
+
+.module-shell,
+.proc-shell {
+    display: grid;
+    gap: 1.25rem;
+    max-width: 100%;
+}
+
+.sales-workspace {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .65rem; margin-bottom: 1rem; }
+.form-section { margin-bottom: 1rem; }
+.form-section > h3 { margin-top: 0; }
+.quotation-lines .quotation-product { min-width: 240px; }
+.quotation-lines th:not(.quotation-product) { white-space: nowrap; }
+.quotation-lines input { min-width: 90px; }
+.quotation-lines select { min-width: 220px; }
+.quotation-total-preview { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 1rem 2rem; padding-top: 1rem; }
+.quotation-total-preview span:last-child { font-size: 1.1rem; }
+
+.module-tabs,
+.proc-tabs {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: .35rem;
+    border-radius: .75rem;
+    background: var(--surface, #fff);
+    box-sizing: border-box;
+    contain: inline-size;
+}
+
+.sales-workspace > .table-responsive,
+.sales-workspace .table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+    contain: inline-size;
+}
+
+.module-tab,
+.proc-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: .65rem .9rem;
+    border-radius: .55rem;
+    color: var(--text-muted, #52606d);
+    text-decoration: none;
+}
+
+.module-tab:hover,
+.module-tab:focus-visible,
+.module-tab.active,
+.proc-tab:hover,
+.proc-tab:focus-visible,
+.proc-tab.active {
+    background: var(--primary-soft, #e8f0fe);
+    color: var(--primary, #1d4ed8);
+    font-weight: 750;
+}
+
+.proc-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+    gap: 1rem;
+}
+.proc-metric { padding: 1rem; }
+.proc-metric strong { display: block; margin-top: .35rem; font-size: 1.65rem; }
+.proc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
+.proc-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.proc-form-grid .wide { grid-column: 1 / -1; }
+.proc-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
+.proc-status { display: inline-flex; padding: .2rem .55rem; border-radius: 999px; background: #eef2f7; font-size: .78rem; font-weight: 650; text-transform: capitalize; }
+.proc-status-approved,.proc-status-posted,.proc-status-paid,.proc-status-received,.proc-status-closed { background: #e7f7ee; color: #17663a; }
+.proc-status-rejected,.proc-status-cancelled,.proc-status-overdue { background: #fdecec; color: #9b1c1c; }
+.proc-status-submitted,.proc-status-partially-received,.proc-status-partially-billed,.proc-status-partially-paid { background: #fff4d6; color: #7a4b00; }
+.proc-empty { padding: 2rem; text-align: center; color: var(--text-muted, #64748b); }
+.proc-line { display: grid; grid-template-columns: minmax(180px, 2fr) minmax(180px, 2fr) minmax(100px, .75fr) minmax(130px, 1fr); gap: .7rem; }
+.proc-related { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; }
+.proc-related ul { margin: .5rem 0 0; padding-left: 1.2rem; }
+.proc-form-grid input,.proc-form-grid select,.proc-form-grid textarea,.proc-line input,.proc-line select { width: 100%; max-width: 100%; box-sizing: border-box; }
+
+@media (max-width: 1280px) {
+    .proc-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 1100px) {
+    .module-tabs,
+    .proc-tabs {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        contain: none;
+    }
+}
+
+@media (max-width: 760px) {
+    .proc-form-grid { grid-template-columns: 1fr; }
+    .proc-line { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .proc-line > :nth-child(2) { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+    .proc-line { grid-template-columns: 1fr; }
+    .proc-line > * { grid-column: 1 !important; }
+    .proc-actions .btn { width: 100%; }
+}

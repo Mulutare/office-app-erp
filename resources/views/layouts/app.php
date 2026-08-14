@@ -248,6 +248,8 @@ $companySwitchSuccess = getFlash(
             </div>
         </header>
 
+        <?php \view('layouts.module-navigation', $data); ?>
+
         <?php
         if ($contentView === '') {
             throw new RuntimeException(

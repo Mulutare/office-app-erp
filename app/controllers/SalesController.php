@@ -20,7 +20,7 @@ final class SalesController
 
     public function index(): void
     {
-        $this->renderWorkspace('dashboard');
+        $this->renderWorkspace('orders');
     }
 
     public function customers(): void { $this->renderWorkspace('customers'); }
@@ -399,6 +399,21 @@ final class SalesController
     /** @return list<array<string, string>> */
     private function orderLines(): array
     {
+        $nested = $_POST['lines'] ?? null;
+        if (is_array($nested)) {
+            $lines = [];
+            foreach (array_slice($nested, 0, 50) as $line) {
+                if (!is_array($line)) continue;
+                $lines[] = [
+                    'product_id' => $this->scalar($line['product_id'] ?? ''),
+                    'quantity' => $this->scalar($line['quantity'] ?? ''),
+                    'discount_amount' => $this->scalar($line['discount_amount'] ?? '0'),
+                    'tax_rate' => $this->scalar($line['tax_rate'] ?? '0'),
+                ];
+            }
+            return $lines;
+        }
+
         $productIds = is_array($_POST['product_id'] ?? null)
             ? $_POST['product_id'] : [];
         $quantities = is_array($_POST['quantity'] ?? null)
@@ -407,7 +422,7 @@ final class SalesController
             ? $_POST['discount_amount'] : [];
         $taxRates = is_array($_POST['tax_rate'] ?? null)
             ? $_POST['tax_rate'] : [];
-        $count = min(max(count($productIds), count($quantities)), 20);
+        $count = min(max(count($productIds), count($quantities)), 50);
         $lines = [];
         for ($index = 0; $index < $count; $index++) {
             $lines[] = [

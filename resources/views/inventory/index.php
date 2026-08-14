@@ -51,25 +51,13 @@ $canViewInventoryWarehouses = in_array(
     'inventory.warehouses.manage',
     $inventoryDashboardPermissions,
     true
-);?>
-<div class="details-toolbar"><a href="/office_app/public/inventory/receipts" class="btn btn-primary">Receipts</a><a href="/office_app/public/data-exchange/stock/export/configure" class="btn btn-secondary">Export Stock</a><?php if(in_array('inventory.receipts.create',$inventoryDashboardPermissions,true)):?><a href="/office_app/public/inventory/receipts/create" class="btn btn-secondary">New Receipt</a><?php endif;?></div>
-<?php if ($canViewInventoryWarehouses): ?>
-    <div class="details-toolbar">
-        <a
-            href="/office_app/public/inventory/warehouses"
-            class="btn btn-primary"
-        >
-            Manage warehouses
-        </a>
-        <a
-            href="/office_app/public/inventory/locations"
-            class="btn btn-secondary"
-        >
-            Manage locations
-        </a>
-    </div>
-<?php endif; ?>
+);
+$inventorySection = (string) ($_GET['section'] ?? 'stock');
+if (!in_array($inventorySection, ['stock', 'movements'], true)) $inventorySection = 'stock';
+?>
+<div class="page-actions"><a class="btn btn-secondary" href="/office_app/public/data-exchange/stock/export/configure">Export Excel</a></div>
 
+<?php if (false): ?>
 <section class="page-section">
     <div class="section-heading">
         <div>
@@ -160,6 +148,8 @@ $canViewInventoryWarehouses = in_array(
     </div>
 </section>
 
+<?php endif; ?>
+<?php if ($inventorySection === 'movements'): ?>
 <section class="page-section">
     <article class="card table-card">
         <div class="table-summary">
@@ -202,6 +192,8 @@ $canViewInventoryWarehouses = in_array(
     </article>
 </section>
 
+<?php endif; ?>
+<?php if ($inventorySection === 'stock'): ?>
 <section class="page-section">
     <article class="card table-card">
         <div class="table-summary">
@@ -365,6 +357,8 @@ $canViewInventoryWarehouses = in_array(
     </article>
 </section>
 
+<?php endif; ?>
+<?php if (false): ?>
 <section class="page-section">
     <article class="card table-card">
         <div class="table-summary">
@@ -491,3 +485,4 @@ $canViewInventoryWarehouses = in_array(
         </div>
     </article>
 </section>
+<?php endif; ?>

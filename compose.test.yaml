@@ -13,6 +13,7 @@ services:
         && php bin/sync-reference-data.php
         && php tests/run.php
         && php tests/module-release-integration.php
+        && php tests/procurement-integration.php
     environment:
       APP_NAME: OfficeApp ERP Test
       APP_ENV: testing

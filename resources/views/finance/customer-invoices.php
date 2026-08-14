@@ -3,15 +3,22 @@
 declare(strict_types=1);
 
 $invoices = is_array($data['invoices'] ?? null) ? $data['invoices'] : [];
+$filters = is_array($data['invoiceFilters'] ?? null) ? $data['invoiceFilters'] : [];
+$customers = is_array($data['invoiceCustomers'] ?? null) ? $data['invoiceCustomers'] : [];
+$exportQuery = http_build_query(array_filter(['format'=>'xlsx'] + $filters, static fn(mixed $value): bool => $value !== ''));
 $money = static fn (mixed $amount, string $currency): string =>
     $currency . ' ' . number_format((float) $amount, 2);
 ?>
 <div class="module-stack">
-    <nav class="card details-toolbar">
-        <a class="btn btn-secondary" href="/office_app/public/finance">Finance</a>
-        <a class="btn btn-primary" href="/office_app/public/finance/customer-invoices">Customer Invoices</a>
-        <a class="btn btn-secondary" href="/office_app/public/data-exchange/invoices/export/configure">Export</a>
-    </nav>
+    <div class="page-actions"><a class="btn btn-secondary" href="/office_app/public/data-exchange/invoices/export?<?=e($exportQuery)?>">Export Excel</a></div>
+    <form method="get" action="/office_app/public/finance/customer-invoices" class="finance-filter-form" aria-label="Customer invoice filters">
+        <label>Search<input type="search" name="search" value="<?=e((string)($filters['search']??''))?>" placeholder="Invoice, customer or order"></label>
+        <label>Payment<select name="payment"><option value="">All payment states</option><?php foreach(['not_paid'=>'Outstanding','partial'=>'Partial','paid'=>'Paid','credit'=>'Credit'] as $value=>$label):?><option value="<?=e($value)?>" <?=($filters['payment']??'')===$value?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label>
+        <label>Date from<input type="date" name="date_from" value="<?=e((string)($filters['date_from']??''))?>"></label>
+        <label>Date to<input type="date" name="date_to" value="<?=e((string)($filters['date_to']??''))?>"></label>
+        <label>Customer<select name="customer"><option value="">All customers</option><?php foreach($customers as $customer):?><option value="<?=e((string)$customer)?>" <?=($filters['customer']??'')===(string)$customer?'selected':''?>><?=e((string)$customer)?></option><?php endforeach;?></select></label>
+        <div class="filter-actions"><button class="btn btn-primary" type="submit">Apply filters</button><a class="btn btn-secondary" href="/office_app/public/finance/customer-invoices">Clear</a></div>
+    </form>
     <section class="card table-card">
         <h2>Customer invoices</h2>
         <p>Open posted invoices to register and allocate customer payments.</p>

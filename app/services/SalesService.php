@@ -855,13 +855,41 @@ final class SalesService
         foreach ($this->sales->products($companyId) as $product) {
             $products[(int) $product['product_id']] = $product;
         }
+        $agents = array_map('intval', array_column($this->sales->agents($companyId), 'agent_id'));
+        $teams = array_map('intval', array_column($this->sales->teams($companyId), 'team_id'));
+        $pricelists = [];
+        foreach ($this->sales->pricelists($companyId) as $candidate) {
+            if (!empty($candidate['active'])) $pricelists[(int) $candidate['pricelist_id']] = $candidate;
+        }
+        if ($pricelistId !== null && !isset($pricelists[$pricelistId])) {
+            return ['errors' => ['pricelist_id' => 'Select an active pricelist from the current company.']];
+        }
+        $agentId = $this->optionalId($input['agent_id'] ?? null);
+        $teamId = $this->optionalId($input['team_id'] ?? null);
+        if ($agentId !== null && !in_array($agentId, $agents, true)) return ['errors' => ['agent_id' => 'Select a salesperson from the current company.']];
+        if ($teamId !== null && !in_array($teamId, $teams, true)) return ['errors' => ['team_id' => 'Select a Sales team from the current company.']];
+        $currency = strtoupper(trim((string) ($input['currency'] ?? 'ETB')));
+        if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) return ['errors' => ['currency' => 'Currency must be a three-letter ISO code.']];
+        if ($pricelistId !== null && strtoupper((string) ($pricelists[$pricelistId]['currency'] ?? $currency)) !== $currency) {
+            return ['errors' => ['currency' => 'Quotation currency must match the selected pricelist.']];
+        }
         $lines = [];
+        $errors = [];
         $untaxed = $tax = $total = 0.0;
         foreach ((array) ($input['lines'] ?? []) as $index => $submitted) {
+            if (!is_array($submitted)) continue;
             $productId = (int) ($submitted['product_id'] ?? 0);
             $quantity = $this->decimal($submitted['quantity'] ?? 0);
+            $rawProduct = trim((string) ($submitted['product_id'] ?? ''));
+            $rawQuantity = trim((string) ($submitted['quantity'] ?? ''));
+            if ($rawProduct === '' && $rawQuantity === '') continue;
             $product = $products[$productId] ?? null;
-            if (!is_array($product) || empty($product['active']) || $quantity <= 0) {
+            if (!is_array($product) || empty($product['active'])) {
+                $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' references an invalid or inactive product.';
+                continue;
+            }
+            if ($quantity <= 0) {
+                $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' quantity must be greater than zero.';
                 continue;
             }
             $price = $this->sales->resolvePrice($companyId, $pricelistId, $productId, $quantity, $quotationDate, (float) $product['unit_price']);
@@ -869,6 +897,7 @@ final class SalesService
             $taxRate = $this->money($submitted['tax_rate'] ?? 0);
             $gross = round($quantity * $price, 2);
             if ($discount < 0 || $discount > $gross || $taxRate < 0 || $taxRate > 100) {
+                $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' has an invalid discount or tax rate.';
                 continue;
             }
             $net = round($gross - $discount, 2);
@@ -884,17 +913,18 @@ final class SalesService
             $untaxed += $net; $tax += $lineTax; $total += $net + $lineTax;
         }
         if ($lines === []) {
-            return ['errors' => ['lines' => 'Add at least one valid quotation line.']];
+            $errors['lines'] = 'Add at least one valid quotation line.';
         }
+        if ($errors !== []) return ['errors' => $errors];
         return [
             'quotation' => [
                 'customer_id' => $customerId,
-                'agent_id' => $this->optionalId($input['agent_id'] ?? null),
-                'team_id' => $this->optionalId($input['team_id'] ?? null),
+                'agent_id' => $agentId,
+                'team_id' => $teamId,
                 'pricelist_id' => $pricelistId,
                 'quotation_date' => $quotationDate, 'expiration_date' => $expirationDate,
                 'payment_terms_days' => max(0, (int) ($input['payment_terms_days'] ?? 0)),
-                'currency' => strtoupper((string) ($input['currency'] ?? 'ETB')),
+                'currency' => $currency,
                 'billing_address' => $this->nullable($input['billing_address'] ?? null),
                 'delivery_address' => $this->nullable($input['delivery_address'] ?? null),
                 'notes' => $this->nullable($input['notes'] ?? null),
