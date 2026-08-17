@@ -11,7 +11,7 @@ $can = static fn (string $permission): bool => in_array($permission, $permission
 
 if ($module === '') {
     foreach (['sales', 'procurement', 'finance', 'inventory'] as $candidate) {
-        if (str_starts_with($requestPath, '/office_app/public/' . $candidate)) {
+        if (str_starts_with($requestPath, "/" . $candidate) || str_starts_with($requestPath, "/office_app/public/" . $candidate)) {
             $module = $candidate;
             break;
         }

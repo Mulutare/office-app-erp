@@ -43,7 +43,7 @@ $managerUserId = (int) (
 
 <form
     method="post"
-    action="/office_app/public/administration/users/update"
+    action="<?= e(appBasePath()) ?>/administration/users/update"
     class="card enterprise-form"
 >
     <?= csrfField() ?>
@@ -341,7 +341,7 @@ $managerUserId = (int) (
 
     <div class="form-actions">
         <a
-            href="/office_app/public/administration/users/view?id=<?= e(
+            href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                 $profile['user_id'] ?? ''
             ) ?>"
             class="btn btn-secondary"

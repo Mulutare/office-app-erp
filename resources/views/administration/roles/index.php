@@ -11,7 +11,7 @@ $roles = is_array($data['roles'] ?? null)
 
 <div class="details-toolbar">
     <a
-        href="/office_app/public/administration"
+        href="<?= e(appBasePath()) ?>/administration"
         class="btn btn-secondary"
     >
         Back to administration
@@ -76,7 +76,7 @@ $roles = is_array($data['roles'] ?? null)
             </dl>
 
             <a
-                href="/office_app/public/administration/roles/view?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/roles/view?id=<?= e(
                     $role['role_id'] ?? ''
                 ) ?>"
                 class="btn btn-primary"

@@ -93,7 +93,7 @@ foreach ($modules as $module) {
 
 <form
     method="post"
-    action="/office_app/public/administration/modules"
+    action="<?= e(appBasePath()) ?>/administration/modules"
     class="module-entitlement-form"
 >
     <?= csrfField() ?>

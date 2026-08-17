@@ -8,7 +8,7 @@ $modules = [
         'description' =>
             'Create, update, disable and review user accounts.',
         'path' =>
-            '/office_app/public/administration/users',
+            appBasePath() . '/administration/users',
         'permission' =>
             'administration.users.manage',
     ],
@@ -17,7 +17,7 @@ $modules = [
         'description' =>
             'Control access to ERP modules and operations.',
         'path' =>
-            '/office_app/public/administration/roles',
+            appBasePath() . '/administration/roles',
         'permission' =>
             'administration.roles.manage',
     ],
@@ -26,7 +26,7 @@ $modules = [
         'description' =>
             'Provision customer workspaces and their initial ERP subscriptions.',
         'path' =>
-            '/office_app/public/administration/companies',
+            appBasePath() . '/administration/companies',
         'permission' =>
             'administration.companies.manage',
         'platformOnly' => true,
@@ -36,7 +36,7 @@ $modules = [
         'description' =>
             'Manage module availability for configured customer workspaces.',
         'path' =>
-            '/office_app/public/administration/modules',
+            appBasePath() . '/administration/modules',
         'permission' =>
             'administration.modules.manage',
         'platformOnly' => true,
@@ -46,7 +46,7 @@ $modules = [
         'description' =>
             'Measure company readiness and complete locations, departments, job architecture, headcount and reporting lines in sequence.',
         'path' =>
-            '/office_app/public/organization/setup',
+            appBasePath() . '/organization/setup',
         'permissions' => [
             'organization.branches.view',
             'organization.branches.manage',
@@ -66,7 +66,7 @@ $modules = [
         'description' =>
             'Maintain company locations, head office details and operational availability.',
         'path' =>
-            '/office_app/public/organization/branches',
+            appBasePath() . '/organization/branches',
         'permission' =>
             'organization.branches.view',
         'tenantOnly' => true,
@@ -76,7 +76,7 @@ $modules = [
         'description' =>
             'Standardize job titles, job families and grade references for workforce planning.',
         'path' =>
-            '/office_app/public/organization/job-titles',
+            appBasePath() . '/organization/job-titles',
         'permission' =>
             'organization.job_titles.view',
         'tenantOnly' => true,
@@ -86,7 +86,7 @@ $modules = [
         'description' =>
             'Maintain department hierarchy and review tenant-isolated workforce assignments.',
         'path' =>
-            '/office_app/public/organization/departments',
+            appBasePath() . '/organization/departments',
         'permission' =>
             'organization.departments.view',
         'tenantOnly' => true,
@@ -96,7 +96,7 @@ $modules = [
         'description' =>
             'Plan approved positions across departments, job titles and company locations.',
         'path' =>
-            '/office_app/public/organization/positions',
+            appBasePath() . '/organization/positions',
         'permission' =>
             'organization.positions.view',
         'tenantOnly' => true,
@@ -106,7 +106,7 @@ $modules = [
         'description' =>
             'Review security and business activity records.',
         'path' =>
-            '/office_app/public/administration/audit-logs',
+            appBasePath() . '/administration/audit-logs',
         'permission' =>
             'audit.logs.view',
     ],

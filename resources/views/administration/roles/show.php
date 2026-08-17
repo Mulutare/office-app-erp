@@ -48,7 +48,7 @@ foreach ($permissions as $permission) {
 
 <div class="details-toolbar">
     <a
-        href="/office_app/public/administration/roles"
+        href="<?= e(appBasePath()) ?>/administration/roles"
         class="btn btn-secondary"
     >
         Back to roles
@@ -56,7 +56,7 @@ foreach ($permissions as $permission) {
 
     <?php if ($canEditPermissions): ?>
         <a
-            href="/office_app/public/administration/roles/edit-permissions?id=<?= e(
+            href="<?= e(appBasePath()) ?>/administration/roles/edit-permissions?id=<?= e(
                 $role['role_id'] ?? ''
             ) ?>"
             class="btn btn-primary"
@@ -242,7 +242,7 @@ foreach ($permissions as $permission) {
                         </td>
                         <td>
                             <a
-                                href="/office_app/public/administration/users/view?id=<?= e(
+                                href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                                     $assignedUser[
                                         'user_id'
                                     ] ?? ''

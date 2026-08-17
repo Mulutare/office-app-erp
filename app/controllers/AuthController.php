@@ -22,7 +22,7 @@ final class AuthController
     public function showLogin(): void
     {
         if ($this->auth->check()) {
-            \redirect('/dashboard');
+            \redirect($this->landingDestination());
         }
 
         \view('auth.login', [
@@ -72,7 +72,7 @@ final class AuthController
             \redirect('/login');
         }
 
-        \redirect('/dashboard');
+        \redirect($this->landingDestination());
     }
 
     public function logout(): void
@@ -157,6 +157,115 @@ public function changePassword(): void
         $result['message']
     );
 
-    \redirect('/dashboard');
+    \redirect($this->landingDestination());
 }
+    private function landingDestination(): string
+    {
+        if ($this->auth->mustChangePassword()) {
+            return '/change-password';
+        }
+
+        if ($this->auth->isPlatformAdministrator()) {
+            return '/administration';
+        }
+
+        if ($this->auth->can('dashboard.view')) {
+            return '/dashboard';
+        }
+
+        if ($this->auth->canAny([
+            'administration.users.manage',
+            'administration.roles.manage',
+            'administration.companies.manage',
+            'administration.modules.manage',
+            'audit.logs.view',
+            'organization.branches.view',
+            'organization.branches.manage',
+            'organization.job_titles.view',
+            'organization.job_titles.manage',
+            'organization.departments.view',
+            'organization.departments.manage',
+            'organization.positions.view',
+            'organization.positions.manage',
+        ])) {
+            return '/administration';
+        }
+
+        if (
+            $this->companyModules->isEnabled('procurement')
+            && $this->auth->can('procurement.view')
+        ) {
+            return '/procurement';
+        }
+
+        if (
+            $this->companyModules->isEnabled('sales')
+            && $this->auth->can('sales.view')
+        ) {
+            return '/sales';
+        }
+
+        if (
+            $this->companyModules->isEnabled('inventory')
+            && $this->auth->can('inventory.view')
+        ) {
+            return '/inventory';
+        }
+
+        if (
+            $this->companyModules->isEnabled('finance')
+            && $this->auth->canAny([
+                'finance.records.view',
+                'finance.records.manage',
+                'finance.requests.approve',
+            ])
+        ) {
+            return '/finance';
+        }
+
+        if (
+            $this->companyModules->isEnabled('hr')
+            && $this->auth->canAny([
+                'hr.records.view',
+                'hr.records.manage',
+                'hr.leave.view',
+                'hr.leave.manage',
+                'hr.leave.approve',
+                'hr.leave.self.view',
+                'hr.leave.self.request',
+                'hr.leave.team.approve',
+                'hr.leave.policy.manage',
+                'hr.leave.balance.manage',
+            ])
+        ) {
+            return '/hr';
+        }
+
+        if (
+            $this->companyModules->isEnabled('attendance')
+            && $this->auth->canAny([
+                'attendance.records.view',
+                'attendance.records.manage',
+                'attendance.self.view',
+                'attendance.team.view',
+            ])
+        ) {
+            return '/attendance';
+        }
+
+        if (
+            $this->companyModules->isEnabled('assets')
+            && $this->auth->can('assets.view')
+        ) {
+            return '/assets-management';
+        }
+
+        /*
+         * No usable landing permission exists.
+         * /dashboard will produce the recoverable 403 page,
+         * including secure sign-out, rather than trapping
+         * the session without a way back to login.
+         */
+        return '/dashboard';
+    }
 }

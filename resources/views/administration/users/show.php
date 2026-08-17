@@ -137,7 +137,7 @@ if (!empty($profile['is_locked'])) {
 
 <div class="details-toolbar">
     <a
-        href="/office_app/public/administration/users"
+        href="<?= e(appBasePath()) ?>/administration/users"
         class="btn btn-secondary"
     >
         Back to users
@@ -146,7 +146,7 @@ if (!empty($profile['is_locked'])) {
     <div class="details-actions">
         <?php if ($canViewActivity): ?>
             <a
-                href="/office_app/public/administration/users/activity?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/activity?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn btn-secondary"
@@ -157,7 +157,7 @@ if (!empty($profile['is_locked'])) {
 
         <?php if ($canUnlock): ?>
             <a
-                href="/office_app/public/administration/users/unlock?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/unlock?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn btn-secondary"
@@ -168,7 +168,7 @@ if (!empty($profile['is_locked'])) {
 
         <?php if ($canChangeStatus): ?>
             <a
-                href="/office_app/public/administration/users/account-status?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/account-status?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn <?= !empty(
@@ -185,7 +185,7 @@ if (!empty($profile['is_locked'])) {
 
         <?php if ($canResetPassword): ?>
             <a
-                href="/office_app/public/administration/users/reset-password?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/reset-password?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn btn-secondary"
@@ -196,7 +196,7 @@ if (!empty($profile['is_locked'])) {
 
         <?php if ($canEdit): ?>
             <a
-                href="/office_app/public/administration/users/edit?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/edit?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn btn-primary"

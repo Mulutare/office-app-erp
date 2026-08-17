@@ -52,7 +52,7 @@ $targetUserId = $targetIsUser
 
 <div class="details-toolbar">
     <a
-        href="/office_app/public/administration/audit-logs"
+        href="<?= e(appBasePath()) ?>/administration/audit-logs"
         class="btn btn-secondary"
     >
         Back to audit logs
@@ -115,7 +115,7 @@ $targetUserId = $targetIsUser
                         && $canManageUsers
                     ): ?>
                         <a
-                            href="/office_app/public/administration/users/view?id=<?= e(
+                            href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                                 $targetUserId
                             ) ?>"
                             class="table-link"
@@ -147,7 +147,7 @@ $targetUserId = $targetIsUser
                         && $canManageUsers
                     ): ?>
                         <a
-                            href="/office_app/public/administration/users/view?id=<?= e(
+                            href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                                 $actorUserId
                             ) ?>"
                             class="table-link"

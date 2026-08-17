@@ -53,7 +53,7 @@ function userActivityUrl(
         }
     }
 
-    return '/office_app/public/administration/users/activity?'
+    return appBasePath() . '/administration/users/activity?'
         . http_build_query($query);
 }
 
@@ -68,9 +68,9 @@ $typeOptions = [
 <div class="details-toolbar">
     <a
         href="<?= $canManageUsers
-            ? '/office_app/public/administration/users/view?id='
+            ? appBasePath() . '/administration/users/view?id='
                 . e($userId)
-            : '/office_app/public/administration' ?>"
+            : appBasePath() . '/administration' ?>"
         class="btn btn-secondary"
     >
         <?= $canManageUsers
@@ -112,7 +112,7 @@ $typeOptions = [
 <section class="activity-toolbar">
     <form
         method="get"
-        action="/office_app/public/administration/users/activity"
+        action="<?= e(appBasePath()) ?>/administration/users/activity"
         class="filter-form"
     >
         <input
@@ -170,7 +170,7 @@ $typeOptions = [
     <p class="activity-range">
         Showing
         <?= e($pagination['from'] ?? 0) ?>
-        –
+        â€“
         <?= e($pagination['to'] ?? 0) ?>
         of
         <?= e($pagination['total'] ?? 0) ?>
@@ -303,7 +303,7 @@ $typeOptions = [
                                             <span
                                                 aria-hidden="true"
                                             >
-                                                →
+                                                â†’
                                             </span>
                                             <strong>
                                                 <?= e(

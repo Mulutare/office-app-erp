@@ -39,12 +39,28 @@
                 to access this resource.
             </p>
 
-            <a
-                href="/office_app/public/dashboard"
-                class="btn btn-primary"
-            >
-                Return to dashboard
-            </a>
+            <div class="page-actions">
+                <a
+                    href="<?= e(appBasePath()) ?>/dashboard"
+                    class="btn btn-primary"
+                >
+                    Return to dashboard
+                </a>
+
+                <form
+                    method="post"
+                    action="<?= e(appBasePath()) ?>/logout"
+                >
+                    <?= csrfField() ?>
+
+                    <button
+                        type="submit"
+                        class="btn btn-secondary"
+                    >
+                        Sign out and return to login
+                    </button>
+                </form>
+            </div>
         </section>
     </main>
 </body>

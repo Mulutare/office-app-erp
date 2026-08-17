@@ -14,6 +14,10 @@ final class WebhookOutboxMarkerHandler implements IntegrationEventHandler
             'sales.order.cancelled',
             'sales.credit_hold.created',
             'sales.credit_hold.released',
+            'SupplierBillCreated',
+            'SupplierPaymentPosted',
+            'SupplierBillReversed',
+            'VendorReturnPosted',
         ], true);
     }
 

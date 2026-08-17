@@ -89,7 +89,7 @@ $activate = !$currentlyActive;
 
         <form
             method="post"
-            action="/office_app/public/administration/users/account-status"
+            action="<?= e(appBasePath()) ?>/administration/users/account-status"
             class="confirmation-actions"
         >
             <?= csrfField() ?>
@@ -109,7 +109,7 @@ $activate = !$currentlyActive;
             >
 
             <a
-                href="/office_app/public/administration/users/view?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn btn-secondary"

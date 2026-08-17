@@ -108,7 +108,7 @@ $errors = is_array($data['errors'] ?? null)
 
         <form
             method="post"
-            action="/office_app/public/administration/companies/reset-owner-password"
+            action="<?= e(appBasePath()) ?>/administration/companies/reset-owner-password"
             class="confirmation-actions"
         >
             <?= csrfField() ?>
@@ -122,7 +122,7 @@ $errors = is_array($data['errors'] ?? null)
             >
 
             <a
-                href="/office_app/public/administration/companies/view?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/companies/view?id=<?= e(
                     $company['company_id'] ?? 0
                 ) ?>"
                 class="btn btn-secondary"

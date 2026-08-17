@@ -58,7 +58,7 @@ $errors = is_array($data['errors'] ?? null)
 
         <form
             method="post"
-            action="/office_app/public/administration/users/reset-password"
+            action="<?= e(appBasePath()) ?>/administration/users/reset-password"
             class="confirmation-actions"
         >
             <?= csrfField() ?>
@@ -72,7 +72,7 @@ $errors = is_array($data['errors'] ?? null)
             >
 
             <a
-                href="/office_app/public/administration/users/view?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn btn-secondary"

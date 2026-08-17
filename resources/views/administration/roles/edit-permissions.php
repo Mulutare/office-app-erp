@@ -45,7 +45,7 @@ foreach ($permissions as $permission) {
 
 <form
     method="post"
-    action="/office_app/public/administration/roles/update-permissions"
+    action="<?= e(appBasePath()) ?>/administration/roles/update-permissions"
     class="card enterprise-form role-permission-form"
 >
     <?= csrfField() ?>
@@ -150,7 +150,7 @@ foreach ($permissions as $permission) {
 
     <div class="form-actions">
         <a
-            href="/office_app/public/administration/roles/view?id=<?= e(
+            href="<?= e(appBasePath()) ?>/administration/roles/view?id=<?= e(
                 $role['role_id'] ?? ''
             ) ?>"
             class="btn btn-secondary"

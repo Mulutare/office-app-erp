@@ -78,7 +78,7 @@ $lockedUntil = is_string(
 
         <form
             method="post"
-            action="/office_app/public/administration/users/unlock"
+            action="<?= e(appBasePath()) ?>/administration/users/unlock"
             class="confirmation-actions"
         >
             <?= csrfField() ?>
@@ -92,7 +92,7 @@ $lockedUntil = is_string(
             >
 
             <a
-                href="/office_app/public/administration/users/view?id=<?= e(
+                href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                     $profile['user_id'] ?? ''
                 ) ?>"
                 class="btn btn-secondary"

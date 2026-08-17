@@ -44,7 +44,7 @@ function userListUrl(
         }
     }
 
-    return '/office_app/public/administration/users'
+    return appBasePath() . '/administration/users'
         . ($query === []
             ? ''
             : '?' . http_build_query($query));
@@ -120,7 +120,7 @@ function userStatusClass(array $user): string
 <section class="toolbar">
     <form
         method="get"
-        action="/office_app/public/administration/users"
+        action="<?= e(appBasePath()) ?>/administration/users"
         class="filter-form"
     >
         <div class="form-field">
@@ -203,7 +203,7 @@ function userStatusClass(array $user): string
             </button>
 
             <a
-                href="/office_app/public/administration/users"
+                href="<?= e(appBasePath()) ?>/administration/users"
                 class="btn btn-secondary"
             >
                 Reset
@@ -212,7 +212,7 @@ function userStatusClass(array $user): string
     </form>
 
     <a
-        href="/office_app/public/administration/users/create"
+        href="<?= e(appBasePath()) ?>/administration/users/create"
         class="btn btn-primary"
     >
         Create user
@@ -231,7 +231,7 @@ function userStatusClass(array $user): string
         <span>
             Showing
             <?= e($pagination['from'] ?? 0) ?>
-            –
+            â€“
             <?= e($pagination['to'] ?? 0) ?>
         </span>
     </div>
@@ -350,7 +350,7 @@ function userStatusClass(array $user): string
 
                         <td>
                             <a
-                                href="/office_app/public/administration/users/view?id=<?= e(
+                                href="<?= e(appBasePath()) ?>/administration/users/view?id=<?= e(
                                     $user['user_id']
                                 ) ?>"
                                 class="table-link"

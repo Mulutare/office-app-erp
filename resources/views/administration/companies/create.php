@@ -69,7 +69,7 @@ if (
 
 <form
     method="post"
-    action="/office_app/public/administration/companies"
+    action="<?= e(appBasePath()) ?>/administration/companies"
     class="company-provisioning-form"
 >
     <?= csrfField() ?>
@@ -666,7 +666,7 @@ if (
 
             <div class="company-form-actions">
                 <a
-                    href="/office_app/public/administration/companies"
+                    href="<?= e(appBasePath()) ?>/administration/companies"
                     class="btn btn-secondary"
                 >
                     Cancel

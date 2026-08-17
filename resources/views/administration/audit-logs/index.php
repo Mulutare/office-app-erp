@@ -55,7 +55,7 @@ function auditLogListUrl(
         }
     }
 
-    return '/office_app/public/administration/audit-logs'
+    return appBasePath() . '/administration/audit-logs'
         . ($query === []
             ? ''
             : '?' . http_build_query($query));
@@ -65,7 +65,7 @@ function auditLogListUrl(
 <section class="audit-filter-panel card">
     <form
         method="get"
-        action="/office_app/public/administration/audit-logs"
+        action="<?= e(appBasePath()) ?>/administration/audit-logs"
         class="audit-filter-form"
     >
         <div class="form-field audit-search-field">
@@ -201,7 +201,7 @@ function auditLogListUrl(
                 Apply filters
             </button>
             <a
-                href="/office_app/public/administration/audit-logs"
+                href="<?= e(appBasePath()) ?>/administration/audit-logs"
                 class="btn btn-secondary"
             >
                 Reset
@@ -219,7 +219,7 @@ function auditLogListUrl(
         <span>
             Showing
             <?= e($pagination['from'] ?? 0) ?>
-            –
+            â€“
             <?= e($pagination['to'] ?? 0) ?>
         </span>
     </div>
@@ -264,7 +264,7 @@ function auditLogListUrl(
                                     $log['audit_log_id']
                                     ?? ''
                                 ) ?>
-                                ·
+                                Â·
                                 <?= e(
                                     $log['action'] ?? ''
                                 ) ?>
@@ -313,7 +313,7 @@ function auditLogListUrl(
                         </td>
                         <td>
                             <a
-                                href="/office_app/public/administration/audit-logs/view?id=<?= e(
+                                href="<?= e(appBasePath()) ?>/administration/audit-logs/view?id=<?= e(
                                     $log['audit_log_id']
                                     ?? ''
                                 ) ?>"

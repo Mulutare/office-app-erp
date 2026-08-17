@@ -44,7 +44,7 @@ $companyListUrl = static function (
         }
     }
 
-    return '/office_app/public/administration/companies'
+    return appBasePath() . '/administration/companies'
         . ($query === []
             ? ''
             : '?' . http_build_query($query));
@@ -70,7 +70,7 @@ $companyListUrl = static function (
     </div>
 
     <a
-        href="/office_app/public/administration/companies/create"
+        href="<?= e(appBasePath()) ?>/administration/companies/create"
         class="btn btn-primary"
     >
         Provision company
@@ -80,7 +80,7 @@ $companyListUrl = static function (
 <section class="card company-filter-card">
     <form
         method="get"
-        action="/office_app/public/administration/companies"
+        action="<?= e(appBasePath()) ?>/administration/companies"
         class="filter-form"
     >
         <div class="form-field">
@@ -141,7 +141,7 @@ $companyListUrl = static function (
                 Apply filters
             </button>
             <a
-                href="/office_app/public/administration/companies"
+                href="<?= e(appBasePath()) ?>/administration/companies"
                 class="btn btn-secondary"
             >
                 Reset
@@ -280,7 +280,7 @@ $companyListUrl = static function (
                         ) ?>
                     </span>
                     <a
-                        href="/office_app/public/administration/companies/view?id=<?= e(
+                        href="<?= e(appBasePath()) ?>/administration/companies/view?id=<?= e(
                             $company['company_id']
                             ?? 0
                         ) ?>"

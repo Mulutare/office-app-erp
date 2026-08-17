@@ -45,7 +45,7 @@ $selectedRoles = is_array(
 
 <form
     method="post"
-    action="/office_app/public/administration/users"
+    action="<?= e(appBasePath()) ?>/administration/users"
     class="card enterprise-form"
 >
     <?= csrfField() ?>
@@ -294,7 +294,7 @@ $selectedRoles = is_array(
 
     <div class="form-actions">
         <a
-            href="/office_app/public/administration/users"
+            href="<?= e(appBasePath()) ?>/administration/users"
             class="btn btn-secondary"
         >
             Cancel

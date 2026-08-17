@@ -84,7 +84,7 @@ if (!preg_match(
 
 <form
     method="post"
-    action="/office_app/public/administration/companies/update"
+    action="<?= e(appBasePath()) ?>/administration/companies/update"
     class="company-provisioning-form"
 >
     <?= csrfField() ?>
@@ -551,7 +551,7 @@ if (!preg_match(
 
             <div class="company-form-actions">
                 <a
-                    href="/office_app/public/administration/companies/view?id=<?= e(
+                    href="<?= e(appBasePath()) ?>/administration/companies/view?id=<?= e(
                         $company['company_id'] ?? 0
                     ) ?>"
                     class="btn btn-secondary"

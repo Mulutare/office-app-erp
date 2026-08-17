@@ -157,14 +157,14 @@ $companyInitials = strtoupper(substr(
 
 <div class="company-profile-actions">
     <a
-        href="/office_app/public/administration/companies"
+        href="<?= e(appBasePath()) ?>/administration/companies"
         class="btn btn-secondary"
     >
         Back to companies
     </a>
 
     <a
-        href="/office_app/public/administration/companies/edit?id=<?= e(
+        href="<?= e(appBasePath()) ?>/administration/companies/edit?id=<?= e(
             $company['company_id'] ?? 0
         ) ?>"
         class="btn btn-secondary"
@@ -178,7 +178,7 @@ $companyInitials = strtoupper(substr(
     ): ?>
         <form
             method="post"
-            action="/office_app/public/administration/companies/approve"
+            action="<?= e(appBasePath()) ?>/administration/companies/approve"
         >
             <?= csrfField() ?>
             <input
@@ -221,7 +221,7 @@ $companyInitials = strtoupper(substr(
                     <td><?= e($companyUser['email'] ?? '') ?></td>
                     <td><span class="badge <?= !empty($companyUser['active']) ? 'badge-success' : 'badge-muted' ?>"><?= !empty($companyUser['active']) ? 'Active' : 'Inactive' ?></span></td>
                     <td><?= !empty($companyUser['must_change_password']) ? 'Change required' : 'Updated' ?></td>
-                    <td><a class="table-link" href="/office_app/public/administration/companies/reset-user-password?company_id=<?= e($company['company_id'] ?? 0) ?>&amp;user_id=<?= e($companyUser['user_id'] ?? 0) ?>">Reset password</a></td>
+                    <td><a class="table-link" href="<?= e(appBasePath()) ?>/administration/companies/reset-user-password?company_id=<?= e($company['company_id'] ?? 0) ?>&amp;user_id=<?= e($companyUser['user_id'] ?? 0) ?>">Reset password</a></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -324,7 +324,7 @@ $companyInitials = strtoupper(substr(
         ): ?>
             <form
                 method="post"
-                action="/office_app/public/administration/companies/lifecycle"
+                action="<?= e(appBasePath()) ?>/administration/companies/lifecycle"
                 class="company-lifecycle-form"
             >
                 <?= csrfField() ?>
@@ -350,7 +350,7 @@ $companyInitials = strtoupper(substr(
         <?php else: ?>
             <form
                 method="post"
-                action="/office_app/public/administration/companies/lifecycle"
+                action="<?= e(appBasePath()) ?>/administration/companies/lifecycle"
                 class="company-lifecycle-form"
             >
                 <?= csrfField() ?>
@@ -539,7 +539,7 @@ $companyInitials = strtoupper(substr(
                     </small>
                 </div>
                 <a
-                    href="/office_app/public/administration/companies/reset-owner-password?id=<?= e(
+                    href="<?= e(appBasePath()) ?>/administration/companies/reset-owner-password?id=<?= e(
                         $company['company_id'] ?? 0
                     ) ?>"
                     class="btn btn-secondary"
