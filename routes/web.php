@@ -11,6 +11,7 @@ use App\Controllers\BranchController;
 use App\Controllers\CompanyAdministrationController;
 use App\Controllers\CompanyContextController;
 use App\Controllers\DashboardController;
+use App\Controllers\PowerBiController;
 use App\Controllers\DataExchangeController;
 use App\Controllers\DepartmentController;
 use App\Controllers\EmployeeActivityController;
@@ -108,6 +109,8 @@ $homeController = new HomeController();
 $authController = new AuthController();
 $dashboardController =
     new DashboardController();
+$powerBiController =
+    new PowerBiController();
     $administrationController =
     new AdministrationController();
 $router->get(
@@ -654,6 +657,10 @@ $router->post(
 $router->get(
     '/dashboard',
     [$dashboardController, 'index']
+);
+$router->get(
+    '/analytics/power-bi-test',
+    [$powerBiController, 'index']
 );
 $router->get(
     '/administration',
