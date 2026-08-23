@@ -27,6 +27,7 @@ $definitions = [
         'pricelists' => ['Pricelists', '/sales/pricelists'],
         'teams' => ['Sales Teams', '/sales/teams'],
         'deliveries' => ['Deliveries', '/sales/deliveries'],
+        'settlements' => ['Settlements', '/sales/settlements', 'sales.settlements.view'],
     ],
     'procurement' => [
         'overview' => ['Overview', '/procurement?section=overview'],
@@ -43,6 +44,7 @@ $definitions = [
         'invoices' => ['Customer Invoices', '/finance/customer-invoices'],
         'journals' => ['Journals', '/finance?section=journals'],
         'receipts' => ['Receipts', '/finance?section=receipts'],
+        'settlements' => ['Settlement Reconciliation', '/finance/settlements', 'finance.settlements.view'],
         'expenses' => ['Expenses', '/finance?section=expenses'],
     ],
     'inventory' => [
@@ -56,7 +58,7 @@ $definitions = [
 
 if ($section === '') {
     if ($module === 'sales') {
-        foreach (['quotations', 'orders', 'customers', 'products', 'pricelists', 'teams', 'deliveries'] as $candidate) {
+        foreach (['quotations', 'orders', 'customers', 'products', 'pricelists', 'teams', 'deliveries', 'settlements'] as $candidate) {
             if (str_contains($requestPath, '/sales/' . $candidate)) { $section = $candidate; break; }
         }
         $section = $section ?: 'orders';
@@ -66,7 +68,7 @@ if ($section === '') {
         }
         $section = $section ?: (string) ($_GET['section'] ?? 'stock');
     } elseif ($module === 'finance') {
-        $section = str_contains($requestPath, '/finance/customer-invoices') ? 'invoices' : (string) ($_GET['section'] ?? 'receivables');
+        $section = str_contains($requestPath, '/finance/settlements') ? 'settlements' : (str_contains($requestPath, '/finance/customer-invoices') ? 'invoices' : (string) ($_GET['section'] ?? 'receivables'));
     } elseif ($module === 'procurement') {
         $section = (string) ($moduleContext['section'] ?? $_GET['section'] ?? (preg_match('~/procurement/\d+~', $requestPath) ? 'orders' : 'overview'));
     }

@@ -25,6 +25,7 @@ $lineOptions = static function (array $products, int $selected): void {
 <div class="sales-workspace" data-section="quotations">
     <div class="page-actions">
         <a class="btn btn-secondary" href="/office_app/public/sales/quotations">Back to quotations</a>
+        <?php if (!$editing): ?><a class="btn btn-secondary" href="/office_app/public/sales/quotations/<?= e($quotation['quotation_id']) ?>/proforma.pdf">Download Proforma PDF</a><?php endif; ?>
         <?php if (!$editing && !empty($data['canEdit']) && ($quotation['status'] ?? '') === 'draft'): ?>
             <a class="btn btn-primary" href="/office_app/public/sales/quotations/<?= e($quotation['quotation_id']) ?>/edit">Edit</a>
         <?php endif; ?>

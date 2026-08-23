@@ -12,6 +12,9 @@ services:
         php bin/migrate.php
         && php bin/sync-reference-data.php
         && php tests/run.php
+        && php tests/settlement-integration.php
+        && php tests/module-authorization-contract.php
+        && php tests/analytics-integration.php
     environment:
       APP_NAME: OfficeApp ERP PHP 8.1 Compatibility
       APP_ENV: testing
@@ -30,6 +33,7 @@ services:
       DB_PASSWORD: officeapp-php81-password
       TEST_ADMIN_USERNAME: test_platform_admin
       TEST_ADMIN_PASSWORD: OfficeApp-Test!2026
+      POWER_BI_ENCRYPTION_KEY: officeapp-testing-power-bi-key-2026-secure
     depends_on:
       db:
         condition: service_healthy

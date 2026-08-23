@@ -63,16 +63,6 @@ foreach ($enabledModules as $module) {
 }
 
 $navigation[] = [
-    'label' => 'Analytics',
-    'path' =>
-        '/office_app/public/analytics/power-bi-test',
-    'icon' => 'BI',
-    'permissions' => [
-        'dashboard.view',
-    ],
-];
-
-$navigation[] = [
     'label' => !empty(
         $user['is_platform_admin']
     )

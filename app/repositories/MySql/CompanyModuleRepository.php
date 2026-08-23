@@ -6,6 +6,49 @@ namespace App\Repositories\MySql;
 
 class CompanyModuleRepository extends MySqlRepository
 {
+    public function licensedForCompany(int $companyId, string $code): ?array
+    {
+        $statement = $this->connection()->prepare(
+            "SELECT
+                modules.module_id,
+                modules.code,
+                entitlements.enabled,
+                entitlements.license_status,
+                entitlements.expires_at
+             FROM company_modules entitlements
+             INNER JOIN companies
+                ON companies.company_id = entitlements.company_id
+             INNER JOIN erp_modules modules
+                ON modules.module_id = entitlements.module_id
+             WHERE entitlements.company_id = :company_id
+               AND modules.code = :code
+               AND companies.active = TRUE
+               AND companies.approval_status = 'approved'
+               AND companies.deleted_at IS NULL
+               AND companies.subscription_status IN ('active', 'trial')
+               AND (
+                    companies.subscription_expires_at IS NULL
+                    OR companies.subscription_expires_at > NOW()
+               )
+               AND modules.available = TRUE
+               AND modules.active = TRUE
+               AND modules.release_status = 'released'
+               AND entitlements.license_status IN ('active', 'trial')
+               AND (
+                    entitlements.expires_at IS NULL
+                    OR entitlements.expires_at > NOW()
+               )
+             LIMIT 1"
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'code' => $code,
+        ]);
+        $module = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($module) ? $module : null;
+    }
+
     /**
      * @return array<string, mixed>|null
      */
@@ -116,6 +159,7 @@ class CompanyModuleRepository extends MySqlRepository
                       AND dependency.dependency_type=\'required\'
                       AND (
                           required_module.release_status<>\'released\'
+                          OR required_module.available<>TRUE
                           OR required_module.active<>TRUE
                           OR required_entitlement.module_id IS NULL
                           OR required_entitlement.license_status NOT IN(\'active\',\'trial\')
@@ -184,6 +228,7 @@ class CompanyModuleRepository extends MySqlRepository
                     OR companies.subscription_expires_at
                         > NOW()
                )
+               AND modules.available = TRUE
                AND modules.active = TRUE
                AND modules.release_status = \'released\'
                AND entitlements.enabled = TRUE
@@ -207,6 +252,7 @@ class CompanyModuleRepository extends MySqlRepository
                       AND dependencies.dependency_type=\'required\'
                       AND (
                           required_module.release_status<>\'released\'
+                          OR required_module.available<>TRUE
                           OR required_module.active<>TRUE
                           OR required_entitlement.module_id IS NULL
                           OR required_entitlement.license_status NOT IN(\'active\',\'trial\')
@@ -262,6 +308,7 @@ class CompanyModuleRepository extends MySqlRepository
                     OR companies.subscription_expires_at
                         > NOW()
                )
+               AND modules.available = TRUE
                AND modules.active = TRUE
                AND modules.release_status = \'released\'
                AND entitlements.license_status IN (

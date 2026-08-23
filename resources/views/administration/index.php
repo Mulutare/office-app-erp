@@ -4,6 +4,16 @@ declare(strict_types=1);
 
 $modules = [
     [
+        'title' => 'Analytics / Power BI',
+        'description' =>
+            'Configure this company’s licensed Power BI report and authentication mode.',
+        'path' =>
+            appBasePath() . '/administration/analytics',
+        'permission' =>
+            'analytics.configure',
+        'tenantOnly' => true,
+    ],
+    [
         'title' => 'Users',
         'description' =>
             'Create, update, disable and review user accounts.',

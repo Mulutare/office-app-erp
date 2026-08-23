@@ -90,6 +90,76 @@ final class AuthorizationService
     }
 
     /**
+     * Allow a tenant route when at least one module/permission pair is
+     * effective. This is intended for shared records, such as settlements,
+     * that legitimately belong to more than one licensed module.
+     *
+     * @param list<array{0: string, 1: string}> $requirements
+     */
+    public function requireAnyModulePermission(
+        array $requirements
+    ): void {
+        $this->requireAuthentication();
+
+        if ($this->auth->isPlatformAdministrator()) {
+            $this->deny();
+        }
+
+        $hasEnabledModule = false;
+
+        foreach ($requirements as $requirement) {
+            [$moduleCode, $permissionCode] = $requirement;
+
+            if (!$this->modules->isEnabled($moduleCode)) {
+                continue;
+            }
+
+            $hasEnabledModule = true;
+
+            if ($this->auth->can($permissionCode)) {
+                return;
+            }
+        }
+
+        if ($hasEnabledModule) {
+            $this->deny();
+        }
+
+        http_response_code(404);
+
+        \view('errors.module-disabled', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+        ]);
+
+        exit;
+    }
+
+    public function requireLicensedModulePermission(
+        string $moduleCode,
+        string $permissionCode
+    ): void {
+        $this->requireTenantPermission($permissionCode);
+
+        if ($this->modules->isLicensed($moduleCode)) {
+            return;
+        }
+
+        http_response_code(404);
+
+        \view('errors.module-disabled', [
+            'applicationName' => \config(
+                'name',
+                'OfficeApp ERP'
+            ),
+        ]);
+
+        exit;
+    }
+
+    /**
      * @param list<string> $permissionCodes
      */
     public function requireAnyTenantPermission(

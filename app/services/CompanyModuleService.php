@@ -93,6 +93,52 @@ final class CompanyModuleService
         );
     }
 
+    public function isLicensed(string $code): bool
+    {
+        $company = $this->company();
+
+        return $this->modules->licensedForCompany(
+            (int) $company['company_id'],
+            $code
+        ) !== null;
+    }
+
+    public function setLicensedModuleEnabled(
+        string $code,
+        bool $enabled,
+        int $updatedBy
+    ): void {
+        $company = $this->company();
+        $companyId = (int) $company['company_id'];
+        $module = $this->modules->licensedForCompany($companyId, $code);
+
+        if ($module === null) {
+            throw new \RuntimeException(
+                'This module is not licensed for the current company.'
+            );
+        }
+
+        $this->modules->setEnabled(
+            $companyId,
+            (int) $module['module_id'],
+            $enabled,
+            $updatedBy
+        );
+        $this->auditLogs->record(
+            $updatedBy,
+            'UPDATE_MODULE_ENTITLEMENTS',
+            'administration',
+            'company_modules',
+            (string) $companyId,
+            [
+                'module' => $code,
+                'enabled' => (bool) $module['enabled'],
+            ],
+            ['module' => $code, 'enabled' => $enabled],
+            $companyId
+        );
+    }
+
     /**
      * @return array{
      *     company: array<string, mixed>,

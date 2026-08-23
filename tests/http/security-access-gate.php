@@ -863,8 +863,18 @@ $check(
     && !str_contains(
         $tenantADashboard['body'],
         'href="/office_app/public/finance"'
+    )
+    && !str_contains(
+        $tenantADashboard['body'],
+        'href="/office_app/public/analytics"'
     ),
-    'Tenant navigation shows licensed HR and Attendance but hides unlicensed Finance'
+    'Tenant navigation shows licensed modules and hides unlicensed or platform-only products'
+);
+
+$tenantAnalytics = httpRequest($baseUrl, '/analytics', $tenantAAdminCookies);
+$check(
+    $tenantAnalytics['status'] === 404,
+    'Tenant cannot directly access unlicensed Analytics'
 );
 
 $licensedHr = httpRequest(

@@ -7,10 +7,12 @@
 storage/logs/*
 storage/cache/*
 storage/uploads/*
+storage/private/*
 
 !storage/logs/.gitkeep
 !storage/cache/.gitkeep
 !storage/uploads/.gitkeep
+!storage/private/.gitkeep
 
 # Database exports and backups
 storage/backups/

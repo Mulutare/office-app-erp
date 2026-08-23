@@ -10,7 +10,11 @@ $check = static function (bool $condition, string $description) use (&$failures,
     fwrite($condition ? STDOUT : STDERR, ($condition ? 'PASS ' : 'FAIL ') . $description . PHP_EOL);
     $failures += $condition ? 0 : 1;
 };
-$source = static fn (string $path): string => (string) file_get_contents($root . '/' . $path);
+$source = static fn (string $path): string => str_replace(
+    "\r\n",
+    "\n",
+    (string) file_get_contents($root . '/' . $path)
+);
 
 $authorization = $source('app/services/AuthorizationService.php');
 $sales = $source('app/controllers/SalesController.php');
@@ -18,6 +22,10 @@ $inventory = $source('app/controllers/InventoryController.php');
 $warehouse = $source('app/controllers/WarehouseController.php');
 $location = $source('app/controllers/WarehouseLocationController.php');
 $finance = $source('app/controllers/FinanceController.php');
+$settlements = $source('app/controllers/SalesSettlementController.php');
+$documents = $source('app/controllers/CommercialDocumentController.php');
+$analytics = $source('app/controllers/PowerBiController.php');
+$navigation = $source('resources/views/layouts/navigation.php');
 $roles = $source('app/repositories/MySql/RoleRepository.php');
 $apiSecurity = $source('app/services/ApiSecurityService.php');
 $updates = $source('app/services/CompanyUpdateService.php');
@@ -25,6 +33,20 @@ $provisioning = $source('app/services/CompanyProvisioningService.php');
 $dependencies = $source('database/migrations/mysql/047_harden_module_release_licensing.php');
 
 $check(str_contains($authorization, 'function requireModulePermission('), 'Authorization centralizes module plus tenant-permission enforcement');
+$check(str_contains($authorization, 'function requireAnyModulePermission('), 'Authorization supports shared records only through effective module and permission pairs');
+$check(str_contains($settlements, 'requireAnyModulePermission') && !str_contains($settlements, 'requireAnyPermission(['), 'Settlement detail, evidence, and PDFs cannot bypass Sales or Finance licensing');
+$check(str_contains($documents, 'requireAnyModulePermission'), 'Commercial PDF downloads require their owning module entitlement');
+$check(
+    str_contains(
+        $analytics,
+        "requireModulePermission(\n            'analytics',\n            'analytics.view'"
+    ),
+    'Analytics report route requires effective company entitlement and view permission'
+);
+$check(
+    str_contains($navigation, '$enabledModules'),
+    'Analytics navigation comes only from effective company modules'
+);
 $check(substr_count($sales, '$this->authorizeInventoryDelivery();') === 3, 'All three Sales inventory-backed delivery mutations use the cross-module gate');
 $check(str_contains($sales, "requireModule('sales')") && str_contains($sales, "'inventory.transfers.manage'"), 'Sales delivery mutations require Sales, Inventory, and the Inventory transfer permission');
 $check(substr_count($sales, "requireModulePermission('finance','finance.records.manage')") === 2, 'Invoice and credit-note mutations preserve Finance gating');

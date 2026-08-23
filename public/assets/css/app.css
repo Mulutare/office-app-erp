@@ -7802,6 +7802,140 @@ a {
 .proc-related ul { margin: .5rem 0 0; padding-left: 1.2rem; }
 .proc-form-grid input,.proc-form-grid select,.proc-form-grid textarea,.proc-line input,.proc-line select { width: 100%; max-width: 100%; box-sizing: border-box; }
 
+/* Reusable accounting workspace components. */
+.settlement-workspace { gap: 1rem; }
+.erp-record-header,
+.erp-section-header,
+.erp-action-bar,
+.erp-document-actions,
+.erp-record-statuses,
+.erp-action-group,
+.erp-form-actions {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+.erp-record-header,
+.erp-action-bar { justify-content: space-between; }
+.erp-record-header { padding: 1.25rem 1.4rem; }
+.erp-record-header h2,
+.erp-section-header h2,
+.erp-action-bar h2 { margin: .15rem 0 0; }
+.erp-record-header p:not(.erp-eyebrow),
+.erp-section-header p:not(.erp-eyebrow) { margin: .35rem 0 0; color: var(--color-muted); }
+.erp-eyebrow { margin: 0; color: var(--color-muted); font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.erp-back-link { display: inline-flex; margin-bottom: .7rem; color: var(--color-accent); font-size: .82rem; font-weight: 700; }
+.erp-record-statuses,
+.erp-action-group,
+.erp-document-actions { flex-wrap: wrap; }
+.erp-record-statuses,
+.erp-document-actions { justify-content: flex-end; }
+.erp-document-actions { min-height: 2.25rem; }
+.erp-status-badge { display: inline-flex; align-items: center; min-height: 1.7rem; padding: .25rem .6rem; border: 1px solid #d0d5dd; border-radius: 999px; background: #f8fafc; color: #344054; font-size: .74rem; font-weight: 750; line-height: 1.2; white-space: nowrap; }
+.erp-status-success { border-color: #a6d9ba; background: #edf8f1; color: #17663a; }
+.erp-status-warning { border-color: #efd28b; background: #fff8e7; color: #7a4b00; }
+.erp-status-danger { border-color: #efb3b3; background: #fff1f1; color: #922020; }
+.erp-status-neutral { background: #f2f4f7; color: #475467; }
+.erp-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .85rem; }
+.erp-metric-card { display: grid; align-content: center; gap: .45rem; min-height: 6.25rem; padding: 1rem 1.15rem; border-left: 3px solid #98a2b3; }
+.erp-metric-card > span { color: var(--color-muted); font-size: .76rem; font-weight: 750; letter-spacing: .035em; text-transform: uppercase; }
+.erp-metric-card > strong { color: var(--color-primary-dark); font-size: clamp(1.1rem, 2vw, 1.45rem); line-height: 1.2; }
+.erp-metric-success { border-left-color: #379e63; }
+.erp-metric-warning { border-left-color: #c99016; }
+.erp-metric-danger { border-left-color: #c94a4a; }
+.erp-section-card { padding: 0; overflow: hidden; }
+.erp-section-header { justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); }
+.erp-section-header > span { color: var(--color-muted); font-size: .8rem; font-weight: 700; white-space: nowrap; }
+.erp-info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.erp-info-grid > div { min-width: 0; padding: .9rem 1.25rem; border-right: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.erp-info-grid > div:nth-child(3n) { border-right: 0; }
+.erp-info-grid dt { color: var(--color-muted); font-size: .72rem; font-weight: 750; text-transform: uppercase; }
+.erp-info-grid dd { margin: .35rem 0 0; color: var(--color-text); font-weight: 700; overflow-wrap: anywhere; }
+.erp-money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.data-table .erp-money-column { text-align: right; }
+.erp-data-table tbody tr { transition: background-color .12s ease; }
+.erp-data-table tbody tr:hover { background: #fafcff; }
+.erp-data-table td { height: 2.9rem; }
+.erp-data-table .btn-compact { min-height: 2rem; padding: .35rem .65rem; }
+.erp-action-bar { padding: 1rem 1.25rem; }
+.erp-action-group form { margin: 0; }
+.erp-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; padding: 1.2rem 1.25rem 0; }
+.erp-form-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.erp-form-grid .form-field { display: grid; align-content: start; gap: .4rem; color: var(--color-text); font-size: .8rem; font-weight: 750; }
+.erp-form-grid input,
+.erp-form-grid select,
+.erp-section-card > form > .form-field textarea { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.erp-form-grid input[type="file"] { min-height: 2.65rem; padding: .45rem; }
+.erp-form-grid small,
+.erp-checkbox-field small { display: block; color: var(--color-muted); font-size: .72rem; font-weight: 500; line-height: 1.4; }
+.erp-field-wide { grid-column: 1 / -1; }
+.erp-form-actions { justify-content: flex-end; padding: 1rem 1.25rem 1.25rem; }
+.erp-optional { color: var(--color-muted); font-size: .7rem; font-weight: 500; }
+.erp-checkbox-field { display: flex; align-items: center; gap: .65rem; min-height: 2.65rem; padding: .65rem .75rem; border: 1px solid var(--color-border); border-radius: 8px; background: #f8fafc; cursor: pointer; }
+.erp-checkbox-field input { width: auto; }
+.erp-checkbox-field strong { display: block; font-size: .8rem; }
+.erp-payment-selector { padding: 0 1.25rem; margin: 1.25rem 0 0; border: 0; }
+.erp-payment-selector legend { margin-bottom: .55rem; font-size: .82rem; font-weight: 800; }
+.erp-check-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .7rem .75rem; border-top: 1px solid var(--color-border); cursor: pointer; }
+.erp-check-row:hover { background: #f8fafc; }
+.erp-check-row strong,
+.erp-check-row small { display: block; }
+.erp-check-row small { margin-top: .2rem; color: var(--color-muted); }
+.erp-section-card > form > .form-field { display: grid; gap: .4rem; padding: 1rem 1.25rem 0; font-size: .8rem; font-weight: 750; }
+.erp-transition { font-weight: 700; white-space: nowrap; }
+.erp-transition span { padding: 0 .25rem; color: var(--color-muted); }
+.erp-reason-cell { min-width: 13rem; white-space: normal !important; }
+
+@media (max-width: 1050px) {
+    .erp-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .erp-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .erp-info-grid > div:nth-child(3n) { border-right: 1px solid var(--color-border); }
+    .erp-info-grid > div:nth-child(2n) { border-right: 0; }
+    .erp-form-grid-three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+    .erp-record-header,
+    .erp-action-bar,
+    .erp-section-header { align-items: flex-start; flex-direction: column; }
+    .erp-record-statuses,
+    .erp-document-actions { justify-content: flex-start; }
+    .erp-form-grid,
+    .erp-form-grid-three { grid-template-columns: 1fr; }
+    .erp-field-wide { grid-column: auto; }
+    .erp-form-actions { justify-content: stretch; }
+    .erp-form-actions .btn { width: 100%; justify-content: center; }
+}
+
+@media (max-width: 520px) {
+    .erp-metric-grid,
+    .erp-info-grid { grid-template-columns: 1fr; }
+    .erp-info-grid > div { border-right: 0 !important; }
+    .erp-document-actions .btn { width: 100%; justify-content: center; }
+    .erp-check-row { grid-template-columns: auto minmax(0, 1fr); }
+    .erp-check-row .erp-money { grid-column: 2; }
+}
+
+/* Company-scoped Analytics workspace. */
+.analytics-workspace { gap: 1rem; }
+.analytics-setup-state { display: grid; justify-items: start; gap: .75rem; padding: 2rem; }
+.analytics-setup-state h2,
+.analytics-setup-state p { margin: 0; }
+.analytics-setup-state p { max-width: 45rem; color: var(--color-muted); line-height: 1.55; }
+.analytics-report-card { padding: 0; overflow: hidden; }
+.analytics-report-frame { position: relative; min-height: 34rem; background: #f2f4f7; }
+.analytics-report-frame iframe { display: block; width: 100%; height: min(72vh, 54rem); min-height: 34rem; border: 0; }
+.analytics-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.25rem; }
+.analytics-toggle-row .erp-checkbox-field { flex: 1; }
+.analytics-test-form { display: flex; align-items: center; gap: .75rem; padding: 0 1.25rem 1.25rem; }
+.analytics-test-form span { color: var(--color-muted); font-size: .78rem; }
+@media (max-width: 700px) {
+    .analytics-toggle-row,
+    .analytics-test-form { align-items: stretch; flex-direction: column; }
+    .analytics-toggle-row .btn,
+    .analytics-test-form .btn { justify-content: center; width: 100%; }
+}
+
 @media (max-width: 1280px) {
     .proc-grid { grid-template-columns: 1fr; }
 }

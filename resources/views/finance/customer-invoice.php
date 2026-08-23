@@ -22,6 +22,7 @@ $canPost = !empty($data['canPostInvoice']) && (string) $invoice['status'] === 'd
         <a class="btn btn-secondary" href="/office_app/public/finance">Finance</a>
         <a class="btn btn-secondary" href="/office_app/public/finance/customer-invoices">Customer Invoices</a>
         <?php if (!empty($invoice['sales_order_id'])): ?><a class="btn btn-secondary" href="/office_app/public/sales/orders/<?= e((string) $invoice['sales_order_id']) ?>">Sales Order <?= e((string) $invoice['order_number']) ?></a><?php endif; ?>
+        <a class="btn btn-secondary" href="/office_app/public/finance/customer-invoices/<?= e((string) $invoice['invoice_id']) ?>/invoice.pdf">Download Invoice PDF</a>
     </nav>
     <section class="finance-summary-grid">
         <article class="card"><span>Invoice state</span><strong><?= e(strtoupper((string) $invoice['status'])) ?></strong></article>
@@ -77,5 +78,6 @@ $canPost = !empty($data['canPostInvoice']) && (string) $invoice['status'] === 'd
         <?php if ($payments === []): ?><tr><td colspan="8" class="empty-state">No payments have been allocated.</td></tr><?php endif; ?>
         <?php foreach ($payments as $payment): ?><tr><td><?= e((string) $payment['payment_number']) ?></td><td><?= e((string) $payment['payment_date']) ?></td><td><?= e($money($payment['amount'])) ?></td><td><?= e($money($payment['allocated_amount'])) ?></td><td><?= e(str_replace('_', ' ', (string) $payment['method'])) ?></td><td><?= e((string) ($payment['reference_number'] ?? '')) ?></td><td><?= e((string) ($payment['posting_reference'] ?? '')) ?></td><td><?= e((string) $payment['status']) ?></td></tr><?php endforeach; ?>
         </tbody></table>
+        <?php if ($payments !== []): ?><div class="details-toolbar"><?php foreach ($payments as $payment): ?><a class="btn btn-secondary" href="/office_app/public/finance/payments/<?= e((string) $payment['payment_id']) ?>/receipt.pdf">Download Payment Receipt PDF — <?= e((string) $payment['payment_number']) ?></a><?php endforeach; ?></div><?php endif; ?>
     </section>
 </div>

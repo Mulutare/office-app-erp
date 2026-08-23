@@ -223,12 +223,15 @@ final class MigrationRunner
         $description = $migration['description'] ?? null;
         $statements = $migration['statements'] ?? null;
         $preflight = $migration['preflight'] ?? null;
-        if ($preflight === null) {
-            $recoveryFile = dirname($file) . DIRECTORY_SEPARATOR
-                . 'recovery' . DIRECTORY_SEPARATOR . (string) $version . '.php';
-            if (is_file($recoveryFile)) {
-                $preflight = require $recoveryFile;
-            }
+        $recoveryFile = dirname($file) . DIRECTORY_SEPARATOR
+            . 'recovery' . DIRECTORY_SEPARATOR . (string) $version . '.php';
+        if (is_file($recoveryFile)) {
+            /*
+             * A recovery preflight is maintained separately so an already
+             * applied historical migration keeps its immutable checksum.
+             * When present it is the authoritative, step-aware preflight.
+             */
+            $preflight = require $recoveryFile;
         }
 
         if (

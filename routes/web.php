@@ -23,6 +23,8 @@ use App\Controllers\ProcurementController;
 use App\Controllers\WarehouseController;
 use App\Controllers\WarehouseLocationController;
 use App\Controllers\SalesController;
+use App\Controllers\SalesSettlementController;
+use App\Controllers\CommercialDocumentController;
 use App\Controllers\ApiV1SalesController;
 use App\Controllers\HomeController;
 use App\Controllers\HrController;
@@ -72,6 +74,8 @@ $warehouseController = new WarehouseController();
 $warehouseLocationController =
     new WarehouseLocationController();
 $salesController = new SalesController();
+$salesSettlementController = new SalesSettlementController();
+$commercialDocumentController = new CommercialDocumentController();
 $dataExchangeController = new DataExchangeController();
 $apiV1SalesController = new ApiV1SalesController();
 $moduleAdministrationController =
@@ -333,6 +337,22 @@ $router->post(
     [$warehouseLocationController, 'provision']
 );
 $router->get('/sales', [$salesController, 'index']);
+$router->get('/sales/settlements', [$salesSettlementController, 'index']);
+$router->post('/sales/settlements', [$salesSettlementController, 'create']);
+$router->get('/sales/settlements/{id}', [$salesSettlementController, 'show']);
+$router->post('/sales/settlements/{id}/submit', [$salesSettlementController, 'submit']);
+$router->post('/sales/settlements/{id}/review', [$salesSettlementController, 'review']);
+$router->post('/sales/settlements/{id}/reconcile', [$salesSettlementController, 'reconcile']);
+$router->post('/sales/settlements/{id}/approve', [$salesSettlementController, 'approve']);
+$router->post('/sales/settlements/{id}/confirmations', [$salesSettlementController, 'confirmation']);
+$router->get('/sales/settlements/{id}/confirmations/{confirmationId}/evidence', [$salesSettlementController, 'evidence']);
+$router->get('/sales/settlements/{id}/deposit-advice.pdf', [$salesSettlementController, 'depositAdvice']);
+$router->get('/sales/settlements/{id}/reconciliation.pdf', [$salesSettlementController, 'reconciliation']);
+$router->get('/finance/settlements', [$salesSettlementController, 'finance']);
+$router->post('/finance/company-bank-accounts', [$salesSettlementController, 'bankAccount']);
+$router->get('/sales/quotations/{id}/proforma.pdf', [$commercialDocumentController, 'proforma']);
+$router->get('/finance/customer-invoices/{id}/invoice.pdf', [$commercialDocumentController, 'invoice']);
+$router->get('/finance/payments/{id}/receipt.pdf', [$commercialDocumentController, 'receipt']);
 $router->get('/data-exchange/{entity}/import', [$dataExchangeController, 'show']);
 $router->post('/data-exchange/{entity}/preview', [$dataExchangeController, 'preview']);
 $router->post('/data-exchange/{entity}/import', [$dataExchangeController, 'execute']);
@@ -659,8 +679,24 @@ $router->get(
     [$dashboardController, 'index']
 );
 $router->get(
-    '/analytics/power-bi-test',
+    '/analytics',
     [$powerBiController, 'index']
+);
+$router->get(
+    '/administration/analytics',
+    [$powerBiController, 'configuration']
+);
+$router->post(
+    '/administration/analytics',
+    [$powerBiController, 'save']
+);
+$router->post(
+    '/administration/analytics/validate',
+    [$powerBiController, 'validateConfiguration']
+);
+$router->post(
+    '/administration/analytics/enable',
+    [$powerBiController, 'enable']
 );
 $router->get(
     '/administration',
