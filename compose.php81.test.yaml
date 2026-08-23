@@ -12,6 +12,7 @@ services:
         php bin/migrate.php
         && php bin/sync-reference-data.php
         && php tests/run.php
+        && php tests/migration-checksum-compatibility.php
         && php tests/settlement-integration.php
         && php tests/module-authorization-contract.php
         && php tests/analytics-integration.php
