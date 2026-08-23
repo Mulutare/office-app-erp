@@ -13,6 +13,8 @@ services:
         && php bin/sync-reference-data.php
         && php tests/run.php
         && php tests/migration-checksum-compatibility.php
+        && php tests/permission-template-upgrade.php
+        && php tests/company-update-permission-preservation.php
         && php tests/settlement-integration.php
         && php tests/module-authorization-contract.php
         && php tests/analytics-integration.php
