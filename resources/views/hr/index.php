@@ -71,6 +71,9 @@ $attendanceSummary = is_array(
 $notice = is_array($data['notice'] ?? null)
     ? $data['notice']
     : null;
+$leaveActionCount = (int) (
+    $data['actionRequiredCounts']['hr']['leave'] ?? 0
+);
 
 $formatDate = static function (mixed $value): string {
     if (!is_string($value) || trim($value) === '') {
@@ -261,9 +264,15 @@ $totalEmployees = array_sum(array_map(
             <div class="workspace-card-actions">
                 <a
                     href="/office_app/public/hr/leave"
-                    class="workspace-link"
+                    class="workspace-link workflow-action-link<?= $leaveActionCount > 0 ? ' has-action-badge' : '' ?>"
                 >
                     Manage leave
+                    <?php if ($leaveActionCount > 0): ?>
+                        <span
+                            class="nav-action-badge"
+                            aria-label="<?= e($leaveActionCount . ' ' . ($leaveActionCount === 1 ? 'action' : 'actions') . ' required') ?>"
+                        ><?= e($leaveActionCount) ?></span>
+                    <?php endif; ?>
                 </a>
                 <?php if ($canManageLeavePolicies): ?>
                     <a

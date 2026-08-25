@@ -533,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 async () => {
                     pushEnable.disabled = true;
                     setPushStatus(
-                        'Enabling secure background notifications…'
+                        'Enabling secure background notificationsâ€¦'
                     );
 
                     try {
@@ -631,7 +631,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 async () => {
                     pushDisable.disabled = true;
                     setPushStatus(
-                        'Disabling this device…'
+                        'Disabling this deviceâ€¦'
                     );
 
                     try {
@@ -900,4 +900,42 @@ document.querySelectorAll('[data-dynamic-lines]').forEach((editor) => {
         body.append(template.content.cloneNode(true)); renumber(); recalculate();
     });
     renumber(); recalculate();
+});
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-action-task-reference]').forEach((task) => {
+        const reference = task.dataset.actionTaskReference || '';
+        const nextAction = task.dataset.actionTaskNext || '';
+
+        if (!reference || !nextAction) {
+            return;
+        }
+
+        const row = Array.from(
+            document.querySelectorAll('.data-table tbody tr')
+        ).find((candidate) =>
+            (candidate.textContent || '').includes(reference)
+        );
+
+        if (!row || row.classList.contains('action-required-row')) {
+            return;
+        }
+
+        row.classList.add('action-required-row');
+
+        const cell = row.querySelector('td');
+
+        if (!cell) {
+            return;
+        }
+
+        const chip = document.createElement('span');
+        chip.className = 'record-action-chip';
+        chip.textContent = 'Action required';
+
+        const detail = document.createElement('span');
+        detail.className = 'record-next-action';
+        detail.textContent = `Next: ${nextAction}`;
+
+        cell.append(chip, detail);
+    });
 });

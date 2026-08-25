@@ -32,6 +32,40 @@ $currentCompanyId = (int) (
     $user['company']['company_id'] ?? 0
 );
 
+$actionRequiredCounts = (new \App\Services\ActionRequiredCountService())->counts(
+    $currentCompanyId,
+    (int) ($user['user_id'] ?? 0),
+    is_array($user['permissions'] ?? null) ? $user['permissions'] : []
+);
+$data['actionRequiredCounts'] = $actionRequiredCounts;
+
+$requestPath = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+$taskModule = (string) ($data['moduleContext']['module'] ?? '');
+$taskSection = (string) ($data['moduleContext']['section'] ?? '');
+if ($taskModule === '') {
+    foreach (['sales', 'procurement', 'finance', 'inventory', 'hr', 'administration'] as $candidate) {
+        if (str_contains($requestPath, '/' . $candidate)) { $taskModule = $candidate; break; }
+    }
+}
+if ($taskSection === '') {
+    if ($taskModule === 'sales') $taskSection = (string) ($data['salesSection'] ?? (preg_match('~/sales/(quotations|orders|deliveries|settlements)~', $requestPath, $match) ? $match[1] : 'orders'));
+    elseif ($taskModule === 'procurement') $taskSection = (string) ($_GET['section'] ?? (preg_match('~/procurement/\d+~', $requestPath) ? 'orders' : 'overview'));
+    elseif ($taskModule === 'finance') $taskSection = str_contains($requestPath, '/customer-invoices') ? 'invoices' : (str_contains($requestPath, '/settlements') ? 'settlements' : (string) ($_GET['section'] ?? 'receivables'));
+    elseif ($taskModule === 'inventory') $taskSection = str_contains($requestPath, '/receipts') ? 'receipts' : (string) ($_GET['section'] ?? 'stock');
+    elseif ($taskModule === 'hr') $taskSection = str_contains($requestPath, '/leave') ? 'leave' : '';
+    elseif ($taskModule === 'administration') $taskSection = str_contains($requestPath, '/integration-events') ? 'integration_events' : '';
+}
+$data['actionRequiredModule'] = $taskModule;
+$data['actionRequiredSection'] = $taskSection;
+$data['actionRequiredItems'] = (new \App\Services\ActionRequiredCountService())->itemsFor(
+    $currentCompanyId,
+    (int) ($user['user_id'] ?? 0),
+    is_array($user['permissions'] ?? null) ? $user['permissions'] : [],
+    $taskModule,
+    $taskSection
+);
+$data['actionRequiredFilter'] = (string) ($_GET['task_filter'] ?? '') === 'action_required';
+
 $companySwitchError = getFlash(
     'company_switch_error'
 );
@@ -250,6 +284,8 @@ $companySwitchSuccess = getFlash(
 
         <?php \view('layouts.module-navigation', $data); ?>
 
+        <?php \view('layouts.action-required-items', $data); ?>
+
         <?php
         if ($contentView === '') {
             throw new RuntimeException(
@@ -257,7 +293,9 @@ $companySwitchSuccess = getFlash(
             );
         }
 
-        \view($contentView, $data);
+        if (empty($data['actionRequiredFilter'])) {
+            \view($contentView, $data);
+        }
         ?>
     </main>
 </div>

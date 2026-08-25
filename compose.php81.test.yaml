@@ -19,6 +19,7 @@ services:
         && php tests/accounting-period-integration.php
         && php tests/sales-integration.php
         && php tests/procurement-integration.php
+        && php tests/action-required-counts.php
         && php tests/settlement-integration.php
         && php tests/module-authorization-contract.php
         && php tests/analytics-integration.php

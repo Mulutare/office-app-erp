@@ -112,6 +112,17 @@ $modules = [
         'tenantOnly' => true,
     ],
     [
+        'title' => 'Integration events',
+        'description' =>
+            'Review failed company integration events and safely requeue authorized failures.',
+        'path' =>
+            appBasePath() . '/administration/integration-events',
+        'permission' =>
+            'administration.integration_events.view',
+        'tenantOnly' => true,
+        'actionCountKey' => 'integration_events',
+    ],
+    [
         'title' => 'Audit logs',
         'description' =>
             'Review security and business activity records.',
@@ -174,11 +185,22 @@ $isPlatformAdmin = !empty(
                 <?= e($module['description']) ?>
             </p>
 
+            <?php
+            $actionCount = isset($module['actionCountKey'])
+                ? (int) ($data['actionRequiredCounts']['administration'][$module['actionCountKey']] ?? 0)
+                : 0;
+            ?>
             <a
                 href="<?= e($module['path']) ?>"
-                class="btn btn-primary"
+                class="btn btn-primary<?= isset($module['actionCountKey']) ? ' workflow-action-link' : '' ?><?= $actionCount > 0 ? ' has-action-badge' : '' ?>"
             >
                 Open
+                <?php if ($actionCount > 0): ?>
+                    <span
+                        class="nav-action-badge"
+                        aria-label="<?= e($actionCount . ' ' . ($actionCount === 1 ? 'action' : 'actions') . ' required') ?>"
+                    ><?= e($actionCount) ?></span>
+                <?php endif; ?>
             </a>
         </article>
     <?php endforeach; ?>

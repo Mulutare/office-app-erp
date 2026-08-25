@@ -31,6 +31,10 @@ $sectionLabels = [
     'products' => 'Products', 'pricelists' => 'Pricelists',
     'teams' => 'Sales Teams', 'deliveries' => 'Deliveries',
 ];
+$actionTaskMap = [];
+foreach (($data['actionRequiredItems'] ?? []) as $task) {
+    $actionTaskMap[(string) ($task['entity'] ?? '') . ':' . (int) ($task['id'] ?? 0)] = $task;
+}
 ?>
 
 <div class="sales-workspace" data-section="<?= e($section) ?>">
@@ -112,8 +116,8 @@ $sectionLabels = [
     <div class="table-summary"><strong><?= $section==='orders'?'Sales Orders':'Recent orders and receivables' ?></strong><span><?php if (!empty($data['canExportReports'])): ?><a class="btn btn-secondary btn-compact" href="/office_app/public/sales/export">Export CSV</a><?php endif; ?> <?= e(count($orders)) ?> orders</span></div>
     <div class="table-responsive"><table class="data-table"><thead><tr><th>Order</th><th>Customer</th><th>Date / due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><?php if ($canOrderActions): ?><th>Order action</th><?php endif; ?><?php if (!empty($data['canRecordPayments'])): ?><th>Receipt</th><?php endif; ?></tr></thead><tbody>
     <?php if ($orders === []): ?><tr><td colspan="8" class="empty-state">No sales orders have been created.</td></tr><?php endif; ?>
-    <?php foreach ($orders as $order): ?><tr>
-        <td><strong><a href="/office_app/public/sales/orders/<?= e($order['order_id']) ?>"><?= e($order['order_number']) ?></a></strong><small><?= e($order['agent_name'] ?? 'No DSA/DSP') ?></small></td>
+    <?php foreach ($orders as $order): ?><?php $rowTask=$actionTaskMap['sales_order:'.(int)$order['order_id']]??null; ?><tr<?= $rowTask ? ' class="action-required-row"' : '' ?>>
+        <td><strong><a href="/office_app/public/sales/orders/<?= e($order['order_id']) ?>"><?= e($order['order_number']) ?></a></strong><?php if($rowTask):?><span class="record-action-chip">Action required</span><small>Next: <?=e((string)$rowTask['next_action'])?></small><?php endif;?><small><?= e($order['agent_name'] ?? 'No DSA/DSP') ?></small></td>
         <td><?= e($order['customer_name']) ?></td>
         <td><?= e($order['order_date']) ?><small>Due <?= e($order['due_date']) ?></small></td>
         <td><?= e($money($order['total_amount'])) ?></td><td><?= e($money($order['paid_amount'])) ?></td><td><strong><?= e($money($order['balance_due'])) ?></strong></td>

@@ -8,6 +8,7 @@ $module = (string) ($moduleContext['module'] ?? '');
 $section = (string) ($moduleContext['section'] ?? '');
 $permissions = is_array($data['user']['permissions'] ?? null) ? $data['user']['permissions'] : [];
 $can = static fn (string $permission): bool => in_array($permission, $permissions, true);
+$actionRequiredCounts = is_array($data['actionRequiredCounts'] ?? null) ? $data['actionRequiredCounts'] : [];
 
 if ($module === '') {
     foreach (['sales', 'procurement', 'finance', 'inventory'] as $candidate) {
@@ -82,7 +83,16 @@ if ($items !== []):
     <?php foreach ($items as $key => $item): ?>
         <?php [$label, $path] = $item; $permission = $item[2] ?? null; ?>
         <?php if ($permission !== null && !$can($permission) && !($permission === 'inventory.warehouses.view' && $can('inventory.warehouses.manage'))) continue; ?>
-        <a class="module-tab <?= $section === $key ? 'active' : '' ?>" href="<?= e(appBasePath() . $path) ?>"<?= $section === $key ? ' aria-current="page"' : '' ?>><?= e($label) ?></a>
+        <?php $actionCount = (int) ($actionRequiredCounts[$module][$key] ?? 0); ?>
+        <span class="module-tab-wrap<?= $actionCount > 0 ? ' has-action-badge' : '' ?>">
+        <a class="module-tab <?= $section === $key ? 'active' : '' ?>" href="<?= e(appBasePath() . $path) ?>"<?= $section === $key ? ' aria-current="page"' : '' ?>>
+            <span><?= e($label) ?></span>
+        </a>
+        <?php if ($actionCount > 0): ?>
+            <?php $separator = str_contains($path, '?') ? '&' : '?'; ?>
+            <a class="nav-action-badge" href="<?= e(appBasePath() . $path . $separator . 'task_filter=action_required') ?>" aria-label="<?= e('Show ' . $actionCount . ' ' . ($actionCount === 1 ? 'record' : 'records') . ' requiring action') ?>"><?= e($actionCount) ?></a>
+        <?php endif; ?>
+        </span>
     <?php endforeach; ?>
 </nav>
 <?php endif; ?>

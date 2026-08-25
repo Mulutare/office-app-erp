@@ -7815,6 +7815,50 @@ a {
     align-items: center;
     gap: .75rem;
 }
+
+.nav-action-badge {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.18rem;
+    height: 1.18rem;
+    padding: 0 0.28rem;
+    border: 1px solid rgba(255, 255, 255, 0.42);
+    border-radius: 999px;
+    background: #b45309;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 750;
+    line-height: 1;
+    box-sizing: border-box;
+}
+
+.module-tab .nav-action-badge {
+    position: absolute;
+    top: 1px;
+    right: 2px;
+    border-color: #fde68a;
+}
+
+.module-tab.has-action-badge {
+    position: relative;
+    padding-right: 1.65rem !important;
+}
+
+.workflow-action-link {
+    position: relative;
+}
+
+.workflow-action-link.has-action-badge {
+    padding-right: 1.75rem;
+}
+
+.workflow-action-link .nav-action-badge {
+    position: absolute;
+    top: -0.35rem;
+    right: -0.2rem;
+}
 .erp-record-header,
 .erp-action-bar { justify-content: space-between; }
 .erp-record-header { padding: 1.25rem 1.4rem; }
@@ -9213,3 +9257,21 @@ form[action$="/procurement/requisitions"] > .btn {
 }
 
 /* === PROCUREMENT REQUISITION CLEAN END === */
+/* Action-required navigation and record identification. */
+.module-tab-wrap { position: relative; display: inline-flex; flex: 0 0 auto; }
+.module-tab-wrap .module-tab { width: 100%; }
+.module-tab-wrap.has-action-badge .module-tab { padding-right: 1.65rem; }
+.module-tab-wrap .nav-action-badge { position: absolute; top: .12rem; right: .12rem; z-index: 1; text-decoration: none; }
+.action-task-panel { margin: 0 0 1rem; border-left: 3px solid #d79b21; border-radius: .5rem; background: #fffaf0; padding: .65rem .8rem; }
+.action-task-panel-heading { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.action-task-panel-heading > span { color: var(--text-muted); font-size: .82rem; }
+.action-task-panel-heading .btn { margin-left: auto; }
+.action-task-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(13rem,1fr)); gap: .45rem; list-style: none; padding: 0; margin: .55rem 0 0; }
+.action-task-list a { display: grid; grid-template-columns: 1fr auto; gap: .15rem .45rem; color: inherit; text-decoration: none; background: #fff; border: 1px solid #ead9b5; border-radius: .4rem; padding: .45rem .55rem; min-width: 0; }
+.action-task-list strong,.action-task-list small { overflow-wrap: anywhere; }
+.action-task-list small { grid-column: 1 / -1; color: var(--text-muted); }
+.record-action-chip { display: inline-flex; align-items: center; border-radius: 999px; background: #fff0c7; color: #795000; font-size: .68rem; font-weight: 700; line-height: 1; padding: .22rem .38rem; white-space: nowrap; }
+.action-required-row { box-shadow: inset 3px 0 #d79b21; background: #fffdf7; }
+.action-required-row .record-action-chip { margin-left: .35rem; }
+.task-integrity-warning { color: #8b1d1d; margin: .5rem 0 0; }
+@media (max-width: 560px) { .action-task-list { grid-template-columns: 1fr; } }
