@@ -41,6 +41,9 @@ final class DashboardController
             'user' => $_SESSION['auth'],
             'statistics' =>
                 $this->dashboard->statistics(),
+            'account' => $this->dashboard->signedInAccount(
+                $_SESSION['auth']
+            ),
         ]);
     }
 }

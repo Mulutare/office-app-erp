@@ -66,6 +66,13 @@ $listEnvironment = static function (
     return array_values(array_unique($items));
 };
 
+$integerEnvironment = static function (string $name, int $default, int $minimum): int {
+    $value = getenv($name);
+    return is_string($value) && ctype_digit($value)
+        ? max($minimum, (int) $value)
+        : $default;
+};
+
 $sameSite = ucfirst(strtolower(
     $stringEnvironment(
         'SESSION_COOKIE_SAMESITE',
@@ -106,6 +113,8 @@ return [
     ),
     'session_cookie_secure' => $secureCookies,
     'session_cookie_samesite' => $sameSite,
+    'session_lifetime_seconds' => $integerEnvironment('SESSION_LIFETIME_SECONDS', 28800, 300),
+    'session_activity_throttle_seconds' => $integerEnvironment('SESSION_ACTIVITY_THROTTLE_SECONDS', 300, 60),
     'company_code' => $stringEnvironment(
         'APP_COMPANY_CODE',
         'default'

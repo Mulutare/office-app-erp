@@ -83,6 +83,10 @@ use App\Repositories\MySql\IntegrationEventRepository
     as MySqlIntegrationEventRepository;
 use App\Repositories\MySql\AssetRepository
     as MySqlAssetRepository;
+use App\Repositories\MySql\AuthenticatedSessionRepository
+    as MySqlAuthenticatedSessionRepository;
+use App\Repositories\Oracle\AuthenticatedSessionRepository
+    as OracleAuthenticatedSessionRepository;
 
 /**
  * Selects repository implementations from the allowlisted database driver.
@@ -410,6 +414,20 @@ final class RepositoryFactory
 
         throw new RuntimeException(
             'No repository is available for the configured database driver.'
+        );
+    }
+
+    public static function authenticatedSessions():
+        AuthenticatedSessionRepository
+    {
+        if (\databaseDriver()->name() === 'mysql') {
+            return new MySqlAuthenticatedSessionRepository();
+        }
+        if (\databaseDriver()->name() === 'oracle') {
+            return new OracleAuthenticatedSessionRepository();
+        }
+        throw new RuntimeException(
+            'No authenticated-session repository is available for the configured database driver.'
         );
     }
 }

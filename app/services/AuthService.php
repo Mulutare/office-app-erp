@@ -21,6 +21,7 @@ final class AuthService
     private AuditLog $auditLogs;
     private CompanyMembership $memberships;
     private CompanyModuleService $companyModules;
+    private AuthenticatedSessionService $authenticatedSessions;
 
     public function __construct()
     {
@@ -31,6 +32,8 @@ final class AuthService
             new CompanyMembership();
         $this->companyModules =
             new CompanyModuleService();
+        $this->authenticatedSessions =
+            new AuthenticatedSessionService();
     }
 
     /**
@@ -137,8 +140,17 @@ final class AuthService
     public function logout(): void
     {
         $userId = $this->userId();
+        $companyId = (int) (
+            $_SESSION['auth']['company']['company_id'] ?? 0
+        );
 
         if ($userId !== null) {
+            if ($companyId > 0) {
+                $this->authenticatedSessions->revoke(
+                    $companyId,
+                    $userId
+                );
+            }
             $this->auditLogs->record(
                 $userId,
                 'LOGOUT',
@@ -245,6 +257,11 @@ final class AuthService
                         $currentCompanyId
                     );
 
+        $this->authenticatedSessions->touchOrRegister(
+            $currentCompanyId,
+            $userId
+        );
+
         return true;
     }
 
@@ -280,6 +297,13 @@ final class AuthService
             ] ?? 0
         );
 
+        if ($previousCompanyId > 0) {
+            $this->authenticatedSessions->revoke(
+                $previousCompanyId,
+                $userId
+            );
+        }
+
         $this->applyCompanyContext(
             $userId,
             $membership,
@@ -291,6 +315,10 @@ final class AuthService
         );
 
         session_regenerate_id(true);
+        $this->authenticatedSessions->register(
+            $companyId,
+            $userId
+        );
 
         $this->auditLogs->record(
             $userId,
@@ -647,6 +675,12 @@ private function completeLogin(array $user): array
             (bool) $user['must_change_password'],
         'authenticated_at' => time(),
     ];
+
+    $this->authenticatedSessions->register(
+        $companyId,
+        $userId,
+        (int) $_SESSION['auth']['authenticated_at']
+    );
 
     return [
         'successful' => true,

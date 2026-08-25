@@ -104,7 +104,23 @@ try {
     $check(is_string($moduleNavigation) && str_contains($moduleNavigation, 'task_filter=action_required') && str_contains($moduleNavigation, 'aria-label'), 'Module-tab badge is an accessible link to the exact action-required filter');
     $check(is_string($css) && str_contains($css, '.nav-action-badge'), 'Navigation badge uses one reusable CSS class');
     $check(is_string($css) && str_contains($css, 'position: absolute') && str_contains($css, 'top: 1px'), 'Internal-tab badge is anchored at the upper-right without becoming inline text');
-    $check(is_string($dashboardView) && str_contains($dashboardView, 'dashboard-account-card') && is_string($css) && str_contains($css, '.dashboard-account-card .status-item strong') && str_contains($css, 'overflow-wrap: anywhere'), 'Signed-in account values wrap within their scoped dashboard card');
+    $check(
+        is_string($dashboardView)
+        && str_contains(
+            $dashboardView,
+            'dashboard-account-value'
+        )
+        && is_string($css)
+        && str_contains(
+            $css,
+            '.dashboard-account-value'
+        )
+        && str_contains(
+            $css,
+            'overflow-wrap: anywhere'
+        ),
+        'Signed-in account values wrap within their scoped dashboard card'
+    );
     $check(is_string($hrNavigation) && str_contains($hrNavigation, "['hr']['leave']"), 'HR leave action count is attached to the Leave management workflow link');
     $check(is_string($administrationNavigation) && str_contains($administrationNavigation, "'integration_events'"), 'Administration failures are attached to the Integration events workflow link');
     $check(is_string($taskItemsView) && str_contains($taskItemsView, 'Next:') && str_contains($taskItemsView, 'actionRequiredItems'), 'Shared task view renders the service-provided record and next action');
