@@ -567,6 +567,10 @@ try {
                 '054',
                 '055',
                 '056',
+                '057',
+                '058',
+                '059',
+                '060',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -613,13 +617,13 @@ try {
                 \'049\',
                 \'050\',
                 \'051\'
-                ,\'052\',\'053\',\'054\',\'055\',\'056\'
+                ,\'052\',\'053\',\'054\',\'055\',\'056\',\'057\',\'058\',\'059\',\'060\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 42,
+        $migrationLedgerCount === 46,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -805,8 +809,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $tableCount === 121,
-        'All 121 application tables were created'
+        $tableCount === 127,
+        'All 127 application tables were created'
     );
 
     $foreignKeyCount = (int) db()
@@ -818,8 +822,8 @@ try {
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 444,
-        'All 444 foreign-key relationships were created'
+        $foreignKeyCount === 463,
+        'All 463 foreign-key relationships were created'
     );
 
     $csrfToken = csrfToken();
@@ -2073,7 +2077,7 @@ try {
             :receipt_number,
             :supplier_name,
             \'2026-08-04\',
-            \'ETB\',
+            \'KES\',
             \'approved\',
             :created_by,
             :approved_by,

@@ -168,6 +168,16 @@ protected administration screens; this bootstrap is not a reset tool.
 
 ## Attendance notification cron
 
+Use these production commands from cPanel Cron Jobs. Each command uses a non-overlap lock and records its run in the ERP operations table:
+
+```text
+* * * * * /usr/bin/flock -n /tmp/officeapp-integration.lock /usr/local/bin/php /home/passiontech/office_app/bin/run-production-task.php integration
+* * * * * /usr/bin/flock -n /tmp/officeapp-webhooks.lock /usr/local/bin/php /home/passiontech/office_app/bin/run-production-task.php webhooks
+* * * * * /usr/bin/flock -n /tmp/officeapp-attendance.lock /usr/local/bin/php /home/passiontech/office_app/bin/run-production-task.php attendance
+```
+
+If the host exposes PHP 8.1+ at a different cPanel path, select that binary in cPanel. The runner also takes a database advisory lock, so overlapping invocations fail safely even if `flock` is unavailable.
+
 In cPanel Cron Jobs, run every minute with the actual account path:
 
 ```text

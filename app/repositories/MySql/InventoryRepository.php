@@ -418,6 +418,61 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             ]);
             $movementId = (int) $connection->lastInsertId();
 
+            $signedQuantity = match ((string) ($movement['movementType'] ?? '')) {
+                'receipt', 'return_in', 'adjustment_in' => $quantity,
+                'fulfilment', 'return_out', 'adjustment_out', 'issue' => -$quantity,
+                default => 0.0,
+            };
+            if (abs($signedQuantity) > 0.0005) {
+                $reversalLayerId = null;
+                $relatedMovementId = $this->positiveOrNull(
+                    $movement['relatedMovementId'] ?? null
+                );
+                if ($relatedMovementId !== null) {
+                    $relatedLayer = $connection->prepare(
+                        'SELECT valuation_layer_id FROM inventory_valuation_layers
+                         WHERE company_id=:company_id AND stock_movement_id=:movement_id'
+                    );
+                    $relatedLayer->execute([
+                        'company_id' => $companyId,
+                        'movement_id' => $relatedMovementId,
+                    ]);
+                    $resolved = $relatedLayer->fetchColumn();
+                    $reversalLayerId = $resolved === false ? null : (int) $resolved;
+                }
+                $valuation = $connection->prepare(
+                    'INSERT INTO inventory_valuation_layers
+                        (company_id,product_id,warehouse_id,location_id,stock_movement_id,
+                         movement_type,source_document_type,source_document_id,
+                         source_document_reference,quantity,unit_cost,total_value,currency,
+                         posting_date,reversal_of_layer_id,idempotency_key,created_by)
+                     VALUES
+                        (:company_id,:product_id,:warehouse_id,:location_id,:movement_id,
+                         :movement_type,:source_type,:source_id,:source_reference,:quantity,
+                         :unit_cost,:total_value,:currency,:posting_date,:reversal_id,
+                         :idempotency_key,:created_by)'
+                );
+                $valuation->execute([
+                    'company_id' => $companyId,
+                    'product_id' => $productId,
+                    'warehouse_id' => $anchorWarehouseId,
+                    'location_id' => $anchorLocationId,
+                    'movement_id' => $movementId,
+                    'movement_type' => (string) ($movement['movementType'] ?? ''),
+                    'source_type' => (string) ($movement['referenceType'] ?? 'manual'),
+                    'source_id' => $this->positiveOrNull($movement['referenceId'] ?? null),
+                    'source_reference' => $movement['referenceNumber'] ?? null,
+                    'quantity' => $signedQuantity,
+                    'unit_cost' => $unitCost,
+                    'total_value' => round($signedQuantity * $unitCost, 2),
+                    'currency' => strtoupper((string) ($movement['currency'] ?? 'ETB')),
+                    'posting_date' => substr($occurredAt, 0, 10),
+                    'reversal_id' => $reversalLayerId,
+                    'idempotency_key' => 'valuation:' . $idempotencyKey,
+                    'created_by' => $actorId,
+                ]);
+            }
+
             if ($ownsTransaction) {
                 $connection->commit();
             }
@@ -482,6 +537,8 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             }
 
             $movementCount = 0;
+            $valuationMovementIds = [];
+            $receiptValue = 0.0;
 
             foreach ($lines as $line) {
                 $warehouseId = (int) $line['warehouse_id'];
@@ -535,6 +592,8 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 if (empty($result['replayed'])) {
                     $movementCount++;
                 }
+                $valuationMovementIds[] = (int) $result['movementId'];
+                $receiptValue += $quantity * $unitCost;
                 if($locationId===(int)($receipt['default_destination_location_id']??0)){
                     $putaway=$connection->prepare("SELECT stock.location_id stock_location_id,op.operation_type_id FROM inventory_warehouses w INNER JOIN inventory_warehouse_locations stock ON stock.company_id=w.company_id AND stock.warehouse_id=w.warehouse_id AND stock.code=CONCAT(w.code,'/STOCK') AND stock.active=TRUE AND stock.deleted_at IS NULL INNER JOIN inventory_operation_types op ON op.company_id=w.company_id AND op.warehouse_id=w.warehouse_id AND op.operation_kind='internal_transfer' AND op.is_default=TRUE AND op.active=TRUE WHERE w.company_id=:company_id AND w.warehouse_id=:warehouse_id LIMIT 1");
                     $putaway->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId]);$route=$putaway->fetch(PDO::FETCH_ASSOC);
@@ -542,6 +601,42 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                     $putawayResult=$this->completeStockMovement(['companyId'=>$companyId,'productId'=>$productId,'sourceWarehouseId'=>$warehouseId,'sourceLocationId'=>$locationId,'destinationWarehouseId'=>$warehouseId,'destinationLocationId'=>(int)$route['stock_location_id'],'quantity'=>$quantity,'unitCost'=>$unitCost,'movementType'=>'transfer_in','operationTypeId'=>(int)$route['operation_type_id'],'currency'=>(string)($receipt['currency']??'ETB'),'referenceType'=>'goods_receipt_putaway','referenceId'=>$goodsReceiptId,'referenceNumber'=>(string)($receipt['receipt_number']??''),'idempotencyKey'=>sprintf('goods-receipt:%d:line:%d:putaway',$goodsReceiptId,$lineId),'notes'=>'Automatic Input to Stock putaway','occurredAt'=>$postedAt,'actorId'=>$actorId]);
                     if(empty($putawayResult['replayed']))$movementCount++;
                 }
+            }
+
+            $receiptValue = round($receiptValue, 2);
+            if ($receiptValue > 0) {
+                $finance = new FinanceRepository();
+                $accounts = $finance->ensureSystemAccounts(
+                    $companyId,
+                    (string) ($receipt['currency'] ?? 'ETB'),
+                    $actorId
+                );
+                $journal = $finance->postBalancedJournal(
+                    $companyId,
+                    'GRNI-' . $goodsReceiptId,
+                    'goods_receipt',
+                    (string) $goodsReceiptId,
+                    (string) ($receipt['receipt_number'] ?? ''),
+                    substr($postedAt, 0, 10),
+                    (string) ($receipt['currency'] ?? 'ETB'),
+                    'Inventory received before supplier billing',
+                    'goods-receipt-valuation-' . $companyId . '-' . $goodsReceiptId,
+                    [
+                        ['account_id' => $accounts['inventory_asset'], 'debit' => $receiptValue, 'credit' => 0, 'description' => 'Inventory received'],
+                        ['account_id' => $accounts['goods_received_not_invoiced'], 'debit' => 0, 'credit' => $receiptValue, 'description' => 'Goods received not invoiced'],
+                    ],
+                    $actorId
+                );
+                $this->linkValuationJournal(
+                    $companyId,
+                    $valuationMovementIds,
+                    (int) $journal['journalBatchId']
+                );
+            }
+            if (strtoupper((string) ($receipt['currency'] ?? '')) !== $this->companyCurrency($companyId)) {
+                throw new RuntimeException(
+                    'Inventory receipts must use the company base currency until foreign-currency valuation is enabled.'
+                );
             }
 
             $this->markGoodsReceiptPosted(
@@ -2076,6 +2171,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                         'notes' => $line['notes'] ?? null,
                         'occurredAt' => $completedAt,
                         'actorId' => $actorId,
+                        'relatedMovementId' => $relatedMovementId,
                     ]);
 
                     /*
@@ -2644,10 +2740,13 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             $lines->execute(['company_id' => $companyId, 'adjustment_id' => $adjustmentId]);
             $operation = $this->defaultOperationType($companyId, (int) $adjustment['warehouse_id'], 'adjustment');
             $count = 0;
+            $movementIds = [];
+            $gainValue = 0.0;
+            $lossValue = 0.0;
             foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $line) {
                 $difference = (float) $line['quantity_delta'];
                 $positive = $difference > 0;
-                $this->completeStockMovement([
+                $movement = $this->completeStockMovement([
                     'companyId' => $companyId, 'productId' => (int) $line['product_id'],
                     'sourceWarehouseId' => (int) $adjustment['warehouse_id'],
                     'sourceLocationId' => $positive ? (int) $operation['default_source_location_id'] : (int) $line['location_id'],
@@ -2661,7 +2760,47 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                     'idempotencyKey' => 'stock-adjustment:' . $adjustmentId . ':line:' . $line['adjustment_line_id'],
                     'notes' => $line['notes'] ?? null, 'occurredAt' => $postedAt, 'actorId' => $actorId,
                 ]);
+                $movementIds[] = (int) $movement['movementId'];
+                if ($positive) {
+                    $gainValue += abs($difference) * (float) $line['unit_cost'];
+                } else {
+                    $movementCost = $connection->prepare(
+                        'SELECT unit_cost FROM inventory_stock_movements WHERE company_id=:company_id AND movement_id=:movement_id'
+                    );
+                    $movementCost->execute(['company_id' => $companyId, 'movement_id' => $movement['movementId']]);
+                    $lossValue += abs($difference) * (float) $movementCost->fetchColumn();
+                }
                 $count++;
+            }
+            $gainValue = round($gainValue, 2);
+            $lossValue = round($lossValue, 2);
+            $finance = new FinanceRepository();
+            $currency = $this->companyCurrency($companyId);
+            $accounts = $finance->ensureSystemAccounts($companyId, $currency, $actorId);
+            $journalLines = [];
+            if ($gainValue > 0) {
+                $journalLines[] = ['account_id' => $accounts['inventory_asset'], 'debit' => $gainValue, 'credit' => 0, 'description' => 'Positive inventory adjustment'];
+                $journalLines[] = ['account_id' => $accounts['inventory_gain'], 'debit' => 0, 'credit' => $gainValue, 'description' => 'Inventory adjustment gain'];
+            }
+            if ($lossValue > 0) {
+                $journalLines[] = ['account_id' => $accounts['inventory_loss'], 'debit' => $lossValue, 'credit' => 0, 'description' => 'Inventory adjustment loss'];
+                $journalLines[] = ['account_id' => $accounts['inventory_asset'], 'debit' => 0, 'credit' => $lossValue, 'description' => 'Negative inventory adjustment'];
+            }
+            if ($journalLines !== []) {
+                $journal = $finance->postBalancedJournal(
+                    $companyId,
+                    'ADJ-' . $adjustmentId,
+                    'inventory_adjustment',
+                    (string) $adjustmentId,
+                    (string) $adjustment['adjustment_number'],
+                    substr($postedAt, 0, 10),
+                    $currency,
+                    'Inventory adjustment ' . $adjustment['adjustment_number'],
+                    'inventory-adjustment-' . $companyId . '-' . $adjustmentId,
+                    $journalLines,
+                    $actorId
+                );
+                $this->linkValuationJournal($companyId, $movementIds, (int) $journal['journalBatchId']);
             }
             $connection->prepare(
                 "UPDATE inventory_stock_adjustments SET status = 'posted', posted_by = :actor,
@@ -2728,7 +2867,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             if ((string) $scrap['status'] !== 'draft') {
                 throw new RuntimeException('Only a draft scrap document can be posted.');
             }
-            $this->completeStockMovement([
+            $movement = $this->completeStockMovement([
                 'companyId' => $companyId, 'productId' => (int) $scrap['product_id'],
                 'sourceWarehouseId' => (int) $scrap['warehouse_id'], 'sourceLocationId' => (int) $scrap['source_location_id'],
                 'destinationWarehouseId' => (int) $scrap['warehouse_id'], 'destinationLocationId' => (int) $scrap['scrap_location_id'],
@@ -2737,6 +2876,33 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 'idempotencyKey' => 'scrap:' . $scrapId, 'notes' => (string) $scrap['reason'],
                 'occurredAt' => $postedAt, 'actorId' => $actorId,
             ]);
+            $movementCost = $connection->prepare(
+                'SELECT unit_cost FROM inventory_stock_movements WHERE company_id=:company_id AND movement_id=:movement_id'
+            );
+            $movementCost->execute(['company_id' => $companyId, 'movement_id' => $movement['movementId']]);
+            $scrapValue = round((float) $scrap['quantity'] * (float) $movementCost->fetchColumn(), 2);
+            if ($scrapValue > 0) {
+                $finance = new FinanceRepository();
+                $currency = $this->companyCurrency($companyId);
+                $accounts = $finance->ensureSystemAccounts($companyId, $currency, $actorId);
+                $journal = $finance->postBalancedJournal(
+                    $companyId,
+                    'SCRAP-' . $scrapId,
+                    'inventory_scrap',
+                    (string) $scrapId,
+                    (string) $scrap['scrap_number'],
+                    substr($postedAt, 0, 10),
+                    $currency,
+                    'Inventory scrapped: ' . $scrap['reason'],
+                    'inventory-scrap-' . $companyId . '-' . $scrapId,
+                    [
+                        ['account_id' => $accounts['inventory_loss'], 'debit' => $scrapValue, 'credit' => 0, 'description' => 'Scrap expense'],
+                        ['account_id' => $accounts['inventory_asset'], 'debit' => 0, 'credit' => $scrapValue, 'description' => 'Inventory scrapped'],
+                    ],
+                    $actorId
+                );
+                $this->linkValuationJournal($companyId, [(int) $movement['movementId']], (int) $journal['journalBatchId']);
+            }
             $connection->prepare(
                 "UPDATE inventory_scrap_orders SET status = 'done', posted_at = :posted_at,
                     posted_by = :actor WHERE company_id = :company_id AND scrap_id = :scrap_id"
@@ -3019,6 +3185,40 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
         if ($statement->rowCount() !== 1) {
             throw new RuntimeException('The stock balance could not be moved.');
         }
+    }
+
+    /** @param list<int> $movementIds */
+    private function linkValuationJournal(
+        int $companyId,
+        array $movementIds,
+        int $journalBatchId
+    ): void {
+        if ($movementIds === [] || $journalBatchId <= 0) {
+            return;
+        }
+        $placeholders = implode(',', array_fill(0, count($movementIds), '?'));
+        $statement = $this->connection()->prepare(
+            "UPDATE inventory_valuation_layers SET journal_batch_id=?
+             WHERE company_id=? AND stock_movement_id IN ($placeholders)
+               AND journal_batch_id IS NULL"
+        );
+        $statement->execute(array_merge([$journalBatchId, $companyId], $movementIds));
+        if ($statement->rowCount() !== count($movementIds)) {
+            throw new RuntimeException('Every inventory valuation must link to its accounting journal.');
+        }
+    }
+
+    private function companyCurrency(int $companyId): string
+    {
+        $statement = $this->connection()->prepare(
+            'SELECT UPPER(default_currency) FROM companies WHERE company_id=:company_id AND deleted_at IS NULL'
+        );
+        $statement->execute(['company_id' => $companyId]);
+        $currency = (string) $statement->fetchColumn();
+        if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
+            throw new RuntimeException('The company base currency is not configured.');
+        }
+        return $currency;
     }
 
     private function positiveOrNull(mixed $value): ?int

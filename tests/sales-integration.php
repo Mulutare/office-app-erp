@@ -781,6 +781,21 @@ $returnJournal =
         ? $returnCostJournals[0]
         : null;
 
+$valuationForPicking = static function (int $pickingId) use ($companyId): array {
+    $statement = db()->prepare(
+        "SELECT COUNT(*) layer_count,COALESCE(SUM(total_value),0) total_value,
+                SUM(journal_batch_id IS NULL) unlinked_count
+         FROM inventory_valuation_layers
+         WHERE company_id=:company_id AND source_document_type='inventory_picking'
+           AND source_document_id=:picking_id"
+    );
+    $statement->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
+    return $statement->fetch(PDO::FETCH_ASSOC) ?: [];
+};
+$deliveryValuation = $valuationForPicking($deliveryId);
+$backorderValuation = $valuationForPicking($backorderDeliveryId);
+$returnValuation = $valuationForPicking($returnId);
+
 $check(
     $deliveryMovementCost > 0
     && $backorderMovementCost > 0
@@ -840,6 +855,18 @@ $check(
         $returnMovementCost
     ),
     'Partial delivery, backorder, and return post balanced cost journals at persisted movement valuation'
+);
+$check(
+    (int)($deliveryValuation['layer_count']??0)>0
+    && (int)($backorderValuation['layer_count']??0)>0
+    && (int)($returnValuation['layer_count']??0)>0
+    && (int)($deliveryValuation['unlinked_count']??1)===0
+    && (int)($backorderValuation['unlinked_count']??1)===0
+    && (int)($returnValuation['unlinked_count']??1)===0
+    && $moneyMatches(abs((float)$deliveryValuation['total_value']),$deliveryMovementCost)
+    && $moneyMatches(abs((float)$backorderValuation['total_value']),$backorderMovementCost)
+    && $moneyMatches((float)$returnValuation['total_value'],$returnMovementCost),
+    'Delivery, backorder, and customer return valuation layers match and link to their existing cost journals'
 );
 
     $deliveryReplay = $service->completeDelivery(

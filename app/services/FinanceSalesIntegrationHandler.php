@@ -316,7 +316,7 @@ final class FinanceSalesIntegrationHandler
                 $actorId
             );
 
-        $this->posting->postBalancedJournal(
+        $journal = $this->posting->postBalancedJournal(
             $companyId,
             $journalBatchNumber,
             'inventory_fulfilment',
@@ -354,6 +354,13 @@ final class FinanceSalesIntegrationHandler
                 ],
             ],
             $actorId
+        );
+        $this->linkValuationLayers(
+            $companyId,
+            $pickingId > 0 ? 'inventory_picking' : 'sales_order',
+            $pickingId > 0 ? $pickingId : $orderId,
+            (int) $journal['journalBatchId'],
+            $completionKey ?? null
         );
     }
 
@@ -452,7 +459,7 @@ final class FinanceSalesIntegrationHandler
                 $actorId
             );
 
-        $this->posting->postBalancedJournal(
+        $journal = $this->posting->postBalancedJournal(
             $companyId,
             'RET-' . $pickingId . '-' . $suffix,
             'inventory_return',
@@ -499,6 +506,56 @@ final class FinanceSalesIntegrationHandler
             ],
             $actorId
         );
+        $this->linkValuationLayers(
+            $companyId,
+            'inventory_picking',
+            $pickingId,
+            (int) $journal['journalBatchId'],
+            $completionKey
+        );
+    }
+
+    private function linkValuationLayers(
+        int $companyId,
+        string $sourceType,
+        int $sourceId,
+        int $journalBatchId,
+        ?string $completionKey
+    ): void {
+        $sql = 'UPDATE inventory_valuation_layers
+                SET journal_batch_id=:journal_batch_id
+                WHERE company_id=:company_id
+                  AND source_document_type=:source_type
+                  AND source_document_id=:source_id
+                  AND journal_batch_id IS NULL';
+        $parameters = [
+            'journal_batch_id' => $journalBatchId,
+            'company_id' => $companyId,
+            'source_type' => $sourceType,
+            'source_id' => $sourceId,
+        ];
+        if ($completionKey !== null && trim($completionKey) !== '') {
+            $sql .= ' AND idempotency_key LIKE :key_prefix';
+            $parameters['key_prefix'] = 'valuation:' . $completionKey . ':%';
+        }
+        $statement = \db()->prepare($sql);
+        $statement->execute($parameters);
+        if ($statement->rowCount() < 1) {
+            $existing = \db()->prepare(
+                'SELECT COUNT(*) FROM inventory_valuation_layers
+                 WHERE company_id=:company_id AND source_document_type=:source_type
+                   AND source_document_id=:source_id AND journal_batch_id=:journal_batch_id'
+            );
+            $existing->execute([
+                'company_id' => $companyId,
+                'source_type' => $sourceType,
+                'source_id' => $sourceId,
+                'journal_batch_id' => $journalBatchId,
+            ]);
+            if ((int) $existing->fetchColumn() < 1) {
+                throw new RuntimeException('The inventory journal has no matching valuation layer.');
+            }
+        }
     }
     /**
      * @param array<string, mixed> $payload

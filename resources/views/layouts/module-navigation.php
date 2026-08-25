@@ -46,6 +46,7 @@ $definitions = [
         'receipts' => ['Receipts', '/finance?section=receipts'],
         'settlements' => ['Settlement Reconciliation', '/finance/settlements', 'finance.settlements.view'],
         'expenses' => ['Expenses', '/finance?section=expenses'],
+        'periods' => ['Accounting Periods', '/finance/accounting-periods', 'finance.period.view'],
     ],
     'inventory' => [
         'stock' => ['Current Stock', '/inventory?section=stock'],
@@ -68,7 +69,7 @@ if ($section === '') {
         }
         $section = $section ?: (string) ($_GET['section'] ?? 'stock');
     } elseif ($module === 'finance') {
-        $section = str_contains($requestPath, '/finance/settlements') ? 'settlements' : (str_contains($requestPath, '/finance/customer-invoices') ? 'invoices' : (string) ($_GET['section'] ?? 'receivables'));
+        $section = str_contains($requestPath, '/finance/accounting-periods') ? 'periods' : (str_contains($requestPath, '/finance/settlements') ? 'settlements' : (str_contains($requestPath, '/finance/customer-invoices') ? 'invoices' : (string) ($_GET['section'] ?? 'receivables')));
     } elseif ($module === 'procurement') {
         $section = (string) ($moduleContext['section'] ?? $_GET['section'] ?? (preg_match('~/procurement/\d+~', $requestPath) ? 'orders' : 'overview'));
     }

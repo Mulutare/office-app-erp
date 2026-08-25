@@ -151,6 +151,13 @@ final class FinanceRepository extends MySqlRepository
             'key' => 'customer_credits',
         ],
         [
+            'code' => '2300',
+            'name' => 'Goods Received Not Invoiced',
+            'type' => 'liability',
+            'normal' => 'credit',
+            'key' => 'goods_received_not_invoiced',
+        ],
+        [
             'code' => '3000',
             'name' => 'Owner Equity',
             'type' => 'equity',
@@ -177,6 +184,20 @@ final class FinanceRepository extends MySqlRepository
             'type' => 'expense',
             'normal' => 'debit',
             'key' => 'cost_of_goods_sold',
+        ],
+        [
+            'code' => '5100',
+            'name' => 'Inventory Loss and Scrap Expense',
+            'type' => 'expense',
+            'normal' => 'debit',
+            'key' => 'inventory_loss',
+        ],
+        [
+            'code' => '4900',
+            'name' => 'Inventory Adjustment Gain',
+            'type' => 'revenue',
+            'normal' => 'credit',
+            'key' => 'inventory_gain',
         ],
     ];
 
@@ -1422,11 +1443,11 @@ final class FinanceRepository extends MySqlRepository
     {
         $statement = $this->connection()->prepare(
             "SELECT COUNT(*) FROM finance_accounting_periods WHERE company_id=:company_id
-             AND :posting_date BETWEEN date_from AND date_to AND status IN ('closed','locked')"
+             AND :posting_date BETWEEN date_from AND date_to AND status='open'"
         );
         $statement->execute(['company_id'=>$companyId,'posting_date'=>$postingDate]);
-        if ((int)$statement->fetchColumn() > 0) {
-            throw new RuntimeException('The accounting period is closed or locked.');
+        if ((int)$statement->fetchColumn() !== 1) {
+            throw new RuntimeException('Posting requires exactly one open accounting period for the posting date.');
         }
     }
 

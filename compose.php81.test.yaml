@@ -15,9 +15,14 @@ services:
         && php tests/migration-checksum-compatibility.php
         && php tests/permission-template-upgrade.php
         && php tests/company-update-permission-preservation.php
+        && php tests/inventory-valuation-migration.php
+        && php tests/accounting-period-integration.php
+        && php tests/sales-integration.php
+        && php tests/procurement-integration.php
         && php tests/settlement-integration.php
         && php tests/module-authorization-contract.php
         && php tests/analytics-integration.php
+        && php tests/approval-operations-integration.php
     environment:
       APP_NAME: OfficeApp ERP PHP 8.1 Compatibility
       APP_ENV: testing

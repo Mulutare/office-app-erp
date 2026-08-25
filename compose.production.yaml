@@ -45,6 +45,30 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  integration-worker:
+    extends:
+      service: app
+    ports: []
+    command: ["/bin/sh","-c","while true; do php bin/run-production-task.php integration; sleep 15; done"]
+    healthcheck:
+      disable: true
+
+  webhook-worker:
+    extends:
+      service: app
+    ports: []
+    command: ["/bin/sh","-c","while true; do php bin/run-production-task.php webhooks; sleep 30; done"]
+    healthcheck:
+      disable: true
+
+  attendance-scheduler:
+    extends:
+      service: app
+    ports: []
+    command: ["/bin/sh","-c","while true; do php bin/run-production-task.php attendance; sleep 60; done"]
+    healthcheck:
+      disable: true
+
   db:
     image: mariadb:10.11.18
     environment:

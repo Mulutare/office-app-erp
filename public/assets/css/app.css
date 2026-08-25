@@ -7958,3 +7958,1258 @@ a {
     .proc-line > * { grid-column: 1 !important; }
     .proc-actions .btn { width: 100%; }
 }
+
+/* === SMART ERP UI START === */
+
+/* ---------------------------------------------------------
+   1. GLOBAL ERP TYPOGRAPHY
+--------------------------------------------------------- */
+
+:root {
+    --erp-font-size: 14px;
+    --erp-control-height: 36px;
+    --erp-radius: 8px;
+    --erp-card-radius: 10px;
+    --erp-gap: 12px;
+}
+
+html {
+    font-size: 14px;
+}
+
+body {
+    font-family:
+        "Segoe UI",
+        Roboto,
+        Helvetica,
+        Arial,
+        sans-serif;
+
+    font-size: var(--erp-font-size);
+    line-height: 1.45;
+    letter-spacing: 0;
+}
+
+/* Mature ERP typography: clear hierarchy, not oversized */
+
+h1 {
+    font-size: 1.85rem !important;
+    line-height: 1.2;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    margin-bottom: 0.35rem;
+}
+
+h2 {
+    font-size: 1.35rem !important;
+    line-height: 1.25;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    margin-top: 0;
+    margin-bottom: 0.8rem;
+}
+
+h3 {
+    font-size: 1.05rem !important;
+    line-height: 1.3;
+    font-weight: 650;
+}
+
+p {
+    margin-top: 0;
+    margin-bottom: 0.7rem;
+}
+
+/* ---------------------------------------------------------
+   2. PAGE DENSITY
+--------------------------------------------------------- */
+
+main,
+.main-content,
+.page-content,
+.content-area,
+.workspace-content {
+    padding-top: 20px !important;
+    padding-bottom: 24px !important;
+}
+
+.page-header,
+.erp-page-header {
+    margin-bottom: 16px !important;
+}
+
+.page-header p,
+.erp-page-header p {
+    font-size: 0.95rem;
+    margin-bottom: 0;
+}
+
+/* ---------------------------------------------------------
+   3. CARDS
+--------------------------------------------------------- */
+
+.card {
+    border-radius: var(--erp-card-radius) !important;
+    padding: 18px !important;
+    margin-bottom: 14px !important;
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.03),
+        0 1px 4px rgba(15, 23, 42, 0.025) !important;
+}
+
+.card > h2:first-child,
+.card > h3:first-child {
+    margin-top: 0;
+}
+
+/* Remove the large empty-block feeling */
+
+.card p:last-child {
+    margin-bottom: 0;
+}
+
+/* ---------------------------------------------------------
+   4. LABELS / INPUTS
+--------------------------------------------------------- */
+
+label {
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+    line-height: 1.25;
+}
+
+input,
+select,
+textarea {
+    font-family: inherit;
+    font-size: 0.9rem !important;
+    border-radius: 6px !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+select {
+    min-height: var(--erp-control-height) !important;
+    height: var(--erp-control-height);
+    padding: 6px 10px !important;
+}
+
+textarea {
+    padding: 8px 10px !important;
+    min-height: 72px !important;
+    resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+}
+
+/* ---------------------------------------------------------
+   5. BUTTONS
+--------------------------------------------------------- */
+
+.btn,
+button {
+    min-height: 36px;
+    padding: 7px 14px !important;
+    border-radius: 7px !important;
+
+    font-family: inherit;
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+
+    line-height: 1.2;
+}
+
+.btn-compact {
+    min-height: 30px !important;
+    padding: 5px 10px !important;
+    font-size: 0.82rem !important;
+}
+
+/* ---------------------------------------------------------
+   6. MODULE TOP NAVIGATION
+--------------------------------------------------------- */
+
+.module-navigation,
+.module-nav,
+.module-tabs,
+.section-tabs,
+.tabs {
+    gap: 3px !important;
+    padding: 5px !important;
+}
+
+.module-navigation a,
+.module-nav a,
+.module-tabs a,
+.section-tabs a,
+.tabs a {
+    padding: 8px 12px !important;
+    font-size: 0.9rem !important;
+    font-weight: 500 !important;
+    border-radius: 7px !important;
+    white-space: nowrap;
+}
+
+.module-navigation a.active,
+.module-nav a.active,
+.module-tabs a.active,
+.section-tabs a.active,
+.tabs a.active {
+    font-weight: 650 !important;
+}
+
+/* ---------------------------------------------------------
+   7. TABLES
+--------------------------------------------------------- */
+
+table {
+    font-size: 0.88rem;
+}
+
+.data-table th,
+table th {
+    font-size: 0.74rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+    padding: 9px 12px !important;
+}
+
+.data-table td,
+table td {
+    padding: 10px 12px !important;
+    vertical-align: middle;
+}
+
+.table-card {
+    overflow: hidden;
+}
+
+/* ---------------------------------------------------------
+   8. FORM GRID HELPERS
+--------------------------------------------------------- */
+
+form {
+    max-width: 100%;
+}
+
+form label {
+    min-width: 0;
+}
+
+form input,
+form select,
+form textarea {
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------
+   9. ACCOUNTING PERIOD PAGE
+--------------------------------------------------------- */
+
+/*
+   Create fiscal year / open period forms:
+   stop controls from appearing as one crowded horizontal sentence.
+*/
+
+form[action*="/finance/fiscal"],
+form[action$="/finance/accounting-periods"] {
+    display: grid !important;
+    grid-template-columns:
+        minmax(180px, 1.4fr)
+        minmax(145px, 1fr)
+        minmax(145px, 1fr)
+        auto;
+
+    gap: 10px 12px;
+    align-items: end;
+}
+
+form[action*="/finance/fiscal"] label,
+form[action$="/finance/accounting-periods"] label {
+    display: grid;
+    gap: 5px;
+}
+
+/* Period transition actions should remain compact */
+
+form[action*="/finance/accounting-periods/"][action*="/transition"] {
+    display: inline-flex !important;
+    gap: 8px;
+    align-items: center;
+}
+
+form[action*="/finance/accounting-periods/"][action*="/transition"] input {
+    width: 220px;
+}
+
+/* ---------------------------------------------------------
+   10. PROCUREMENT REQUISITION CREATE FORM
+--------------------------------------------------------- */
+
+/*
+   New requisition header fields:
+   Department + Required By
+   Warehouse full row
+   Business justification full row
+*/
+
+form[action$="/procurement/requisitions"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 14px;
+    align-items: end;
+}
+
+form[action$="/procurement/requisitions"] > label {
+    display: grid;
+    gap: 5px;
+}
+
+form[action$="/procurement/requisitions"] textarea {
+    width: 100%;
+}
+
+/*
+   Make wider fields use the available width when browser supports :has().
+*/
+
+form[action$="/procurement/requisitions"] label:has(textarea) {
+    grid-column: 1 / -1;
+}
+
+/* ---------------------------------------------------------
+   11. PROCUREMENT GENERAL DENSITY
+--------------------------------------------------------- */
+
+.proc-metrics {
+    gap: 12px !important;
+}
+
+.proc-actions {
+    gap: 8px !important;
+}
+
+.proc-actions label {
+    gap: 4px;
+}
+
+.proc-related {
+    gap: 12px !important;
+}
+
+/* ---------------------------------------------------------
+   12. SUMMARY / METRIC CARDS
+--------------------------------------------------------- */
+
+.finance-summary-grid,
+.sales-summary-grid,
+.proc-metrics {
+    gap: 12px !important;
+}
+
+.finance-summary-card,
+.sales-summary-card {
+    padding: 16px !important;
+}
+
+.finance-summary-card span,
+.sales-summary-card span {
+    font-size: 0.75rem !important;
+    letter-spacing: 0.055em;
+    font-weight: 700;
+}
+
+.finance-summary-card strong,
+.sales-summary-card strong {
+    font-size: 1.7rem !important;
+    line-height: 1.15;
+}
+
+/* ---------------------------------------------------------
+   13. EMPTY STATES
+--------------------------------------------------------- */
+
+.empty-state,
+.proc-empty {
+    font-size: 0.9rem !important;
+    padding: 22px 14px !important;
+}
+
+/* ---------------------------------------------------------
+   14. RESPONSIVE DESKTOP / LAPTOP
+--------------------------------------------------------- */
+
+@media (max-width: 1400px) {
+
+    body {
+        font-size: 13.5px;
+    }
+
+    h1 {
+        font-size: 1.7rem !important;
+    }
+
+    h2 {
+        font-size: 1.25rem !important;
+    }
+
+    .card {
+        padding: 16px !important;
+    }
+
+    .module-navigation a,
+    .module-nav a,
+    .module-tabs a,
+    .section-tabs a,
+    .tabs a {
+        padding: 7px 10px !important;
+    }
+}
+
+@media (max-width: 1050px) {
+
+    form[action*="/finance/fiscal"],
+    form[action$="/finance/accounting-periods"],
+    form[action$="/procurement/requisitions"] {
+        grid-template-columns: 1fr 1fr !important;
+    }
+}
+
+@media (max-width: 720px) {
+
+    main,
+    .main-content,
+    .page-content,
+    .content-area,
+    .workspace-content {
+        padding: 14px !important;
+    }
+
+    form[action*="/finance/fiscal"],
+    form[action$="/finance/accounting-periods"],
+    form[action$="/procurement/requisitions"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    .card {
+        padding: 14px !important;
+    }
+}
+
+/* === SMART ERP UI END === */
+
+/* === SMART ERP UI V2 START === */
+
+/* =========================================================
+   1. HARD ANTI-OVERLAP FOUNDATION
+========================================================= */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+main *,
+.card *,
+form *,
+table * {
+    min-width: 0;
+}
+
+img,
+svg,
+canvas {
+    max-width: 100%;
+}
+
+input,
+select,
+textarea,
+button {
+    max-width: 100%;
+}
+
+label,
+td,
+th,
+.card,
+.table-responsive {
+    overflow-wrap: anywhere;
+}
+
+.table-responsive {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+}
+
+table {
+    width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+}
+
+td,
+th {
+    white-space: normal;
+}
+
+/* Keep normal identifiers readable */
+td strong,
+td a {
+    overflow-wrap: normal;
+}
+
+/* =========================================================
+   2. PROFESSIONAL CLICKABLE LANGUAGE
+========================================================= */
+
+a[href],
+button,
+.btn,
+select,
+input[type="checkbox"],
+input[type="radio"] {
+    cursor: pointer;
+}
+
+button,
+.btn,
+a.btn {
+    transition:
+        background-color .15s ease,
+        border-color .15s ease,
+        box-shadow .15s ease,
+        transform .08s ease;
+}
+
+button:hover,
+.btn:hover,
+a.btn:hover {
+    filter: brightness(0.97);
+    box-shadow: 0 2px 5px rgba(15, 23, 42, .10);
+}
+
+button:active,
+.btn:active,
+a.btn:active {
+    transform: translateY(1px);
+    box-shadow: none;
+}
+
+button:disabled,
+.btn:disabled,
+input:disabled,
+select:disabled {
+    cursor: not-allowed !important;
+    opacity: .58;
+}
+
+/* Keyboard accessibility */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid #2563eb !important;
+    outline-offset: 2px;
+}
+
+/* Plain text links should clearly behave like links */
+main a[href]:not(.btn):not([class*="nav"]):not([class*="tab"]) {
+    text-decoration: none;
+    font-weight: 600;
+    transition:
+        color .15s ease,
+        text-decoration-color .15s ease;
+}
+
+main a[href]:not(.btn):not([class*="nav"]):not([class*="tab"]):hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+}
+
+/* =========================================================
+   3. LEFT NAVIGATION
+========================================================= */
+
+.sidebar a,
+aside a,
+nav a {
+    transition:
+        background-color .15s ease,
+        color .15s ease,
+        transform .08s ease;
+}
+
+.sidebar a:hover,
+aside a:hover {
+    background-color: rgba(255,255,255,.08);
+}
+
+.sidebar a:active,
+aside a:active {
+    transform: translateX(1px);
+}
+
+/* =========================================================
+   4. MODULE TABS
+========================================================= */
+
+.module-navigation,
+.module-nav,
+.module-tabs,
+.section-tabs,
+.tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+}
+
+.module-navigation a,
+.module-nav a,
+.module-tabs a,
+.section-tabs a,
+.tabs a {
+    position: relative;
+    flex: 0 0 auto;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.module-navigation a:hover,
+.module-nav a:hover,
+.module-tabs a:hover,
+.section-tabs a:hover,
+.tabs a:hover {
+    background: #f1f5f9;
+    border-color: #e2e8f0;
+}
+
+.module-navigation a.active,
+.module-nav a.active,
+.module-tabs a.active,
+.section-tabs a.active,
+.tabs a.active {
+    background: #e8f0ff;
+    border-color: #d7e3ff;
+    box-shadow: inset 0 -2px 0 #2563eb;
+}
+
+/* =========================================================
+   5. CLICKABLE CARDS / RECORDS
+========================================================= */
+
+a.card {
+    display: block;
+    text-decoration: none !important;
+    cursor: pointer;
+    transition:
+        border-color .15s ease,
+        box-shadow .15s ease,
+        transform .12s ease;
+}
+
+a.card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 12px rgba(15,23,42,.08) !important;
+    transform: translateY(-1px);
+}
+
+/* Rows containing links get a subtle hover cue */
+.data-table tbody tr:has(a[href]),
+table tbody tr:has(a[href]) {
+    transition: background-color .12s ease;
+}
+
+.data-table tbody tr:has(a[href]):hover,
+table tbody tr:has(a[href]):hover {
+    background: #f8fafc;
+}
+
+/* =========================================================
+   6. CARDS / SECTIONS - LESS HEAVY
+========================================================= */
+
+.card {
+    border: 1px solid #e3e8ef !important;
+}
+
+.card h2 {
+    font-weight: 650 !important;
+}
+
+.card h3 {
+    font-weight: 650 !important;
+}
+
+.card + .card {
+    margin-top: 0 !important;
+}
+
+.dashboard-grid,
+.finance-summary-grid,
+.proc-metrics {
+    align-items: stretch;
+}
+
+/* =========================================================
+   7. FORM LABEL STYLE
+========================================================= */
+
+form label {
+    display: grid;
+    gap: 5px;
+    color: #334155;
+}
+
+form label > input,
+form label > select,
+form label > textarea {
+    margin-top: 0;
+}
+
+input,
+select,
+textarea {
+    border: 1px solid #cbd5e1 !important;
+    background: #fff;
+    transition:
+        border-color .15s ease,
+        box-shadow .15s ease;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+    border-color: #94a3b8 !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: #2563eb !important;
+    box-shadow: 0 0 0 3px rgba(37,99,235,.10);
+}
+
+/* =========================================================
+   8. PROCUREMENT - HARD OVERLAP FIX
+========================================================= */
+
+/*
+   The procurement pages contain dense action forms.
+   These must wrap instead of pushing outside their card/table.
+*/
+
+.proc-actions {
+    display: grid !important;
+    grid-template-columns:
+        repeat(auto-fit, minmax(135px, 1fr));
+    align-items: end;
+    gap: 8px !important;
+    width: 100%;
+    max-width: 100%;
+}
+
+.proc-actions > * {
+    min-width: 0;
+}
+
+.proc-actions label {
+    display: grid !important;
+    gap: 4px;
+    min-width: 0;
+}
+
+.proc-actions input,
+.proc-actions select,
+.proc-actions textarea {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+.proc-actions button,
+.proc-actions .btn {
+    width: auto !important;
+    justify-self: start;
+}
+
+/* Never let procurement table actions break page width */
+
+.data-table td form,
+table td form {
+    max-width: 100%;
+}
+
+.data-table td .proc-actions,
+table td .proc-actions {
+    min-width: 280px;
+}
+
+/* =========================================================
+   9. NEW REQUISITION FORM
+========================================================= */
+
+form[action$="/procurement/requisitions"] {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0,1fr)) !important;
+    gap: 12px !important;
+    align-items: end;
+    width: 100%;
+}
+
+/* Default field width */
+form[action$="/procurement/requisitions"] > label {
+    grid-column: span 6;
+    min-width: 0;
+}
+
+/* Headings such as Items take whole line */
+form[action$="/procurement/requisitions"] > h2,
+form[action$="/procurement/requisitions"] > h3,
+form[action$="/procurement/requisitions"] > p {
+    grid-column: 1 / -1;
+    margin-bottom: 0;
+}
+
+/* Full-width textarea / business justification */
+form[action$="/procurement/requisitions"] > label:has(textarea) {
+    grid-column: 1 / -1;
+}
+
+/* Warehouse selection normally benefits from full width */
+form[action$="/procurement/requisitions"]
+label:has(select[name*="warehouse"]) {
+    grid-column: 1 / -1;
+}
+
+/* Item product / description */
+form[action$="/procurement/requisitions"]
+label:has(select[name*="product"]) {
+    grid-column: span 4;
+}
+
+form[action$="/procurement/requisitions"]
+label:has(input[name*="description"]) {
+    grid-column: span 4;
+}
+
+/* Quantity / price */
+form[action$="/procurement/requisitions"]
+label:has(input[name*="quantity"]) {
+    grid-column: span 2;
+}
+
+form[action$="/procurement/requisitions"]
+label:has(input[name*="price"]) {
+    grid-column: span 2;
+}
+
+/* Submit action */
+form[action$="/procurement/requisitions"] > button,
+form[action$="/procurement/requisitions"] > .btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+    width: auto !important;
+}
+
+/* =========================================================
+   10. ACCOUNTING PERIOD PAGE
+========================================================= */
+
+.dashboard-grid {
+    gap: 14px !important;
+}
+
+/*
+   Accounting create forms need controlled columns.
+*/
+
+form[action*="/finance/fiscal"] ,
+form[action$="/finance/accounting-periods"] {
+    display: grid !important;
+    grid-template-columns:
+        minmax(170px,1.25fr)
+        minmax(145px,1fr)
+        minmax(145px,1fr)
+        auto !important;
+    gap: 10px !important;
+    align-items: end;
+    width: 100%;
+}
+
+form[action*="/finance/fiscal"] label,
+form[action$="/finance/accounting-periods"] label {
+    min-width: 0;
+}
+
+form[action*="/finance/fiscal"] button,
+form[action$="/finance/accounting-periods"] button {
+    width: auto !important;
+    white-space: nowrap;
+}
+
+/* Transition buttons should stay compact */
+
+form[action*="/finance/accounting-periods/"][action*="/transition"] {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 7px;
+    width: auto;
+}
+
+form[action*="/finance/accounting-periods/"][action*="/transition"] button {
+    width: auto !important;
+}
+
+/* =========================================================
+   11. TABLE PROFESSIONALISM
+========================================================= */
+
+.data-table thead th,
+table thead th {
+    background: #f8fafc;
+    color: #64748b;
+}
+
+.data-table tbody tr,
+table tbody tr {
+    border-bottom: 1px solid #edf1f5;
+}
+
+.data-table tbody tr:last-child,
+table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.data-table tbody tr:hover,
+table tbody tr:hover {
+    background-color: #fafcff;
+}
+
+/* =========================================================
+   12. STATUS / BADGE-LIKE TEXT
+========================================================= */
+
+.badge,
+.status,
+[class*="status-"] {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: .76rem;
+    font-weight: 650;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* =========================================================
+   13. RESPONSIVE SAFETY
+========================================================= */
+
+@media (max-width: 1200px) {
+
+    form[action$="/procurement/requisitions"] > label {
+        grid-column: span 6 !important;
+    }
+
+    form[action$="/procurement/requisitions"] > label:has(textarea),
+    form[action$="/procurement/requisitions"]
+    label:has(select[name*="warehouse"]) {
+        grid-column: 1 / -1 !important;
+    }
+
+    form[action*="/finance/fiscal"],
+    form[action$="/finance/accounting-periods"] {
+        grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+    }
+
+    form[action*="/finance/fiscal"] button,
+    form[action$="/finance/accounting-periods"] button {
+        justify-self: start;
+    }
+}
+
+@media (max-width: 760px) {
+
+    form[action$="/procurement/requisitions"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    form[action$="/procurement/requisitions"] > * {
+        grid-column: 1 !important;
+    }
+
+    form[action*="/finance/fiscal"],
+    form[action$="/finance/accounting-periods"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    .proc-actions {
+        grid-template-columns: 1fr !important;
+    }
+
+    .data-table td .proc-actions,
+    table td .proc-actions {
+        min-width: 0;
+    }
+}
+
+/* === SMART ERP UI V2 END === */
+
+/* === PROCUREMENT REQUISITION CLEAN START === */
+
+/*
+   IMPORTANT:
+   Scoped ONLY to Procurement → Requisitions.
+   No other ERP module/page is affected.
+*/
+
+/* ---------------------------------------------------------
+   FORM RESET
+   Cancel earlier Procurement-specific V1/V2 grid conflicts.
+--------------------------------------------------------- */
+
+form[action$="/procurement/requisitions"] {
+    display: grid !important;
+
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr)) !important;
+
+    grid-auto-flow: row !important;
+    grid-auto-columns: unset !important;
+
+    width: 100% !important;
+    max-width: 100% !important;
+
+    min-width: 0 !important;
+
+    column-gap: 14px !important;
+    row-gap: 12px !important;
+
+    align-items: end !important;
+
+    overflow: visible !important;
+}
+
+/*
+   Reset every direct form child first.
+*/
+
+form[action$="/procurement/requisitions"] > * {
+    min-width: 0 !important;
+    max-width: 100% !important;
+
+    width: auto !important;
+
+    grid-column: auto !important;
+    grid-row: auto !important;
+
+    justify-self: stretch !important;
+    align-self: end !important;
+}
+
+/* ---------------------------------------------------------
+   LABELS
+--------------------------------------------------------- */
+
+form[action$="/procurement/requisitions"] > label {
+    display: flex !important;
+    flex-direction: column !important;
+
+    gap: 5px !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    margin: 0 !important;
+
+    white-space: normal !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+}
+
+/*
+   Critical fix:
+   prevent labels like Department / Required by from shrinking
+   down to a few characters.
+*/
+
+form[action$="/procurement/requisitions"] > label {
+    min-inline-size: 0 !important;
+}
+
+/* ---------------------------------------------------------
+   CONTROLS
+--------------------------------------------------------- */
+
+form[action$="/procurement/requisitions"]
+input:not([type="hidden"]),
+
+form[action$="/procurement/requisitions"]
+select,
+
+form[action$="/procurement/requisitions"]
+textarea {
+    display: block !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+
+    box-sizing: border-box !important;
+
+    position: static !important;
+
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+
+    transform: none !important;
+
+    margin: 0 !important;
+}
+
+/* ---------------------------------------------------------
+   FIELD PLACEMENT
+--------------------------------------------------------- */
+
+/* Department */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(1) {
+    grid-column: 1 !important;
+}
+
+/* Required by */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(2) {
+    grid-column: 2 !important;
+}
+
+/* Destination warehouse */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(3) {
+    grid-column: 1 / -1 !important;
+}
+
+/* Business justification */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(4) {
+    grid-column: 1 / -1 !important;
+}
+
+/* ---------------------------------------------------------
+   ITEMS HEADING
+--------------------------------------------------------- */
+
+form[action$="/procurement/requisitions"] > h2,
+form[action$="/procurement/requisitions"] > h3,
+form[action$="/procurement/requisitions"] > h4 {
+    grid-column: 1 / -1 !important;
+
+    width: 100% !important;
+
+    margin: 8px 0 0 !important;
+    padding-top: 11px !important;
+
+    border-top: 1px solid #e5eaf0;
+}
+
+/* ---------------------------------------------------------
+   ITEM FIELDS
+
+   Use two rows.
+   This is much safer inside the right-side card.
+--------------------------------------------------------- */
+
+/* Product */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(5) {
+    grid-column: 1 !important;
+}
+
+/* Description */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(6) {
+    grid-column: 2 !important;
+}
+
+/* Quantity */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(7) {
+    grid-column: 1 !important;
+}
+
+/* Est. unit price */
+form[action$="/procurement/requisitions"]
+> label:nth-of-type(8) {
+    grid-column: 2 !important;
+}
+
+/* ---------------------------------------------------------
+   TEXTAREA
+--------------------------------------------------------- */
+
+form[action$="/procurement/requisitions"] textarea {
+    min-height: 76px !important;
+}
+
+/* ---------------------------------------------------------
+   BUTTON
+--------------------------------------------------------- */
+
+form[action$="/procurement/requisitions"] > button,
+form[action$="/procurement/requisitions"] > .btn {
+    grid-column: 1 / -1 !important;
+
+    justify-self: start !important;
+
+    width: auto !important;
+    min-width: 0 !important;
+
+    margin-top: 4px !important;
+}
+
+/* ---------------------------------------------------------
+   CARD CONTAINMENT
+--------------------------------------------------------- */
+
+.card:has(form[action$="/procurement/requisitions"]) {
+    min-width: 0 !important;
+    overflow: hidden !important;
+}
+
+.card:has(form[action$="/procurement/requisitions"]) * {
+    box-sizing: border-box !important;
+}
+
+/* ---------------------------------------------------------
+   SMALL WINDOW
+--------------------------------------------------------- */
+
+@media (max-width: 900px) {
+
+    form[action$="/procurement/requisitions"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    form[action$="/procurement/requisitions"] > * {
+        grid-column: 1 !important;
+    }
+}
+
+/* === PROCUREMENT REQUISITION CLEAN END === */

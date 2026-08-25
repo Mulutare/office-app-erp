@@ -7,12 +7,14 @@ namespace App\Controllers;
 use App\Services\AuthorizationService;
 use App\Services\FinanceDashboardService;
 use App\Services\FinanceOperationsService;
+use App\Services\AccountingPeriodService;
 
 final class FinanceController
 {
     private AuthorizationService $authorization;
     private FinanceDashboardService $finance;
     private FinanceOperationsService $operations;
+    private AccountingPeriodService $periods;
 
     public function __construct()
     {
@@ -21,6 +23,7 @@ final class FinanceController
         $this->finance =
             new FinanceDashboardService();
         $this->operations = new FinanceOperationsService();
+        $this->periods = new AccountingPeriodService();
     }
 
     public function customerInvoices(): void
@@ -127,6 +130,27 @@ final class FinanceController
             $permission
         );
     }
+
+    public function accountingPeriods(): void
+    {
+        $this->authorizeOperations('finance.period.view');
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Accounting Periods','pageDescription'=>'Controlled fiscal-year and posting-period lifecycle.','contentView'=>'finance.accounting-periods','user'=>$_SESSION['auth'],'notice'=>\getFlash('finance_period_notice'),'error'=>\getFlash('finance_period_error')]+$this->periods->workspace());
+    }
+
+    public function createFiscalYear(): void { $this->periodMutation('finance.period.manage',function():void{$this->periods->createFiscalYear($_POST,$this->actor());},'Fiscal year created.'); }
+    public function createAccountingPeriod(): void { $this->periodMutation('finance.period.manage',function():void{$this->periods->createPeriod($_POST,$this->actor());},'Accounting period opened.'); }
+    public function transitionAccountingPeriod(string $id): void
+    {
+        $action=\postString('action');$permission=$action==='reopen'?'finance.period.reopen':'finance.period.close';
+        $this->periodMutation($permission,function()use($id,$action):void{$this->periods->transition((int)$id,$action,\postString('reason'),$this->actor());},'Accounting period updated.');
+    }
+
+    private function periodMutation(string $permission,callable $operation,string $message): void
+    {
+        $this->authorizeOperations($permission);if(!\verifyCsrfToken(\postString('_token'))){\flash('finance_period_error','The form session expired.');\redirect('/finance/accounting-periods');}
+        try{$operation();\flash('finance_period_notice',$message);}catch(\Throwable $e){\flash('finance_period_error',$e->getMessage());}\redirect('/finance/accounting-periods');
+    }
+    private function actor(): int{return(int)($_SESSION['auth']['user_id']??0);}
 
     public function index(): void
     {

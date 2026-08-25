@@ -1,0 +1,12 @@
+<?php
+declare(strict_types=1);
+namespace App\Services;
+use App\Repositories\RepositoryFactory;use PDO;use RuntimeException;
+final class IntegrationEventOperationsService
+{
+ public function __construct(private ?TenantContext $tenant=null){$this->tenant??=new TenantContext();}
+ public function listing(array $filters=[]):array
+ {$company=$this->tenant->companyId();$where=['company_id=:company'];$p=['company'=>$company];foreach(['status','event_type'] as $key)if(trim((string)($filters[$key]??''))!==''){$where[]="$key=:$key";$p[$key]=trim((string)$filters[$key]);}if(trim((string)($filters['date_from']??''))!==''){$where[]='created_at>=:date_from';$p['date_from']=$filters['date_from'].' 00:00:00';}if(trim((string)($filters['date_to']??''))!==''){$where[]='created_at<=:date_to';$p['date_to']=$filters['date_to'].' 23:59:59';}$s=\db()->prepare('SELECT event_id,event_type,aggregate_type,aggregate_id,status,attempts,created_at,claimed_at,available_at,processed_at,dead_lettered_at,last_error FROM integration_outbox WHERE '.implode(' AND ',$where).' ORDER BY created_at DESC LIMIT 200');$s->execute($p);$health=\db()->query("SELECT task_name,MAX(started_at) last_run,MAX(CASE WHEN status='succeeded' THEN finished_at END) last_success,MAX(CASE WHEN status='failed' THEN finished_at END) last_failure FROM operations_task_runs GROUP BY task_name ORDER BY task_name")->fetchAll(PDO::FETCH_ASSOC);$summary=\db()->prepare("SELECT status,COUNT(*) event_count,MIN(created_at) oldest_created FROM integration_outbox WHERE company_id=:company GROUP BY status");$summary->execute(['company'=>$company]);return['events'=>$s->fetchAll(PDO::FETCH_ASSOC),'health'=>$health,'summary'=>$summary->fetchAll(PDO::FETCH_ASSOC),'filters'=>$filters];}
+ public function retry(string $eventId,int $actor):void
+ {$company=$this->tenant->companyId();$c=\db();$c->beginTransaction();try{$s=$c->prepare("UPDATE integration_outbox SET status='pending',available_at=NOW(),claimed_by=NULL,claimed_at=NULL,dead_lettered_at=NULL,last_error=NULL WHERE company_id=:company AND event_id=:event AND status='failed'");$s->execute(['company'=>$company,'event'=>$eventId]);if($s->rowCount()!==1)throw new RuntimeException('Only a failed company event can be safely requeued.');RepositoryFactory::auditLogs()->record($actor,'REQUEUE_INTEGRATION_EVENT','administration','integration_outbox',$eventId,null,['status'=>'pending'],$company);$c->commit();}catch(\Throwable $e){if($c->inTransaction())$c->rollBack();throw$e;}}
+}

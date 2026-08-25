@@ -1,0 +1,15 @@
+<?php
+declare(strict_types=1);
+namespace App\Services;
+use PDO;use RuntimeException;
+final class ApprovalPolicyService
+{
+ public function assertAndRecord(int $company,string $action,string $subject,int $subjectId,float $amount,int $maker,int $checker,?string $reason=null):void
+ {
+  $s=\db()->prepare('SELECT * FROM company_approval_policies WHERE company_id=:company AND action_type=:action AND active=TRUE AND minimum_amount<=:minimum_match AND (maximum_amount IS NULL OR maximum_amount>=:maximum_match) ORDER BY minimum_amount DESC,approval_policy_id DESC LIMIT 1 FOR UPDATE');$s->execute(['company'=>$company,'action'=>$action,'minimum_match'=>round($amount,2),'maximum_match'=>round($amount,2)]);$policy=$s->fetch(PDO::FETCH_ASSOC);if(!$policy||!(bool)$policy['maker_checker_enabled'])return;if($maker===$checker)throw new RuntimeException('Maker/checker policy requires a different authorized approver.');
+  $authorized=\db()->prepare('SELECT COUNT(*) FROM company_user_roles ur INNER JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id INNER JOIN permissions p ON p.permission_id=rp.permission_id AND p.active=TRUE WHERE ur.company_id=:company AND ur.user_id=:checker AND p.code=:permission');$authorized->execute(['company'=>$company,'checker'=>$checker,'permission'=>$policy['required_permission']]);if((int)$authorized->fetchColumn()<1)throw new RuntimeException('The checker lacks the approval level required by company policy.');
+  $insert=\db()->prepare("INSERT INTO company_approval_decisions(company_id,approval_policy_id,action_type,subject_type,subject_id,amount,maker_user_id,checker_user_id,decision,reason) VALUES(:company,:policy,:action,:subject,:subject_id,:amount,:maker,:checker,'approved',:reason)");$insert->execute(['company'=>$company,'policy'=>$policy['approval_policy_id'],'action'=>$action,'subject'=>$subject,'subject_id'=>$subjectId,'amount'=>round($amount,2),'maker'=>$maker,'checker'=>$checker,'reason'=>trim((string)$reason)===''?null:trim((string)$reason)]);
+ }
+ public function save(int $company,array $input,int $actor):int
+ {$action=trim((string)($input['action_type']??''));$permission=trim((string)($input['required_permission']??''));$min=round((float)($input['minimum_amount']??0),2);$max=isset($input['maximum_amount'])&&$input['maximum_amount']!==''?round((float)$input['maximum_amount'],2):null;if($action===''||$permission===''||$min<0||($max!==null&&$max<$min))throw new RuntimeException('Valid action, threshold range and permission are required.');$s=\db()->prepare('INSERT INTO company_approval_policies(company_id,action_type,maker_checker_enabled,minimum_amount,maximum_amount,required_permission,created_by,updated_by) VALUES(:company,:action,:enabled,:minimum,:maximum,:permission,:created_by,:updated_by)');$s->execute(['company'=>$company,'action'=>$action,'enabled'=>!empty($input['maker_checker_enabled'])?1:0,'minimum'=>$min,'maximum'=>$max,'permission'=>$permission,'created_by'=>$actor,'updated_by'=>$actor]);return(int)\db()->lastInsertId();}
+}

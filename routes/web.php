@@ -25,6 +25,7 @@ use App\Controllers\WarehouseLocationController;
 use App\Controllers\SalesController;
 use App\Controllers\SalesSettlementController;
 use App\Controllers\CommercialDocumentController;
+use App\Controllers\IntegrationEventController;
 use App\Controllers\ApiV1SalesController;
 use App\Controllers\HomeController;
 use App\Controllers\HrController;
@@ -76,6 +77,7 @@ $warehouseLocationController =
 $salesController = new SalesController();
 $salesSettlementController = new SalesSettlementController();
 $commercialDocumentController = new CommercialDocumentController();
+$integrationEventController = new IntegrationEventController();
 $dataExchangeController = new DataExchangeController();
 $apiV1SalesController = new ApiV1SalesController();
 $moduleAdministrationController =
@@ -682,6 +684,12 @@ $router->get(
     '/analytics',
     [$powerBiController, 'index']
 );
+$router->get('/administration/integration-events',[$integrationEventController,'index']);
+$router->post('/administration/integration-events/{id}/retry',[$integrationEventController,'retry']);
+$router->get('/finance/accounting-periods',[$financeController,'accountingPeriods']);
+$router->post('/finance/fiscal-years',[$financeController,'createFiscalYear']);
+$router->post('/finance/accounting-periods',[$financeController,'createAccountingPeriod']);
+$router->post('/finance/accounting-periods/{id}/transition',[$financeController,'transitionAccountingPeriod']);
 $router->get(
     '/administration/analytics',
     [$powerBiController, 'configuration']
