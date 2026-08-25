@@ -506,6 +506,20 @@ a {
     border-bottom: 0;
 }
 
+.dashboard-account-card {
+    min-width: 0;
+}
+
+.dashboard-account-card .status-item > * {
+    min-width: 0;
+}
+
+.dashboard-account-card .status-item strong {
+    max-width: 70%;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
 .status-good {
     color: var(--color-success);
     font-weight: 700;

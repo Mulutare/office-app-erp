@@ -98,11 +98,13 @@ try {
     $routes = file_get_contents(__DIR__ . '/../routes/web.php');
     $taskServiceSource = file_get_contents(__DIR__ . '/../app/services/ActionRequiredCountService.php');
     $css = file_get_contents(__DIR__ . '/../public/assets/css/app.css');
+    $dashboardView = file_get_contents(__DIR__ . '/../resources/views/dashboard/index.php');
     $check(is_string($navigation) && !str_contains($navigation, 'nav-action-badge') && !str_contains($navigation, 'actionRequiredCounts'), 'Main sidebar remains badge-free and unchanged by action counts');
     $check(is_string($moduleNavigation) && str_contains($moduleNavigation, '$actionCount > 0'), 'Internal module tabs omit badge markup when the count is zero');
     $check(is_string($moduleNavigation) && str_contains($moduleNavigation, 'task_filter=action_required') && str_contains($moduleNavigation, 'aria-label'), 'Module-tab badge is an accessible link to the exact action-required filter');
     $check(is_string($css) && str_contains($css, '.nav-action-badge'), 'Navigation badge uses one reusable CSS class');
     $check(is_string($css) && str_contains($css, 'position: absolute') && str_contains($css, 'top: 1px'), 'Internal-tab badge is anchored at the upper-right without becoming inline text');
+    $check(is_string($dashboardView) && str_contains($dashboardView, 'dashboard-account-card') && is_string($css) && str_contains($css, '.dashboard-account-card .status-item strong') && str_contains($css, 'overflow-wrap: anywhere'), 'Signed-in account values wrap within their scoped dashboard card');
     $check(is_string($hrNavigation) && str_contains($hrNavigation, "['hr']['leave']"), 'HR leave action count is attached to the Leave management workflow link');
     $check(is_string($administrationNavigation) && str_contains($administrationNavigation, "'integration_events'"), 'Administration failures are attached to the Integration events workflow link');
     $check(is_string($taskItemsView) && str_contains($taskItemsView, 'Next:') && str_contains($taskItemsView, 'actionRequiredItems'), 'Shared task view renders the service-provided record and next action');
@@ -121,6 +123,9 @@ try {
         $check(is_string($routes) && str_contains($routes, "'" . $route . "'"), $description);
     }
     $check(is_string($taskServiceSource) && !str_contains($taskServiceSource, "'/sales/settlements/create'") && !str_contains($taskServiceSource, "'/finance/settlements/{id}'"), 'Task descriptors contain no unregistered settlement detail or creation GET route');
+    $reset();
+    $procurementOrderTasks = $service->itemsFor($company, $actor, ['procurement.orders.approve'], 'procurement', 'orders');
+    $check(is_array($procurementOrderTasks), 'Purchase Order task metadata executes with production-compatible unique parameter bindings');
 
     $pdo->exec("UPDATE sales_quotations SET status='confirmed' WHERE company_id=$company");
     $customer = (int) $pdo->query("SELECT customer_id FROM sales_customers WHERE company_id=$company AND active=TRUE AND deleted_at IS NULL LIMIT 1")->fetchColumn();
@@ -222,6 +227,21 @@ try {
     $pdo->exec("UPDATE finance_invoices SET payment_status='paid',residual_amount=0 WHERE company_id=$company AND invoice_id=$vendorBill");
     $reset();
     $check($service->counts($company, $actor, ['procurement.payments.post'])['procurement']['payments'] === 0, 'Paid vendor bill completes the procure-to-pay badge chain');
+    $pdo->exec("UPDATE purchase_requisitions SET status='rejected' WHERE company_id=$company");
+    $closePermissions = ['procurement.orders.create','procurement.receipts.create','procurement.bills.create','procurement.bills.post','procurement.payments.post'];
+    $reset();
+    $closeCounts = $service->counts($company, $actor, $closePermissions);
+    $closeTasks = $service->itemsFor($company, $actor, $closePermissions, 'procurement', 'orders');
+    $check($closeCounts['procurement']['orders'] === 1, 'Billed fully received and billed PO with Close PO permission counts one Purchase Orders task');
+    $check(count($closeTasks) === $closeCounts['procurement']['orders'], 'Close PO action-required record count equals the Purchase Orders tab badge');
+    $check(($closeTasks[0]['id'] ?? 0) === $poId && str_starts_with((string)($closeTasks[0]['reference'] ?? ''), 'PO-'), 'Close PO task identifies the correct PO business reference');
+    $check(($closeTasks[0]['next_action'] ?? '') === 'Close PO' && ($closeTasks[0]['url'] ?? '') === appBasePath() . '/procurement/' . $poId, 'Close PO task exposes the real next action and purchase order detail route');
+    $check($closeCounts['procurement']['receipts'] === 0 && $closeCounts['procurement']['bills'] === 0 && $closeCounts['procurement']['payments'] === 0, 'Completed receipt bill and payment stages do not duplicate the Close PO task downstream');
+    $reset();
+    $check($service->counts($company, $actor, ['procurement.view'])['procurement']['orders'] === 0 && $service->itemsFor($company, $actor, ['procurement.view'], 'procurement', 'orders') === [], 'User without the existing Close PO permission receives no task');
+    $pdo->exec("UPDATE purchase_orders SET status='closed' WHERE company_id=$company AND purchase_order_id=$poId");
+    $reset();
+    $check($service->counts($company, $actor, $closePermissions)['procurement']['orders'] === 0 && $service->itemsFor($company, $actor, $closePermissions, 'procurement', 'orders') === [], 'Closing the PO removes its badge and record-level task');
 } finally {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();

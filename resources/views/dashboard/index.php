@@ -98,7 +98,7 @@ $statistics = is_array($data['statistics'] ?? null)
         </ul>
     </article>
 
-    <article class="card">
+    <article class="card dashboard-account-card">
         <h2 class="card-title">
             Signed-in account
         </h2>

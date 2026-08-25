@@ -159,6 +159,7 @@ SELECT
    )) submitted_orders,
  (SELECT COUNT(*) FROM purchase_orders WHERE company_id=:c3 AND status='approved') approved_orders,
  (SELECT COUNT(*) FROM purchase_orders WHERE company_id=:c9 AND status='draft' AND created_by=:a4) draft_orders,
+ (SELECT COUNT(*) FROM purchase_orders WHERE company_id=:c13 AND status='billed') billed_orders_to_close,
  (SELECT COUNT(*) FROM purchase_requisitions r WHERE r.company_id=:c10 AND r.status='approved'
    AND NOT EXISTS(SELECT 1 FROM purchase_orders po WHERE po.company_id=r.company_id AND po.requisition_id=r.requisition_id)) requisitions_to_order,
  (SELECT COUNT(*) FROM inventory_goods_receipts WHERE company_id=:c4 AND status IN('draft','submitted') AND created_by<>:a2) receipts_to_approve,
@@ -169,13 +170,13 @@ SELECT
    AND EXISTS(SELECT 1 FROM purchase_order_lines pol WHERE pol.company_id=po.company_id AND pol.purchase_order_id=po.purchase_order_id AND pol.received_quantity<pol.ordered_quantity)) receipts_to_create
  ,(SELECT COUNT(*) FROM purchase_orders po WHERE po.company_id=:c12 AND po.status IN('partially_received','received','partially_billed')
    AND EXISTS(SELECT 1 FROM purchase_order_lines pol WHERE pol.company_id=po.company_id AND pol.purchase_order_id=po.purchase_order_id AND pol.billed_quantity<pol.received_quantity-pol.returned_quantity)) bills_to_create
-SQL, ['c1'=>$companyId,'a1'=>$userId,'c8'=>$companyId,'a3'=>$userId,'c2'=>$companyId,'approval_actor'=>$userId,'approval_user'=>$userId,'c3'=>$companyId,'c9'=>$companyId,'a4'=>$userId,'c10'=>$companyId,'c4'=>$companyId,'a2'=>$userId,'c5'=>$companyId,'c6'=>$companyId,'c7'=>$companyId,'c11'=>$companyId,'c12'=>$companyId]);
+SQL, ['c1'=>$companyId,'a1'=>$userId,'c8'=>$companyId,'a3'=>$userId,'c2'=>$companyId,'approval_actor'=>$userId,'approval_user'=>$userId,'c3'=>$companyId,'c9'=>$companyId,'a4'=>$userId,'c13'=>$companyId,'c10'=>$companyId,'c4'=>$companyId,'a2'=>$userId,'c5'=>$companyId,'c6'=>$companyId,'c7'=>$companyId,'c11'=>$companyId,'c12'=>$companyId]);
 
         $counts['procurement']['requisitions'] = ($can('procurement.requisitions.create') ? $procurement['draft_requisitions'] : 0)
             + ($can('procurement.requisitions.approve') ? $procurement['requisitions'] : 0);
         $counts['procurement']['orders'] = ($can('procurement.orders.approve') ? $procurement['submitted_orders'] : 0)
             + ($can('procurement.orders.confirm') ? $procurement['approved_orders'] : 0)
-            + ($can('procurement.orders.create') ? $procurement['draft_orders'] + $procurement['requisitions_to_order'] : 0);
+            + ($can('procurement.orders.create') ? $procurement['draft_orders'] + $procurement['requisitions_to_order'] + $procurement['billed_orders_to_close'] : 0);
         $counts['procurement']['receipts'] = ($can('inventory.receipts.approve') ? $procurement['receipts_to_approve'] : 0)
             + ($can('inventory.receipts.post') ? $procurement['receipts_to_post'] : 0)
             + ($can('procurement.receipts.create') ? $procurement['receipts_to_create'] : 0);
@@ -312,8 +313,9 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             if ($can('procurement.orders.create')) {
                 $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders WHERE company_id=:company_id AND status='draft' AND created_by=:user_id", $parameters, 'purchase_order', 'Submit purchase order', 'submit_purchase_order', '/procurement/{id}');
                 $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='approved' AND NOT EXISTS(SELECT 1 FROM purchase_orders po WHERE po.company_id=r.company_id AND po.requisition_id=r.requisition_id)", $parameters, 'requisition', 'Create purchase order', 'create_purchase_order', '/procurement?section=orders');
+                $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders WHERE company_id=:company_id AND status='billed'", $parameters, 'purchase_order', 'Close PO', 'close_purchase_order', '/procurement/{id}');
             }
-            if ($can('procurement.orders.approve')) $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status='submitted' AND (COALESCE((SELECT p.maker_checker_enabled FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1),FALSE)=FALSE OR (po.created_by<>:user_id AND EXISTS(SELECT 1 FROM company_user_roles ur INNER JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id INNER JOIN permissions pm ON pm.permission_id=rp.permission_id AND pm.active=TRUE WHERE ur.company_id=po.company_id AND ur.user_id=:user_id AND pm.code=(SELECT p.required_permission FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1))))", $parameters, 'purchase_order', 'Approve purchase order', 'approve_purchase_order', '/procurement/{id}');
+            if ($can('procurement.orders.approve')) $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status='submitted' AND (COALESCE((SELECT p.maker_checker_enabled FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1),FALSE)=FALSE OR (po.created_by<>:approval_actor AND EXISTS(SELECT 1 FROM company_user_roles ur INNER JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id INNER JOIN permissions pm ON pm.permission_id=rp.permission_id AND pm.active=TRUE WHERE ur.company_id=po.company_id AND ur.user_id=:approval_user AND pm.code=(SELECT p.required_permission FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1))))", $parameters + ['approval_actor'=>$parameters['user_id'],'approval_user'=>$parameters['user_id']], 'purchase_order', 'Approve purchase order', 'approve_purchase_order', '/procurement/{id}');
             if ($can('procurement.orders.confirm')) $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders WHERE company_id=:company_id AND status='approved'", $parameters, 'purchase_order', 'Confirm purchase order', 'confirm_purchase_order', '/procurement/{id}');
             return;
         }
@@ -359,7 +361,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'create_settlement' => '/sales/settlements#create-settlement',
             'submit_requisition', 'approve_requisition' => '/procurement?section=requisitions',
             'create_purchase_order' => '/procurement?section=orders',
-            'submit_purchase_order', 'approve_purchase_order', 'confirm_purchase_order', 'create_supplier_bill', 'create_receipt' => '/procurement/{id}',
+            'submit_purchase_order', 'approve_purchase_order', 'confirm_purchase_order', 'close_purchase_order', 'create_supplier_bill', 'create_receipt' => '/procurement/{id}',
             'approve_receipt', 'post_receipt' => '/inventory/receipts/{id}',
             'post_supplier_bill' => '/procurement?section=bills',
             'post_supplier_payment' => '/procurement?section=payments',
