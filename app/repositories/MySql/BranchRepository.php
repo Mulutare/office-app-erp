@@ -43,6 +43,10 @@ final class BranchRepository extends MySqlRepository
                 city,
                 country_code,
                 timezone,
+                attendance_geofence_enabled,
+                attendance_latitude,
+                attendance_longitude,
+                attendance_radius_meters,
                 is_head_office,
                 active,
                 created_at,
@@ -83,6 +87,10 @@ final class BranchRepository extends MySqlRepository
                 city,
                 country_code,
                 timezone,
+                attendance_geofence_enabled,
+                attendance_latitude,
+                attendance_longitude,
+                attendance_radius_meters,
                 is_head_office,
                 active,
                 created_by,
@@ -191,6 +199,10 @@ final class BranchRepository extends MySqlRepository
                     city,
                     country_code,
                     timezone,
+                    attendance_geofence_enabled,
+                    attendance_latitude,
+                    attendance_longitude,
+                    attendance_radius_meters,
                     is_head_office,
                     active,
                     created_by,
@@ -207,6 +219,10 @@ final class BranchRepository extends MySqlRepository
                     :city,
                     :country_code,
                     :timezone,
+                    :attendance_geofence_enabled,
+                    :attendance_latitude,
+                    :attendance_longitude,
+                    :attendance_radius_meters,
                     :is_head_office,
                     :active,
                     :created_by,
@@ -241,6 +257,10 @@ final class BranchRepository extends MySqlRepository
                  city = :city,
                  country_code = :country_code,
                  timezone = :timezone,
+                 attendance_geofence_enabled = :attendance_geofence_enabled,
+                 attendance_latitude = :attendance_latitude,
+                 attendance_longitude = :attendance_longitude,
+                 attendance_radius_meters = :attendance_radius_meters,
                  is_head_office = :is_head_office,
                  active = :active,
                  updated_by = :updated_by
@@ -327,6 +347,14 @@ final class BranchRepository extends MySqlRepository
             'country_code' =>
                 $values['country_code'],
             'timezone' => $values['timezone'],
+            'attendance_geofence_enabled' =>
+                !empty($values['attendance_geofence_enabled']) ? 1 : 0,
+            'attendance_latitude' =>
+                $values['attendance_latitude'],
+            'attendance_longitude' =>
+                $values['attendance_longitude'],
+            'attendance_radius_meters' =>
+                $values['attendance_radius_meters'],
             'is_head_office' =>
                 !empty($values['is_head_office'])
                     ? 1

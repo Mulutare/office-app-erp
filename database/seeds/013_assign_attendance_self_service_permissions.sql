@@ -48,8 +48,7 @@ WHERE (
         roles.code = 'employee_self_service'
         AND permissions.code IN (
             'attendance.self.view',
-            'attendance.self.record',
-            'attendance.team.view'
+            'attendance.self.record'
         )
     )
    OR (
@@ -65,14 +64,12 @@ WHERE (
         )
         AND permissions.code IN (
             'attendance.self.view',
-            'attendance.self.record',
-            'attendance.team.view'
+            'attendance.self.record'
         )
     )
    OR (
-        roles.code = 'company_owner'
-        AND permissions.code =
-            'attendance.team.view'
+        roles.code IN ('system_administrator','company_owner','hr_administrator')
+        AND permissions.code = 'attendance.team.view'
     )
 ON DUPLICATE KEY UPDATE
     permission_id = VALUES(permission_id);

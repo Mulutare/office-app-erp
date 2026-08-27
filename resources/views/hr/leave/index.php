@@ -39,6 +39,9 @@ $profileRequired = !empty(
 $employee = is_array($data['employee'] ?? null)
     ? $data['employee']
     : null;
+$balances = is_array($data['balances'] ?? null)
+    ? $data['balances']
+    : [];
 $scopeLabel = (string) (
     $data['scopeLabel'] ?? 'My leave'
 );
@@ -138,6 +141,59 @@ $formatDate = static function (mixed $value): string {
         administrator to link the account before requesting
         leave.
     </div>
+<?php endif; ?>
+
+<?php if ($employee !== null && $balances !== []): ?>
+<section class="card">
+    <span class="section-kicker">
+        My leave quota
+    </span>
+
+    <h2 class="card-title">
+        <?= e(date('Y')) ?> leave balance
+    </h2>
+
+    <div class="operations-summary-grid">
+        <?php foreach ($balances as $balance): ?>
+            <article class="operations-summary-card">
+                <span>
+                    <?= e($balance['name'] ?? '') ?>
+                </span>
+
+                <strong>
+                    <?= e(number_format(
+                        (float) (
+                            $balance['remaining_days']
+                            ?? 0
+                        ),
+                        2
+                    )) ?>
+                    days
+                </strong>
+
+                <small>
+                    Remaining &middot;
+                    <?= e(number_format(
+                        (float) (
+                            $balance['used_days']
+                            ?? 0
+                        ),
+                        2
+                    )) ?>
+                    used &middot;
+                    <?= e(number_format(
+                        (float) (
+                            $balance['available_days']
+                            ?? 0
+                        ),
+                        2
+                    )) ?>
+                    available
+                </small>
+            </article>
+        <?php endforeach; ?>
+    </div>
+</section>
 <?php endif; ?>
 
 <section class="operations-summary-grid">

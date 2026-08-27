@@ -37,13 +37,13 @@ Future modules should:
 |---|---|
 | `system_administrator` | Every active permission |
 | `company_owner` | Company administration, audit, licensed-module management and team oversight; no employee self-service by default |
-| `executive_viewer` | Dashboard and read-only access to HR, IT, Finance, and Business records |
+| `executive_viewer` | Dashboard and read-only access to IT, Finance, and Business records; HR administration requires a separate HR-authorized role |
 | `hr_administrator` | Dashboard plus HR view and management |
 | `it_administrator` | Dashboard plus IT view and management |
 | `finance_officer` | Dashboard plus Finance view and management |
 | `finance_approver` | Dashboard plus Finance view and approval |
 | `business_development_officer` | Dashboard plus Business view and management |
-| `auditor` | Dashboard, audit logs, and read-only access to HR, IT, Finance, and Business records |
+| `auditor` | Dashboard, audit logs, and read-only access to IT, Finance, and Business records; HR administration requires a separate HR-authorized role |
 
 Sales roles and their least-privilege permission matrix are documented in
 `docs/sales-access-control.md` and provisioned by seed `021`.

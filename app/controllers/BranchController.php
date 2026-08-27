@@ -231,6 +231,10 @@ final class BranchController
             'branchId' => $branchId,
             'old' => $old,
             'errors' => $errors,
+            'googleMapsApiKey' => (string) \config(
+                'google_maps_browser_api_key',
+                ''
+            ),
         ]);
     }
 
@@ -269,6 +273,14 @@ final class BranchController
             'country_code' =>
                 \postString('country_code'),
             'timezone' => \postString('timezone'),
+            'attendance_geofence_enabled' =>
+                isset($_POST['attendance_geofence_enabled']),
+            'attendance_latitude' =>
+                \postString('attendance_latitude'),
+            'attendance_longitude' =>
+                \postString('attendance_longitude'),
+            'attendance_radius_meters' =>
+                \postString('attendance_radius_meters'),
             'is_head_office' =>
                 isset($_POST['is_head_office']),
             'active' => isset($_POST['active']),

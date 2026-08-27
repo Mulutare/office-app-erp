@@ -71,8 +71,7 @@ WHERE (
         AND permissions.code IN (
             'dashboard.view',
             'hr.leave.self.view',
-            'hr.leave.self.request',
-            'hr.leave.team.approve'
+            'hr.leave.self.request'
         )
     )
    OR (
@@ -88,14 +87,12 @@ WHERE (
         )
         AND permissions.code IN (
             'hr.leave.self.view',
-            'hr.leave.self.request',
-            'hr.leave.team.approve'
+            'hr.leave.self.request'
         )
     )
    OR (
-        roles.code = 'company_owner'
-        AND permissions.code =
-            'hr.leave.team.approve'
+        roles.code IN ('system_administrator','company_owner','hr_administrator')
+        AND permissions.code = 'hr.leave.team.approve'
     )
 ON DUPLICATE KEY UPDATE
     permission_id = VALUES(permission_id);

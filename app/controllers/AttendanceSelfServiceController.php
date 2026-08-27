@@ -76,6 +76,8 @@ final class AttendanceSelfServiceController
             'canCheckOut' =>
                 $workspace['canCheckOut'],
             'canScan' => $workspace['canScan'],
+            'geofenceRequired' =>
+                $workspace['geofenceRequired'],
             'scanRequestKey' => bin2hex(
                 random_bytes(16)
             ),
@@ -391,7 +393,13 @@ final class AttendanceSelfServiceController
             ? $this->attendance->scan(
                 $this->actorUserId(),
                 $requestKey,
-                $deviceReference
+                $deviceReference,
+                null,
+                [
+                    'latitude' => $_POST['latitude'] ?? null,
+                    'longitude' => $_POST['longitude'] ?? null,
+                    'accuracy' => $_POST['accuracy'] ?? null,
+                ]
             )
             : $this->attendance->{$method}(
                 $this->actorUserId()

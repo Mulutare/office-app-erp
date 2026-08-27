@@ -78,16 +78,6 @@ WHERE (
             'hr.leave.approve'
         )
     )
-   OR (
-        roles.code IN (
-            'executive_viewer',
-            'auditor'
-        )
-        AND permissions.code IN (
-            'attendance.records.view',
-            'hr.leave.view'
-        )
-    )
 ON DUPLICATE KEY UPDATE
     permission_id = VALUES(permission_id);
 

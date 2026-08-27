@@ -151,6 +151,7 @@ $scanRequestKey = (string) (
     $data['scanRequestKey'] ?? ''
 );
 $canViewTeam = !empty($data['canViewTeam']);
+$geofenceRequired = !empty($data['geofenceRequired']);
 
 $formatDate = static function (
     mixed $value
@@ -591,6 +592,8 @@ $formatDate = static function (
                         <form
                             method="post"
                             action="/office_app/public/attendance/me/scan"
+                            data-attendance-scan-form
+                            data-geofence-required="<?= $geofenceRequired ? '1' : '0' ?>"
                         >
                             <?= csrfField() ?>
                             <input
@@ -598,11 +601,19 @@ $formatDate = static function (
                                 name="request_key"
                                 value="<?= e($scanRequestKey) ?>"
                             >
+                            <input type="hidden" name="latitude" value="">
+                            <input type="hidden" name="longitude" value="">
+                            <input type="hidden" name="accuracy" value="">
+                            <p class="form-help" data-attendance-location-status aria-live="polite">
+                                <?= $geofenceRequired
+                                    ? 'Your device location will be verified when you continue.'
+                                    : 'Location verification is not required for this workplace.' ?>
+                            </p>
                             <button
                                 type="submit"
                                 class="btn btn-primary"
                             >
-                                Record attendance scan
+                                <?= !empty($data['isWorking']) ? 'Sign Out' : 'Sign In' ?>
                             </button>
                         </form>
                     <?php else: ?>
@@ -1109,6 +1120,7 @@ $formatDate = static function (
         </a>
     </nav>
 </section>
+<script src="/office_app/public/assets/js/attendance-geofence.js" defer></script>
 
 <section class="attendance-summary-grid">
     <article>

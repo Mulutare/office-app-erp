@@ -434,6 +434,17 @@ final class BranchManagementService
             'timezone' => trim((string) (
                 $input['timezone'] ?? ''
             )),
+            'attendance_geofence_enabled' =>
+                !empty($input['attendance_geofence_enabled']),
+            'attendance_latitude' => $this->nullable(
+                $input['attendance_latitude'] ?? null
+            ),
+            'attendance_longitude' => $this->nullable(
+                $input['attendance_longitude'] ?? null
+            ),
+            'attendance_radius_meters' => $this->nullable(
+                $input['attendance_radius_meters'] ?? null
+            ),
             'is_head_office' =>
                 !empty($input['is_head_office']),
             'active' => !empty($input['active']),
@@ -460,6 +471,11 @@ final class BranchManagementService
         $countryCode =
             (string) $values['country_code'];
         $timezone = (string) $values['timezone'];
+        $geofenceEnabled =
+            !empty($values['attendance_geofence_enabled']);
+        $latitude = $values['attendance_latitude'];
+        $longitude = $values['attendance_longitude'];
+        $radius = $values['attendance_radius_meters'];
 
         if (
             preg_match(
@@ -556,6 +572,67 @@ final class BranchManagementService
         }
 
         if (
+            $latitude !== null
+            && (
+                !is_numeric($latitude)
+                || (float) $latitude < -90
+                || (float) $latitude > 90
+            )
+        ) {
+            $errors['attendance_latitude'] =
+                'Latitude must be between -90 and 90.';
+        }
+
+        if (
+            $longitude !== null
+            && (
+                !is_numeric($longitude)
+                || (float) $longitude < -180
+                || (float) $longitude > 180
+            )
+        ) {
+            $errors['attendance_longitude'] =
+                'Longitude must be between -180 and 180.';
+        }
+
+        if (
+            $radius !== null
+            && (
+                filter_var(
+                    $radius,
+                    FILTER_VALIDATE_INT
+                ) === false
+                || (int) $radius < 10
+                || (int) $radius > 50000
+            )
+        ) {
+            $errors['attendance_radius_meters'] =
+                'Attendance radius must be between 10 and 50,000 meters.';
+        }
+
+        if ($geofenceEnabled) {
+            if ($latitude === null) {
+                $errors['attendance_latitude'] =
+                    'Select the attendance location.';
+            }
+
+            if ($longitude === null) {
+                $errors['attendance_longitude'] =
+                    'Select the attendance location.';
+            }
+
+            if ($radius === null) {
+                $errors['attendance_radius_meters'] =
+                    'Enter the allowed attendance radius.';
+            }
+
+            if (empty($values['active'])) {
+                $errors['active'] =
+                    'A branch with attendance location enforcement must remain active.';
+            }
+        }
+
+        if (
             !empty($values['is_head_office'])
             && empty($values['active'])
         ) {
@@ -619,6 +696,17 @@ final class BranchManagementService
             ),
             'timezone' => (string) (
                 $record['timezone'] ?? ''
+            ),
+            'attendance_geofence_enabled' =>
+                !empty($record['attendance_geofence_enabled']),
+            'attendance_latitude' => $this->nullable(
+                $record['attendance_latitude'] ?? null
+            ),
+            'attendance_longitude' => $this->nullable(
+                $record['attendance_longitude'] ?? null
+            ),
+            'attendance_radius_meters' => $this->nullable(
+                $record['attendance_radius_meters'] ?? null
             ),
             'is_head_office' =>
                 !empty($record['is_head_office']),

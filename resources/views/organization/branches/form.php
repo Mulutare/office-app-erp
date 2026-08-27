@@ -104,6 +104,52 @@ $formAction = $isEdit
     <section class="form-section">
         <div class="section-heading">
             <div>
+                <span class="eyebrow">Attendance security</span>
+                <h2 class="card-title">Workplace geofence</h2>
+                <p>HR controls the location employees must be near when signing in or out.</p>
+            </div>
+        </div>
+        <label class="checkbox-option">
+            <input type="checkbox" name="attendance_geofence_enabled" value="1"
+                <?= !empty($old['attendance_geofence_enabled']) ? 'checked' : '' ?>>
+            <span><strong>Require workplace location</strong><small>Both Sign In and Sign Out will require device GPS verification.</small></span>
+        </label>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="attendance-latitude">Latitude</label>
+                <input id="attendance-latitude" name="attendance_latitude" type="number" step="0.0000001" min="-90" max="90" value="<?= e($old['attendance_latitude'] ?? '') ?>" placeholder="-1.2921000">
+                <?php if (!empty($errors['attendance_latitude'])): ?><small class="field-error"><?= e($errors['attendance_latitude']) ?></small><?php endif; ?>
+            </div>
+            <div class="form-field">
+                <label for="attendance-longitude">Longitude</label>
+                <input id="attendance-longitude" name="attendance_longitude" type="number" step="0.0000001" min="-180" max="180" value="<?= e($old['attendance_longitude'] ?? '') ?>" placeholder="36.8219000">
+                <?php if (!empty($errors['attendance_longitude'])): ?><small class="field-error"><?= e($errors['attendance_longitude']) ?></small><?php endif; ?>
+            </div>
+            <div class="form-field">
+                <label for="attendance-radius">Allowed radius (meters)</label>
+                <input id="attendance-radius" name="attendance_radius_meters" type="number" step="1" min="10" max="50000" value="<?= e($old['attendance_radius_meters'] ?? '') ?>" placeholder="150">
+                <?php if (!empty($errors['attendance_radius_meters'])): ?><small class="field-error"><?= e($errors['attendance_radius_meters']) ?></small><?php endif; ?>
+            </div>
+        </div>
+                <link
+            rel="stylesheet"
+            href="/office_app/public/assets/vendor/leaflet/leaflet.css"
+        >
+        <div
+            id="branch-geofence-map"
+            class="branch-geofence-map"
+            aria-label="Select workplace attendance location on the map"
+        ></div>
+        <p class="form-help">
+            Click the map or drag the pin to select the workplace location.
+            Latitude and longitude are filled automatically.
+        </p>
+        <p class="form-help">Coordinates and radius are validated by the server. Employee devices never control these settings.</p>
+    </section>
+
+    <section class="form-section">
+        <div class="section-heading">
+            <div>
                 <span class="eyebrow">Location</span>
                 <h2 class="card-title">
                     Address and operating timezone
@@ -329,3 +375,5 @@ $formAction = $isEdit
         </button>
     </div>
 </form>
+<script src="/office_app/public/assets/vendor/leaflet/leaflet.js"></script>
+<script src="/office_app/public/assets/js/branch-geofence-map.js"></script>

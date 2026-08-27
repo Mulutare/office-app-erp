@@ -53,27 +53,6 @@ WHERE roles.code IN (
             permissions.permission_id
   );
 
-INSERT INTO role_permissions
-    (
-        role_id,
-        permission_id
-    )
-SELECT
-    roles.role_id,
-    permissions.permission_id
-FROM roles
-INNER JOIN permissions
-    ON permissions.code =
-        'organization.branches.view'
-WHERE roles.code = 'executive_viewer'
-  AND NOT EXISTS (
-      SELECT 1
-      FROM role_permissions existing
-      WHERE existing.role_id = roles.role_id
-        AND existing.permission_id =
-            permissions.permission_id
-  );
-
 INSERT INTO company_role_permissions
     (
         company_id,
@@ -93,8 +72,7 @@ INNER JOIN roles
 WHERE companies.deleted_at IS NULL
   AND roles.code IN (
         'system_administrator',
-        'company_owner',
-        'executive_viewer'
+        'company_owner'
     )
   AND EXISTS (
       SELECT 1

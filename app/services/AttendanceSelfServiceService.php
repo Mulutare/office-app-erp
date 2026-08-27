@@ -182,6 +182,8 @@ final class AttendanceSelfServiceService
                 $employeeId > 0
                 && $employmentStatus === 'active'
                 && !$blockedStatus,
+            'geofenceRequired' =>
+                !empty($employee['attendance_geofence_enabled']),
         ];
     }
 
@@ -292,7 +294,8 @@ final class AttendanceSelfServiceService
         int $actorUserId,
         string $requestKey,
         ?string $deviceReference = null,
-        ?DateTimeImmutable $instant = null
+        ?DateTimeImmutable $instant = null,
+        array $location = []
     ): array {
         $requestKey = trim($requestKey);
 
@@ -408,6 +411,35 @@ final class AttendanceSelfServiceService
                 ];
             }
 
+            $geofence = $this->geofenceEvidence(
+                $employee,
+                $location
+            );
+            if (empty($geofence['successful'])) {
+                $message = (string) $geofence['message'];
+                $this->appendRejectedScan(
+                    $companyId,
+                    $employeeId,
+                    null,
+                    $attendanceDate,
+                    $requestKey,
+                    $scannedAt,
+                    $timezone,
+                    $deviceReference,
+                    (string) $geofence['reason'] . ': ' . $message,
+                    $actorUserId,
+                    (array) $geofence['evidence']
+                );
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+                return [
+                    'successful' => false,
+                    'errors' => ['form' => $message],
+                ];
+            }
+            $geofenceEvidence = (array) $geofence['evidence'];
+
             if (empty($resolution['successful'])) {
                 $message = (string) (
                     $resolution['message']
@@ -426,7 +458,8 @@ final class AttendanceSelfServiceService
                         $resolution['reason']
                         ?? 'outside_window'
                     ) . ': ' . $message,
-                    $actorUserId
+                    $actorUserId,
+                    $geofenceEvidence
                 );
 
                 if ($ownsTransaction) {
@@ -470,7 +503,8 @@ final class AttendanceSelfServiceService
                     $timezone,
                     $deviceReference,
                     'attendance_unavailable: ' . $message,
-                    $actorUserId
+                    $actorUserId,
+                    $geofenceEvidence
                 );
 
                 if ($ownsTransaction) {
@@ -505,7 +539,8 @@ final class AttendanceSelfServiceService
                     $timezone,
                     $deviceReference,
                     'scan_before_clock_in: ' . $message,
-                    $actorUserId
+                    $actorUserId,
+                    $geofenceEvidence
                 );
 
                 if ($ownsTransaction) {
@@ -618,7 +653,7 @@ final class AttendanceSelfServiceService
                             'accepted',
                         'result_reason' => null,
                         'actor_user_id' => $actorUserId,
-                    ]
+                    ] + $geofenceEvidence
                 );
             $this->auditLogs->record(
                 $actorUserId,
@@ -1176,7 +1211,8 @@ final class AttendanceSelfServiceService
         string $timezone,
         ?string $deviceReference,
         string $reason,
-        int $actorUserId
+        int $actorUserId,
+        array $geofenceEvidence = []
     ): int {
         return $this->attendance->appendScanEvent(
             $companyId,
@@ -1198,8 +1234,94 @@ final class AttendanceSelfServiceService
                     190
                 ),
                 'actor_user_id' => $actorUserId,
-            ]
+            ] + $geofenceEvidence
         );
+    }
+
+    /** @return array{successful:bool,message:string,reason:string,evidence:array<string,mixed>} */
+    private function geofenceEvidence(array $employee, array $location): array
+    {
+        $branchId = (int) ($employee['attendance_branch_id'] ?? 0);
+        $branchName = trim((string) ($employee['attendance_branch_name'] ?? ''));
+        $enabled = !empty($employee['attendance_geofence_enabled']);
+        $evidence = [
+            'geofence_enforced' => $enabled,
+            'geofence_branch_id' => $branchId > 0 ? $branchId : null,
+            'geofence_branch_name_snapshot' => $branchName !== '' ? $branchName : null,
+            'geofence_latitude_snapshot' => $employee['attendance_latitude'] ?? null,
+            'geofence_longitude_snapshot' => $employee['attendance_longitude'] ?? null,
+            'geofence_radius_meters_snapshot' => $employee['attendance_radius_meters'] ?? null,
+            'location_latitude' => null,
+            'location_longitude' => null,
+            'location_accuracy_meters' => null,
+            'geofence_distance_meters' => null,
+        ];
+        if ($branchId < 1) {
+            return ['successful'=>false,'message'=>'Your current position is not assigned to a workplace branch. Ask HR to correct the assignment before recording attendance.','reason'=>'branch_unassigned','evidence'=>$evidence];
+        }
+        if (empty($employee['attendance_branch_active'])) {
+            return ['successful'=>false,'message'=>'Your assigned workplace branch is inactive. Ask HR to review your position assignment.','reason'=>'branch_inactive','evidence'=>$evidence];
+        }
+        $hasAny = array_key_exists('latitude', $location)
+            && $location['latitude'] !== null && $location['latitude'] !== '';
+        $latitude = $this->coordinate($location['latitude'] ?? null, -90, 90);
+        $longitude = $this->coordinate($location['longitude'] ?? null, -180, 180);
+        $accuracy = $this->nonNegativeNumber($location['accuracy'] ?? null);
+        if ($hasAny || $enabled) {
+            if ($latitude === null || $longitude === null) {
+                return ['successful'=>false,'message'=>$enabled ? 'Your workplace requires a valid device location. Allow location access and try again.' : 'The submitted device location is invalid.','reason'=>'invalid_location','evidence'=>$evidence];
+            }
+            if (($location['accuracy'] ?? null) !== null
+                && ($location['accuracy'] ?? null) !== '' && $accuracy === null) {
+                return ['successful'=>false,'message'=>'The submitted location accuracy is invalid.','reason'=>'invalid_accuracy','evidence'=>$evidence];
+            }
+            $evidence['location_latitude'] = $latitude;
+            $evidence['location_longitude'] = $longitude;
+            $evidence['location_accuracy_meters'] = $accuracy;
+        }
+        if (!$enabled) {
+            return ['successful'=>true,'message'=>'','reason'=>'','evidence'=>$evidence];
+        }
+        $officeLatitude = $this->coordinate($employee['attendance_latitude'] ?? null, -90, 90);
+        $officeLongitude = $this->coordinate($employee['attendance_longitude'] ?? null, -180, 180);
+        $radius = $this->nonNegativeNumber($employee['attendance_radius_meters'] ?? null);
+        if ($officeLatitude === null || $officeLongitude === null || $radius === null
+            || $radius < 10 || $radius > 50000) {
+            return ['successful'=>false,'message'=>'Your workplace attendance location is not configured correctly. Ask HR to review the branch geofence.','reason'=>'geofence_misconfigured','evidence'=>$evidence];
+        }
+        $distance = $this->haversineMeters($latitude, $longitude, $officeLatitude, $officeLongitude);
+        $evidence['geofence_distance_meters'] = round($distance, 2);
+        if ($distance > $radius + 0.005) {
+            return ['successful'=>false,'message'=>'You are outside the allowed attendance area for ' . ($branchName !== '' ? $branchName : 'your workplace') . '.','reason'=>'outside_geofence','evidence'=>$evidence];
+        }
+        return ['successful'=>true,'message'=>'','reason'=>'','evidence'=>$evidence];
+    }
+
+    private function coordinate(mixed $value, float $minimum, float $maximum): ?float
+    {
+        if (is_bool($value) || !is_numeric($value)) return null;
+        $number = (float) $value;
+        return is_finite($number) && $number >= $minimum && $number <= $maximum
+            ? $number : null;
+    }
+
+    private function nonNegativeNumber(mixed $value): ?float
+    {
+        if ($value === null || $value === '') return null;
+        if (is_bool($value) || !is_numeric($value)) return null;
+        $number = (float) $value;
+        return is_finite($number) && $number >= 0 ? $number : null;
+    }
+
+    private function haversineMeters(float $latitude, float $longitude, float $officeLatitude, float $officeLongitude): float
+    {
+        $lat1 = deg2rad($latitude);
+        $lat2 = deg2rad($officeLatitude);
+        $deltaLat = $lat2 - $lat1;
+        $deltaLon = deg2rad($officeLongitude - $longitude);
+        $a = sin($deltaLat / 2) ** 2
+            + cos($lat1) * cos($lat2) * sin($deltaLon / 2) ** 2;
+        return 6371008.8 * 2 * atan2(sqrt($a), sqrt(max(0.0, 1 - $a)));
     }
 
     /**

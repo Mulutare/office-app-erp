@@ -21,9 +21,6 @@ FROM (
         'dashboard.view' AS permission_code
     UNION ALL SELECT
         'executive_viewer',
-        'hr.records.view'
-    UNION ALL SELECT
-        'executive_viewer',
         'it.records.view'
     UNION ALL SELECT
         'executive_viewer',
@@ -88,9 +85,6 @@ FROM (
     UNION ALL SELECT
         'auditor',
         'audit.logs.view'
-    UNION ALL SELECT
-        'auditor',
-        'hr.records.view'
     UNION ALL SELECT
         'auditor',
         'it.records.view'

@@ -334,6 +334,7 @@ $totalEmployees = array_sum(array_map(
         <?php endif; ?>
     </article>
 
+    <?php if ($canViewOrganization): ?>
     <article class="card hr-workspace-card">
         <div class="hr-workspace-icon" aria-hidden="true">
             OR
@@ -361,6 +362,7 @@ $totalEmployees = array_sum(array_map(
             </span>
         <?php endif; ?>
     </article>
+    <?php endif; ?>
 </section>
 
 <?php if ($canManage): ?>

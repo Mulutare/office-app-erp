@@ -28,6 +28,15 @@ final class AttendanceRepository extends MySqlRepository
                 employees.job_title,
                 employees.department_id,
                 employees.employment_status,
+                assignments.assignment_id AS position_assignment_id,
+                positions.position_id,
+                positions.branch_id AS attendance_branch_id,
+                branches.name AS attendance_branch_name,
+                branches.active AS attendance_branch_active,
+                branches.attendance_geofence_enabled,
+                branches.attendance_latitude,
+                branches.attendance_longitude,
+                branches.attendance_radius_meters,
                 departments.name AS department_name,
                 manager.display_name
                     AS manager_display_name,
@@ -49,6 +58,20 @@ final class AttendanceRepository extends MySqlRepository
               AND departments.department_id =
                     employees.department_id
               AND departments.deleted_at IS NULL
+             LEFT JOIN hr_employee_position_assignments assignments
+               ON assignments.company_id = employees.company_id
+              AND assignments.employee_id = employees.employee_id
+              AND assignments.assignment_status = \'current\'
+              AND assignments.current_marker = 1
+              AND assignments.effective_to IS NULL
+             LEFT JOIN organization_positions positions
+               ON positions.company_id = assignments.company_id
+              AND positions.position_id = assignments.position_id
+              AND positions.deleted_at IS NULL
+             LEFT JOIN organization_branches branches
+               ON branches.company_id = positions.company_id
+              AND branches.branch_id = positions.branch_id
+              AND branches.deleted_at IS NULL
              LEFT JOIN users manager
                ON manager.user_id =
                     memberships.manager_user_id
@@ -576,6 +599,16 @@ final class AttendanceRepository extends MySqlRepository
                     device_reference,
                     processing_result,
                     result_reason,
+                    geofence_enforced,
+                    geofence_branch_id,
+                    geofence_branch_name_snapshot,
+                    geofence_latitude_snapshot,
+                    geofence_longitude_snapshot,
+                    geofence_radius_meters_snapshot,
+                    location_latitude,
+                    location_longitude,
+                    location_accuracy_meters,
+                    geofence_distance_meters,
                     actor_user_id
                 )
              VALUES
@@ -592,6 +625,16 @@ final class AttendanceRepository extends MySqlRepository
                     :device_reference,
                     :processing_result,
                     :result_reason,
+                    :geofence_enforced,
+                    :geofence_branch_id,
+                    :geofence_branch_name_snapshot,
+                    :geofence_latitude_snapshot,
+                    :geofence_longitude_snapshot,
+                    :geofence_radius_meters_snapshot,
+                    :location_latitude,
+                    :location_longitude,
+                    :location_accuracy_meters,
+                    :geofence_distance_meters,
                     :actor_user_id
                 )'
         );
@@ -611,6 +654,26 @@ final class AttendanceRepository extends MySqlRepository
                 $values['processing_result'],
             'result_reason' =>
                 $values['result_reason'] ?? null,
+            'geofence_enforced' =>
+                !empty($values['geofence_enforced']) ? 1 : 0,
+            'geofence_branch_id' =>
+                $values['geofence_branch_id'] ?? null,
+            'geofence_branch_name_snapshot' =>
+                $values['geofence_branch_name_snapshot'] ?? null,
+            'geofence_latitude_snapshot' =>
+                $values['geofence_latitude_snapshot'] ?? null,
+            'geofence_longitude_snapshot' =>
+                $values['geofence_longitude_snapshot'] ?? null,
+            'geofence_radius_meters_snapshot' =>
+                $values['geofence_radius_meters_snapshot'] ?? null,
+            'location_latitude' =>
+                $values['location_latitude'] ?? null,
+            'location_longitude' =>
+                $values['location_longitude'] ?? null,
+            'location_accuracy_meters' =>
+                $values['location_accuracy_meters'] ?? null,
+            'geofence_distance_meters' =>
+                $values['geofence_distance_meters'] ?? null,
             'actor_user_id' =>
                 $values['actor_user_id'] ?? null,
         ]);
