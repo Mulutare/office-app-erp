@@ -3723,19 +3723,15 @@ try {
         $attendanceSelfService->checkOut(
             910004
         );
-    $resumedCheckIn =
+    $completedDayCheckIn =
         $attendanceSelfService->checkIn(
             910004
         );
-    $duplicateResumedCheckIn =
-        $attendanceSelfService->checkIn(
-            910004
-        );
-    $secondCheckOut =
+    $completedDayCheckOut =
         $attendanceSelfService->checkOut(
             910004
         );
-    $multiSessionAttendance =
+    $completedDayAttendance =
         $attendanceSelfService->workspace(
             910004,
             '2026-07'
@@ -3777,23 +3773,27 @@ try {
             === false
         && $personalCheckOut['successful']
             === true
-        && $resumedCheckIn['successful'] === true
-        && $duplicateResumedCheckIn['successful']
+        && $completedDayCheckIn['successful']
             === false
-        && $secondCheckOut['successful'] === true
+        && $completedDayCheckOut['successful']
+            === false
         && (
-            $multiSessionAttendance['sessionCount']
+            $completedDayAttendance['sessionCount']
             ?? 0
-        ) === 2
+        ) === 1
         && (
-            $multiSessionAttendance['canCheckIn']
-            ?? false
-        ) === true
+            $completedDayAttendance['canCheckIn']
+            ?? true
+        ) === false
         && (
-            $multiSessionAttendance['canCheckOut']
+            $completedDayAttendance['canCheckOut']
+            ?? true
+        ) === false
+        && (
+            $completedDayAttendance['canScan']
             ?? true
         ) === false,
-        'Employee self-service supports repeated work sessions while preventing concurrent open sessions'
+        'Employee self-service allows one Sign In and one Sign Out per scheduled attendance day'
     );
 
     $activeSessionStatement = db()->prepare(
@@ -3824,12 +3824,12 @@ try {
         (int) (
             $activeSessionSummary['session_count']
             ?? 0
-        ) === 2
+        ) === 1
         && (int) (
             $activeSessionSummary['open_count']
             ?? 0
         ) === 0,
-        'Attendance sessions retain every completed work interval and no stale open session'
+        'Attendance retains one completed work interval with no stale open session'
     );
     $check(
         in_array(
@@ -3867,7 +3867,7 @@ try {
     ]);
     $check(
         (int) $selfAttendanceAudit
-            ->fetchColumn() === 4,
+            ->fetchColumn() === 2,
         'Personal attendance actions create tenant-scoped audit events'
     );
 
@@ -4301,7 +4301,7 @@ try {
         'scan-test-20260817-first-000001',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-17 08:20:00',
+            '2026-08-17 08:35:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
@@ -4346,7 +4346,7 @@ try {
         'scan-test-20260818-first-000005',
         'integration-browser',
         new \DateTimeImmutable(
-            '2026-08-18 08:25:00',
+            '2026-08-18 08:35:00',
             new \DateTimeZone('Africa/Nairobi')
         )
     );
@@ -4422,10 +4422,9 @@ try {
         && $secondScan['successful'] === true
         && ($secondScan['eventType'] ?? null)
             === 'clock_out'
-        && $latestScan['successful'] === true
-        && ($latestScan['eventType'] ?? null)
-            === 'clock_out_update',
-        'First attendance scan creates clock-in and later scans update clock-out'
+        && $latestScan['successful'] === false
+        && isset($latestScan['errors']['form']),
+        'First attendance scan signs in, second scan signs out, and later scans are rejected'
     );
     $check(
         is_array($scanRecord)
@@ -4433,12 +4432,12 @@ try {
             (string) $scanRecord['check_in_at'],
             0,
             19
-        ) === '2026-08-17 08:20:00'
+        ) === '2026-08-17 08:35:00'
         && substr(
             (string) $scanRecord['check_out_at'],
             0,
             19
-        ) === '2026-08-17 17:15:00'
+        ) === '2026-08-17 17:00:00'
         && count($calculatedSessions) === 1
         && substr(
             (string) $calculatedSessions[0][
@@ -4446,15 +4445,15 @@ try {
             ],
             0,
             19
-        ) === '2026-08-17 08:20:00'
+        ) === '2026-08-17 08:35:00'
         && substr(
             (string) $calculatedSessions[0][
                 'check_out_at'
             ],
             0,
             19
-        ) === '2026-08-17 17:15:00',
-        'Calculated attendance preserves the first clock-in and latest clock-out'
+        ) === '2026-08-17 17:00:00',
+        'Calculated attendance preserves the first Sign In and completed Sign Out'
     );
     $check(
         count($scanEvents) === 4
@@ -4465,10 +4464,13 @@ try {
             'rejected',
             'clock_in',
             'clock_out',
-            'clock_out_update',
+            'rejected',
         ]
+        && ($scanEvents[3]['processing_result'] ?? null)
+            === 'rejected'
+        && $duplicateLatestScan['successful'] === false
         && !empty($duplicateLatestScan['duplicate']),
-        'Immutable scan log retains accepted and rejected events while retries remain idempotent'
+        'Immutable scan log retains completed-day rejection while retries remain idempotent'
     );
     $check(
         $outsideWindowScan['successful'] === false

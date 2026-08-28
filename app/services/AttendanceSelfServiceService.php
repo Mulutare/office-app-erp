@@ -74,9 +74,68 @@ final class AttendanceSelfServiceService
                 $actorUserId
             )
             : null;
-        $todayDate = (string) (
-            $schedule['localDate'] ?? date('Y-m-d')
-        );
+
+        $attendanceResolution = $employeeId > 0
+            ? $this->dayResolver->resolveForUser(
+                $actorUserId
+            )
+            : ['successful' => false];
+
+        $attendanceActionWindowOpen =
+            !empty($attendanceResolution['successful']);
+
+        $actionSchedule = (
+            $attendanceActionWindowOpen
+            && is_array(
+                $attendanceResolution['schedule'] ?? null
+            )
+        )
+            ? $attendanceResolution['schedule']
+            : null;
+
+        if ($actionSchedule !== null) {
+            $schedule = $actionSchedule;
+        }
+
+        $todayDate = $attendanceActionWindowOpen
+            ? (string) (
+                $attendanceResolution['attendanceDate']
+                ?? $attendanceResolution['localDate']
+                ?? date('Y-m-d')
+            )
+            : (string) (
+                $schedule['localDate'] ?? date('Y-m-d')
+            );
+
+        $attendanceSignInOpen = false;
+
+        if (
+            $attendanceActionWindowOpen
+            && is_array($actionSchedule)
+        ) {
+            $resolvedNow = (string) (
+                $attendanceResolution['scannedAt'] ?? ''
+            );
+            $scheduledStartAt = (string) (
+                $actionSchedule['scheduledStartAt'] ?? ''
+            );
+            $scheduledEndAt = (string) (
+                $actionSchedule['scheduledEndAt'] ?? ''
+            );
+
+            $attendanceSignInOpen =
+                $resolvedNow !== ''
+                && $scheduledStartAt !== ''
+                && $scheduledEndAt !== ''
+                && strcmp(
+                    $resolvedNow,
+                    $scheduledStartAt
+                ) >= 0
+                && strcmp(
+                    $resolvedNow,
+                    $scheduledEndAt
+                ) <= 0;
+        }
         $records = $employeeId > 0
             ? $this->attendance
                 ->historyForEmployee(
@@ -171,17 +230,31 @@ final class AttendanceSelfServiceService
             'canCheckIn' =>
                 $employeeId > 0
                 && $employmentStatus === 'active'
+                && $attendanceSignInOpen
+                && !$hasCheckIn
                 && $openSession === null
                 && !$blockedStatus,
             'canCheckOut' =>
                 $employeeId > 0
                 && $employmentStatus === 'active'
+                && $attendanceActionWindowOpen
                 && $hasCheckIn
                 && $openSession !== null,
             'canScan' =>
                 $employeeId > 0
                 && $employmentStatus === 'active'
-                && !$blockedStatus,
+                && !$blockedStatus
+                && (
+                    (
+                        !$hasCheckIn
+                        && $attendanceSignInOpen
+                    )
+                    || (
+                        $hasCheckIn
+                        && $openSession !== null
+                        && $attendanceActionWindowOpen
+                    )
+                ),
             'geofenceRequired' =>
                 !empty($employee['attendance_geofence_enabled']),
         ];
@@ -483,6 +556,63 @@ final class AttendanceSelfServiceService
                 $attendanceDate
             );
 
+            $firstScanForDay =
+                !is_array($old)
+                || empty($old['check_in_at']);
+
+            $scheduledStartAt = (string) (
+                $schedule['scheduledStartAt'] ?? ''
+            );
+            $scheduledEndAt = (string) (
+                $schedule['scheduledEndAt'] ?? ''
+            );
+
+            if (
+                $firstScanForDay
+                && (
+                    $scheduledStartAt === ''
+                    || $scheduledEndAt === ''
+                    || strcmp(
+                        $scannedAt,
+                        $scheduledStartAt
+                    ) < 0
+                    || strcmp(
+                        $scannedAt,
+                        $scheduledEndAt
+                    ) > 0
+                )
+            ) {
+                $message =
+                    'Sign In is available only during the HR-scheduled workday, from the configured start time until the configured end time.';
+
+                $this->appendRejectedScan(
+                    $companyId,
+                    $employeeId,
+                    is_array($old)
+                        ? (int) (
+                            $old['attendance_id'] ?? 0
+                        )
+                        : null,
+                    $attendanceDate,
+                    $requestKey,
+                    $scannedAt,
+                    $timezone,
+                    $deviceReference,
+                    'outside_scheduled_workday: ' . $message,
+                    $actorUserId,
+                    $geofenceEvidence
+                );
+
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+
+                return [
+                    'successful' => false,
+                    'errors' => ['form' => $message],
+                ];
+            }
+
             if (
                 is_array($old)
                 && in_array(
@@ -503,6 +633,38 @@ final class AttendanceSelfServiceService
                     $timezone,
                     $deviceReference,
                     'attendance_unavailable: ' . $message,
+                    $actorUserId,
+                    $geofenceEvidence
+                );
+
+                if ($ownsTransaction) {
+                    $connection->commit();
+                }
+
+                return [
+                    'successful' => false,
+                    'errors' => ['form' => $message],
+                ];
+            }
+
+            if (
+                is_array($old)
+                && !empty($old['check_in_at'])
+                && !empty($old['check_out_at'])
+            ) {
+                $message =
+                    'Attendance for this scheduled workday is already complete. You can sign in again on the next scheduled workday.';
+
+                $this->appendRejectedScan(
+                    $companyId,
+                    $employeeId,
+                    (int) ($old['attendance_id'] ?? 0),
+                    $attendanceDate,
+                    $requestKey,
+                    $scannedAt,
+                    $timezone,
+                    $deviceReference,
+                    'attendance_day_completed: ' . $message,
                     $actorUserId,
                     $geofenceEvidence
                 );
@@ -762,6 +924,17 @@ final class AttendanceSelfServiceService
                     $connection,
                     $ownsTransaction,
                     'You are already clocked in. Clock out before starting another work session.'
+                );
+            }
+
+            if (
+                $attendanceId > 0
+                && !empty($old['check_out_at'])
+            ) {
+                return $this->transactionError(
+                    $connection,
+                    $ownsTransaction,
+                    'Attendance for this scheduled workday is already complete. You can sign in again on the next scheduled workday.'
                 );
             }
 

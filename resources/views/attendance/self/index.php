@@ -618,7 +618,15 @@ $formatDate = static function (
                         </form>
                     <?php else: ?>
                         <span class="attendance-action-complete">
-                            No attendance action is available.
+                            <?php if (
+                                is_array($today)
+                                && !empty($today['check_in_at'])
+                                && !empty($today['check_out_at'])
+                            ): ?>
+                                Attendance complete for this scheduled workday. Sign In will be available again when the next HR-scheduled workday starts.
+                            <?php else: ?>
+                                Attendance action is not available outside the HR-scheduled workday.
+                            <?php endif; ?>
                         </span>
                     <?php endif; ?>
                 </div>
@@ -712,9 +720,9 @@ $formatDate = static function (
                 day’s departure time.
             </p>
             <ul class="attendance-practice-list">
-                <li>Use a new session after lunch or another break.</li>
-                <li>Only one work session can be open at a time.</li>
-                <li>Every session is retained for audit and payroll review.</li>
+                <li>Sign in once for each HR-scheduled attendance day.</li>
+                <li>After signing in, the available action remains Sign Out.</li>
+                <li>After signing out, attendance is complete until the next scheduled workday.</li>
             </ul>
             <?php if ($canViewTeam): ?>
                 <a
