@@ -8,6 +8,8 @@ use App\Services\AuthorizationService;
 use App\Services\FinanceDashboardService;
 use App\Services\FinanceOperationsService;
 use App\Services\AccountingPeriodService;
+use App\Services\SalesWorkflowTraceService;
+use App\Services\TenantContext;
 
 final class FinanceController
 {
@@ -80,6 +82,12 @@ final class FinanceController
                 true
             ),
             'user' => $_SESSION['auth'],
+            'workflowTrace' => (new SalesWorkflowTraceService())->trace(
+                (new TenantContext())->companyId(),
+                'invoice',
+                (int) $invoice['invoice_id'],
+                $_SESSION['auth'] ?? []
+            ),
         ]);
     }
 

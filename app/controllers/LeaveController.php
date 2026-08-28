@@ -69,6 +69,7 @@ final class LeaveController
                 $dashboard['leaveTypes'],
             'employees' => $dashboard['employees'],
             'employee' => $dashboard['employee'],
+            'balances' => $dashboard['balances'],
             'summary' => $dashboard['summary'],
             'statuses' => $dashboard['statuses'],
             'filterStatus' =>

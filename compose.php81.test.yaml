@@ -11,7 +11,9 @@ services:
       - >-
         php bin/migrate.php
         && php bin/sync-reference-data.php
+        && php tests/authenticated-session-termination.php
         && php tests/run.php
+        && php tests/attendance-geofence-authorization.php
         && php tests/migration-checksum-compatibility.php
         && php tests/permission-template-upgrade.php
         && php tests/company-update-permission-preservation.php
@@ -21,6 +23,7 @@ services:
         && php tests/procurement-integration.php
         && php tests/action-required-counts.php
         && php tests/settlement-integration.php
+        && php tests/sales-workflow-trace.php
         && php tests/module-authorization-contract.php
         && php tests/analytics-integration.php
         && php tests/approval-operations-integration.php

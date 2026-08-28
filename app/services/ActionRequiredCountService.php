@@ -90,6 +90,15 @@ final class ActionRequiredCountService
         } elseif ($module === 'inventory') {
             if ($section === 'receipts') $this->addReceiptItems($items, $add, $parameters, $can);
             if ($section === 'movements' && $can('inventory.transfers.manage')) $add("SELECT transfer_id id,transfer_number reference FROM inventory_transfers WHERE company_id=:company_id AND status='draft'", $parameters, 'transfer', 'Process movement', 'process_movement', '/inventory?section=movements');
+        } elseif ($module === 'assets' && $section === 'register') {
+            if ($can('assets.activate')) {
+                $add("SELECT asset_id id,asset_number reference FROM fixed_assets WHERE company_id=:company_id AND status='draft'", $parameters, 'asset', 'Activate asset', 'activate_asset', '/assets-management/{id}');
+            }
+            if ($can('assets.depreciation.post')) {
+                $nextDepreciation = "SELECT a.asset_id id,a.asset_number reference FROM fixed_assets a WHERE a.company_id=:company_id AND a.status IN('active','fully_depreciated') AND EXISTS(SELECT 1 FROM asset_depreciation_schedule s WHERE s.company_id=a.company_id AND s.asset_id=a.asset_id AND s.status='scheduled' AND NOT EXISTS(SELECT 1 FROM asset_depreciation_schedule prior WHERE prior.company_id=s.company_id AND prior.asset_id=s.asset_id AND prior.period_number<s.period_number AND prior.status<>'posted') AND (SELECT COUNT(*) FROM finance_accounting_periods p WHERE p.company_id=s.company_id AND s.depreciation_date BETWEEN p.date_from AND p.date_to AND p.status='open') %s)";
+                $add(sprintf($nextDepreciation, '=1'), $parameters, 'asset', 'Post next depreciation', 'post_asset_depreciation', '/assets-management/{id}');
+                $add(sprintf($nextDepreciation, '<>1'), $parameters, 'asset', 'Open accounting period for depreciation', 'open_asset_depreciation_period', '/finance/accounting-periods');
+            }
         } elseif ($module === 'hr' && $section === 'leave' && $can('hr.leave.approve')) {
             $add("SELECT DISTINCT r.leave_request_id id,CONCAT('Leave #',r.leave_request_id) reference FROM hr_leave_request_approvals a INNER JOIN hr_leave_requests r ON r.company_id=a.company_id AND r.leave_request_id=a.leave_request_id WHERE a.company_id=:company_id AND a.approver_user_id=:user_id AND a.approval_status='pending' AND r.request_status='pending'", $parameters, 'leave_request', 'Review leave request', 'review_leave', '/hr/leave');
         } elseif ($module === 'administration' && $section === 'integration_events' && $can('administration.integration_events.retry')) {
@@ -254,6 +263,14 @@ SQL, ['c1'=>$companyId,'c2'=>$companyId,'c3'=>$companyId,'c5'=>$companyId,'actor
             + ($can('sales.settlements.create') ? $sales['payments_to_settle'] : 0);
         $counts['sales']['deliveries'] = $can('inventory.transfers.manage') ? $sales['deliveries'] : 0;
 
+        $counts['assets']['register'] = count($this->itemsFor(
+            $companyId,
+            $userId,
+            $permissions,
+            'assets',
+            'register'
+        ));
+
         if ($can('hr.leave.approve')) {
             $counts['hr']['leave'] = $this->scalar($connection, <<<'SQL'
 SELECT COUNT(DISTINCT approvals.leave_request_id)
@@ -293,7 +310,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'finance'=>['receivables'=>0,'invoices'=>0,'journals'=>0,'receipts'=>0,'settlements'=>0,'expenses'=>0,'periods'=>0,'total'=>0],
             'procurement'=>['requisitions'=>0,'orders'=>0,'receipts'=>0,'bills'=>0,'payments'=>0,'returns'=>0,'total'=>0],
             'inventory'=>['stock'=>0,'movements'=>0,'receipts'=>0,'warehouses'=>0,'locations'=>0,'total'=>0],
-            'assets'=>['total'=>0],
+            'assets'=>['register'=>0,'direct'=>0,'categories'=>0,'capitalization'=>0,'total'=>0],
             'sales'=>['orders'=>0,'quotations'=>0,'customers'=>0,'products'=>0,'pricelists'=>0,'teams'=>0,'deliveries'=>0,'settlements'=>0,'total'=>0],
             'analytics'=>['total'=>0],
             'attendance'=>['total'=>0],
@@ -368,6 +385,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'post_customer_invoice', 'record_customer_payment' => '/finance/customer-invoices/{id}',
             'approve_expense' => '/finance?section=expenses',
             'process_movement' => '/inventory?section=movements',
+            'activate_asset', 'post_asset_depreciation' => '/assets-management/{id}',
+            'open_asset_depreciation_period' => '/finance/accounting-periods',
             'review_leave' => '/hr/leave',
             'retry_event' => '/administration/integration-events',
             default => throw new \LogicException('Unknown action-required workflow target.'),

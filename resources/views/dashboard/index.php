@@ -10,7 +10,20 @@ $formatDate = static function (mixed $value): string {
     $timestamp = is_string($value) ? strtotime($value) : false;
     return $timestamp === false ? '—' : date('d M Y, H:i', $timestamp);
 };
+$sessionSuccess = is_string($data['sessionSuccess'] ?? null)
+    ? $data['sessionSuccess']
+    : '';
+$sessionError = is_string($data['sessionError'] ?? null)
+    ? $data['sessionError']
+    : '';
 ?>
+
+<?php if ($sessionSuccess !== ''): ?>
+    <div class="alert alert-success" role="status"><?= e($sessionSuccess) ?></div>
+<?php endif; ?>
+<?php if ($sessionError !== ''): ?>
+    <div class="alert alert-danger" role="alert"><?= e($sessionError) ?></div>
+<?php endif; ?>
 
 <section class="card-grid">
     <article class="card">
@@ -114,6 +127,40 @@ $formatDate = static function (mixed $value): string {
             <div class="dashboard-account-field"><dt class="dashboard-account-label">Active sessions</dt><dd class="dashboard-account-value dashboard-session-summary"><?=e($account['active_sessions']??0)?></dd></div>
             <div class="dashboard-account-field"><dt class="dashboard-account-label">Last login</dt><dd class="dashboard-account-value"><?=e($formatDate($account['last_login_at']??null))?></dd></div>
         </dl>
-        <?php if(!empty($account['can_view_sessions'])):?><section class="dashboard-login-sessions" aria-labelledby="dashboard-login-sessions-title"><h3 id="dashboard-login-sessions-title">Login sessions</h3><div class="dashboard-session-table-wrap"><table class="dashboard-session-table"><thead><tr><th>Session</th><th>Signed in</th><th>Last activity</th><th>IP address</th><th>Device / Browser</th><th>Status</th></tr></thead><tbody><?php foreach(($account['sessions']??[]) as $session):?><tr><td><?php if(!empty($session['current'])):?><span class="dashboard-current-session">Current</span><?php else:?>Other<?php endif;?></td><td><?=e($formatDate($session['signed_in_at']??null))?></td><td><?=e($formatDate($session['last_activity_at']??null))?></td><td><?=e($session['ip_address']??'')?></td><td><?=e($session['device']??'Unknown device')?></td><td><span class="dashboard-session-active"><?=e($session['status']??'Active')?></span></td></tr><?php endforeach;?></tbody></table></div></section><?php endif;?>
+        <?php if (!empty($account['can_view_sessions'])): ?>
+            <section class="dashboard-login-sessions" aria-labelledby="dashboard-login-sessions-title">
+                <h3 id="dashboard-login-sessions-title">Login sessions</h3>
+                <div class="dashboard-session-table-wrap">
+                    <table class="dashboard-session-table">
+                        <thead><tr><th>Session</th><th>Signed in</th><th>Last activity</th><th>IP address</th><th>Device / Browser</th><th>Status</th><th>Action</th></tr></thead>
+                        <tbody>
+                        <?php foreach (($account['sessions'] ?? []) as $session): ?>
+                            <tr>
+                                <td><?php if (!empty($session['current'])): ?><span class="dashboard-current-session">Current</span><?php else: ?>Other<?php endif; ?></td>
+                                <td><?= e($formatDate($session['signed_in_at'] ?? null)) ?></td>
+                                <td><?= e($formatDate($session['last_activity_at'] ?? null)) ?></td>
+                                <td><?= e($session['ip_address'] ?? '') ?></td>
+                                <td><?= e($session['device'] ?? 'Unknown device') ?></td>
+                                <td><span class="dashboard-session-active"><?= e($session['status'] ?? 'Active') ?></span></td>
+                                <td>
+                                    <?php if (empty($session['current'])): ?>
+                                        <form method="post" action="<?= e(appBasePath()) ?>/dashboard/sessions/<?= e($session['authenticated_user_session_id'] ?? '') ?>/terminate" onsubmit="return confirm('Terminate this login session?');">
+                                            <?= csrfField() ?>
+                                            <button type="submit" class="btn btn-danger-outline btn-compact">Terminate</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <form class="session-bulk-action" method="post" action="<?= e(appBasePath()) ?>/dashboard/sessions/terminate-others" onsubmit="return confirm('Terminate all other login sessions for this account? Your current session will remain active.');">
+                    <?= csrfField() ?>
+                    <button type="submit" class="btn btn-danger-outline">Terminate all other sessions</button>
+                    <span>Your current session will remain active.</span>
+                </form>
+            </section>
+        <?php endif; ?>
     </article>
 </section>

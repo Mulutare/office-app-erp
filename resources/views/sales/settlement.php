@@ -23,6 +23,7 @@ $hasWorkflowAction =
     || ($workflow === 'finance_reconciled' && $can('finance.settlements.approve'));
 ?>
 <div class="module-stack settlement-workspace">
+    <?php \view('components.sales-workflow-trace', ['workflowTrace' => $data['workflowTrace'] ?? null]); ?>
     <?php if (is_array($data['notice'] ?? null)): ?><div class="alert alert-success"><?= e($data['notice']['message'] ?? '') ?></div><?php endif; ?>
     <?php foreach ((array) ($data['errors'] ?? []) as $error): ?><div class="alert alert-danger"><?= e($error) ?></div><?php endforeach; ?>
 

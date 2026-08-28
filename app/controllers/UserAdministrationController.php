@@ -11,6 +11,7 @@ use App\Services\UserUpdateService;
 use App\Services\UserPasswordResetService;
 use App\Services\UserAccountStatusService;
 use App\Services\UserAccountUnlockService;
+use App\Services\AuthenticatedSessionService;
 
 final class UserAdministrationController
 {
@@ -83,6 +84,10 @@ final class UserAdministrationController
                     'is_platform_admin'
                 ]
             );
+        $activeSessions = (new AuthenticatedSessionService())->list(
+            (int) ($_SESSION['auth']['company']['company_id'] ?? 0),
+            (int) ($profile['user_id'] ?? 0)
+        );
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -143,6 +148,14 @@ final class UserAdministrationController
                 'audit.logs.view',
                 $_SESSION['auth']['permissions'] ?? [],
                 true
+            ),
+            'activeSessions' => $activeSessions,
+            'isSelf' => $isSelf,
+            'sessionSuccess' => \getFlash(
+                'user_session_success'
+            ),
+            'sessionError' => \getFlash(
+                'user_session_error'
             ),
         ]);
     }

@@ -13,6 +13,7 @@ $returnable = array_sum(array_map(
 ));
 ?>
 <div class="module-stack">
+    <?php \view('components.sales-workflow-trace', ['workflowTrace' => $data['workflowTrace'] ?? null]); ?>
     <?php if (!empty($data['notice'])): ?><div class="alert alert-success" role="status"><?= e((string) ($data['notice']['message'] ?? 'Completed.')) ?></div><?php endif; ?>
     <?php foreach ((array) ($data['errors'] ?? []) as $error): ?><div class="alert alert-danger" role="alert"><strong>Inventory operation not completed.</strong> <?= e((string) $error) ?></div><?php endforeach; ?>
     <nav class="card details-toolbar">

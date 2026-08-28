@@ -613,7 +613,7 @@ $formatDate = static function (
                                 type="submit"
                                 class="btn btn-primary"
                             >
-                                <?= !empty($data['isWorking']) ? 'Sign Out' : 'Sign In' ?>
+                                <?= is_array($today) && !empty($today['check_in_at']) ? 'Sign Out' : 'Sign In' ?>
                             </button>
                         </form>
                     <?php else: ?>

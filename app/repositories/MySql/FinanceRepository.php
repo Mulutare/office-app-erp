@@ -199,6 +199,41 @@ final class FinanceRepository extends MySqlRepository
             'normal' => 'credit',
             'key' => 'inventory_gain',
         ],
+        [
+            'code' => '1500',
+            'name' => 'Fixed Assets',
+            'type' => 'asset',
+            'normal' => 'debit',
+            'key' => 'fixed_asset',
+        ],
+        [
+            'code' => '1590',
+            'name' => 'Accumulated Depreciation',
+            'type' => 'asset',
+            'normal' => 'credit',
+            'key' => 'asset_accumulated_depreciation',
+        ],
+        [
+            'code' => '6000',
+            'name' => 'Depreciation Expense',
+            'type' => 'expense',
+            'normal' => 'debit',
+            'key' => 'asset_depreciation_expense',
+        ],
+        [
+            'code' => '4910',
+            'name' => 'Gain on Asset Disposal',
+            'type' => 'revenue',
+            'normal' => 'credit',
+            'key' => 'asset_disposal_gain',
+        ],
+        [
+            'code' => '6100',
+            'name' => 'Loss on Asset Disposal',
+            'type' => 'expense',
+            'normal' => 'debit',
+            'key' => 'asset_disposal_loss',
+        ],
     ];
 
     public function ensureSystemAccounts(

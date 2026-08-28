@@ -16,6 +16,7 @@ interface AssetRepository
     public function markDepreciationPosted(int $companyId,int $lineId,int $journalBatchId,float $accumulated,float $bookValue,string $assetStatus,int $actorId): void;
     public function transfer(int $companyId,int $assetId,array $values,int $actorId): int;
     public function addMaintenance(int $companyId,int $assetId,array $values,int $actorId): int;
+    public function updateTracking(int $companyId,int $assetId,array $values,int $actorId): void;
     public function dispose(int $companyId,int $assetId,array $values,int $actorId): int;
     public function linkInventorySource(int $companyId,int $assetId,int $movementId,int $warehouseId,int $locationId,int $productId,float $quantity,float $cost): void;
     public function history(int $companyId,int $assetId,string $action,?string $from,?string $to,array $details,int $actorId): void;

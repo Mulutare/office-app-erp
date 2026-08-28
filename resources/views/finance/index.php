@@ -594,6 +594,23 @@ function financeDashboardUrl(
                     $status = (string) (
                         $journal['status'] ?? ''
                     );
+                    $sourceType = (string) ($journal['source_type'] ?? '');
+                    $sourceId = (int) ($journal['source_id'] ?? 0);
+                    $sourceNumber = (string) ($journal['source_number'] ?? '');
+                    $sourceUrl = null;
+                    if ($sourceId > 0) {
+                        if (in_array($sourceType, ['customer_invoice', 'customer_credit'], true)) {
+                            $sourceUrl = '/office_app/public/finance/customer-invoices/' . $sourceId;
+                        } elseif ($sourceType === 'customer_payment') {
+                            $sourceUrl = '/office_app/public/finance/payments/' . $sourceId . '/receipt.pdf';
+                        } elseif ($sourceType === 'goods_receipt') {
+                            $sourceUrl = '/office_app/public/inventory/receipts/' . $sourceId;
+                        } elseif ($sourceType === 'inventory_fulfilment') {
+                            $sourceUrl = (str_starts_with($sourceNumber, 'DLV-') || str_starts_with($sourceNumber, 'PICK-'))
+                                ? '/office_app/public/sales/deliveries/' . $sourceId
+                                : '/office_app/public/sales/orders/' . $sourceId;
+                        }
+                    }
                     $isBalanced = abs(
                         (float) (
                             $journal['total_debit'] ?? 0
@@ -614,13 +631,7 @@ function financeDashboardUrl(
                                 ) ?>
                             </strong>
 
-                            <small>
-                                <?= e(
-                                    $journal[
-                                        'source_number'
-                                    ] ?? ''
-                                ) ?>
-                            </small>
+                            <small><?php if($sourceUrl!==null):?><a href="<?=e($sourceUrl)?>"><?=e($sourceNumber)?></a><?php else:?><?=e($sourceNumber)?><?php endif;?></small>
                         </td>
 
                         <td>

@@ -11,13 +11,16 @@ final class FinanceOperationsService
 {
     private FinanceRepository $finance;
     private TenantContext $tenant;
+    private AppErrorReporter $errorReporter;
 
     public function __construct(
         ?FinanceRepository $finance = null,
-        ?TenantContext $tenant = null
+        ?TenantContext $tenant = null,
+        ?AppErrorReporter $errorReporter = null
     ) {
         $this->finance = $finance ?? RepositoryFactory::finance();
         $this->tenant = $tenant ?? new TenantContext();
+        $this->errorReporter = $errorReporter ?? new AppErrorReporter();
     }
 
     /** @return list<array<string, mixed>> */
@@ -78,13 +81,16 @@ final class FinanceOperationsService
         if ((string) $invoice['status'] !== 'draft') {
             return ['successful' => false, 'errors' => ['form' => 'Only a draft invoice can be posted.']];
         }
+        if ((float) $invoice['total_amount'] <= 0) {
+            return ['successful'=>false,'errors'=>['form'=>$this->errorReporter->report('FIN-INV-001',null,['entity_type'=>'customer_invoice','entity_id'=>$invoiceId])]];
+        }
         try {
             $result = (new FinancePostingService())->postInvoice(
                 $this->tenant->companyId(), $invoiceId, $actorId
             );
             return ['successful' => true, 'result' => $result];
         } catch (\Throwable $exception) {
-            return ['successful' => false, 'errors' => ['form' => $exception->getMessage()]];
+            return ['successful'=>false,'errors'=>['form'=>$this->errorReporter->report('FIN-JRN-001',$exception,['entity_type'=>'customer_invoice','entity_id'=>$invoiceId])]];
         }
     }
 

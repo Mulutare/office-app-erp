@@ -1,0 +1,2 @@
+<?php declare(strict_types=1);$error=is_array($data['error']??null)?$data['error']:[];if(empty($error['code']))return;?>
+<div class="alert alert-danger app-error" role="alert"><strong><?=e((string)$error['code'])?> — <?=e((string)($error['title']??'Application error'))?></strong><div><strong>Cause:</strong> <?=e((string)($error['cause']??''))?></div><div><strong>What to do:</strong> <?=e((string)($error['suggested_action']??''))?></div><div><strong>Reference:</strong> <?=e((string)($error['incident_reference']??''))?></div></div>

@@ -16,8 +16,9 @@ $canPay = !empty($data['canRegisterPayment'])
 $canPost = !empty($data['canPostInvoice']) && (string) $invoice['status'] === 'draft';
 ?>
 <div class="module-stack">
+    <?php \view('components.sales-workflow-trace', ['workflowTrace' => $data['workflowTrace'] ?? null]); ?>
     <?php if (is_array($data['notice'] ?? null)): ?><div class="alert alert-success" role="status"><?= e((string) ($data['notice']['message'] ?? '')) ?></div><?php endif; ?>
-    <?php foreach ((array) ($data['errors'] ?? []) as $error): ?><div class="alert alert-danger" role="alert"><?= e((string) $error) ?></div><?php endforeach; ?>
+    <?php foreach ((array) ($data['errors'] ?? []) as $error): ?><?php if(is_array($error)):?><?php \view('components.app-error',['error'=>$error]);?><?php else:?><div class="alert alert-danger" role="alert"><?= e((string) $error) ?></div><?php endif;?><?php endforeach; ?>
     <nav class="card details-toolbar">
         <a class="btn btn-secondary" href="/office_app/public/finance">Finance</a>
         <a class="btn btn-secondary" href="/office_app/public/finance/customer-invoices">Customer Invoices</a>
@@ -72,7 +73,7 @@ $canPost = !empty($data['canPostInvoice']) && (string) $invoice['status'] === 'd
         </form>
     </section>
     <?php endif; ?>
-    <section class="card table-card">
+    <section class="card table-card" id="payments">
         <h2>Payments and allocations</h2>
         <table class="data-table"><thead><tr><th>Payment</th><th>Date</th><th>Amount</th><th>Allocated</th><th>Method</th><th>Reference</th><th>Posting reference</th><th>Status</th></tr></thead><tbody>
         <?php if ($payments === []): ?><tr><td colspan="8" class="empty-state">No payments have been allocated.</td></tr><?php endif; ?>

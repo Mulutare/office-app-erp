@@ -178,62 +178,16 @@ if ((bool) config('debug', false)) {
 
 set_exception_handler(
     static function (Throwable $exception): void {
-        try {
-            $incidentId = bin2hex(random_bytes(8));
-        } catch (Throwable $randomException) {
-            $incidentId = substr(
-                hash(
-                    'sha256',
-                    microtime(true)
-                    . $exception->getFile()
-                    . $exception->getLine()
-                ),
-                0,
-                16
-            );
-        }
-
-        error_log(
-            sprintf(
-                '[%s] incident=%s class=%s code=%s file=%s line=%d',
-                date('Y-m-d H:i:s'),
-                $incidentId,
-                $exception::class,
-                preg_replace(
-                    '/[^A-Za-z0-9_.-]/',
-                    '',
-                    (string) $exception->getCode()
-                ),
-                $exception->getFile(),
-                $exception->getLine()
-            )
+        $error = (new \App\Services\AppErrorReporter())->report(
+            'SYS-UNEXPECTED-001',
+            $exception,
+            ['route' => $_SERVER['REQUEST_URI'] ?? null]
         );
-
         http_response_code(500);
-
-        if ((bool) config('debug', false)) {
-            echo '<h1>Application Error</h1>';
-            echo '<p>Incident reference: <code>';
-            echo htmlspecialchars(
-                $incidentId,
-                ENT_QUOTES,
-                'UTF-8'
-            );
-            echo '</code></p>';
-            echo '<p>Review the application log for the'
-                . ' exception class and source location.</p>';
-
-            return;
-        }
-
-        echo '<h1>OfficeApp ERP</h1>';
-        echo '<p>An unexpected application error occurred.'
-            . ' Reference: ';
-        echo htmlspecialchars(
-            $incidentId,
-            ENT_QUOTES,
-            'UTF-8'
-        );
-        echo '.</p>';
+        $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        echo '<h1>'.$escape($error['code']).' — '.$escape($error['title']).'</h1>';
+        echo '<p><strong>Cause:</strong> '.$escape($error['cause']).'</p>';
+        echo '<p><strong>What to do:</strong> '.$escape($error['suggested_action']).'</p>';
+        echo '<p><strong>Reference:</strong> '.$escape($error['incident_reference']).'</p>';
     }
 );

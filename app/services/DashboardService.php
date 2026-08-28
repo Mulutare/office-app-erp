@@ -44,11 +44,7 @@ final class DashboardService
         $companyId = $this->tenant->companyId();
         $sessions = new AuthenticatedSessionService();
         $user = (new User())->findById($userId) ?? [];
-        $canViewDetails = in_array(
-            'administration.users.manage',
-            is_array($auth['permissions'] ?? null) ? $auth['permissions'] : [],
-            true
-        );
+        $canViewDetails = $userId > 0;
         return [
             'display_name'=>(string)($auth['display_name']??''),
             'username'=>(string)($auth['username']??''),

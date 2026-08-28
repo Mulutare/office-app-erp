@@ -238,8 +238,7 @@ final class AttendanceSelfServiceService
                 $employeeId > 0
                 && $employmentStatus === 'active'
                 && $attendanceActionWindowOpen
-                && $hasCheckIn
-                && $openSession !== null,
+                && $hasCheckIn,
             'canScan' =>
                 $employeeId > 0
                 && $employmentStatus === 'active'
@@ -251,7 +250,6 @@ final class AttendanceSelfServiceService
                     )
                     || (
                         $hasCheckIn
-                        && $openSession !== null
                         && $attendanceActionWindowOpen
                     )
                 ),
@@ -647,37 +645,6 @@ final class AttendanceSelfServiceService
                 ];
             }
 
-            if (
-                is_array($old)
-                && !empty($old['check_in_at'])
-                && !empty($old['check_out_at'])
-            ) {
-                $message =
-                    'Attendance for this scheduled workday is already complete. You can sign in again on the next scheduled workday.';
-
-                $this->appendRejectedScan(
-                    $companyId,
-                    $employeeId,
-                    (int) ($old['attendance_id'] ?? 0),
-                    $attendanceDate,
-                    $requestKey,
-                    $scannedAt,
-                    $timezone,
-                    $deviceReference,
-                    'attendance_day_completed: ' . $message,
-                    $actorUserId,
-                    $geofenceEvidence
-                );
-
-                if ($ownsTransaction) {
-                    $connection->commit();
-                }
-
-                return [
-                    'successful' => false,
-                    'errors' => ['form' => $message],
-                ];
-            }
 
             $firstScan = !is_array($old)
                 || empty($old['check_in_at']);

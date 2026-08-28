@@ -245,6 +245,8 @@ final class InventoryService
             "SELECT
                 movements.movement_id,
                 movements.reference_number,
+                movements.reference_type,
+                movements.reference_id,
                 movements.movement_type,
                 movements.requested_quantity,
                 movements.completed_quantity,

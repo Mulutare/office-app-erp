@@ -257,10 +257,14 @@ final class AuthService
                         $currentCompanyId
                     );
 
-        $this->authenticatedSessions->touchOrRegister(
+        if (!$this->authenticatedSessions->touchOrRegister(
             $currentCompanyId,
             $userId
-        );
+        )) {
+            $this->invalidateLocalSession();
+
+            return false;
+        }
 
         return true;
     }
@@ -817,5 +821,27 @@ private function completeLogin(array $user): array
                     ->enabledNavigationModules(
                         $companyId
                     );
+    }
+
+    private function invalidateLocalSession(): void
+    {
+        $_SESSION = [];
+
+        if (ini_get('session.use_cookies')) {
+            $parameters = session_get_cookie_params();
+            setcookie(
+                session_name(),
+                '',
+                time() - 42000,
+                $parameters['path'],
+                $parameters['domain'],
+                $parameters['secure'],
+                $parameters['httponly']
+            );
+        }
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
     }
 }

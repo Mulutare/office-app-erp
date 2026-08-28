@@ -634,6 +634,182 @@ a {
     color: #ffffff;
 }
 
+.btn-danger-outline {
+    color: #b42318;
+    background: transparent;
+    border: 1px solid #f0a5a0;
+}
+
+.btn-danger-outline:hover {
+    color: #8f1c13;
+    background: #fff1f0;
+    border-color: #d92d20;
+}
+
+.session-bulk-action,
+.session-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.session-bulk-action span,
+.session-safety-note {
+    color: var(--muted-text, #667085);
+    font-size: .9rem;
+}
+
+.sales-workflow-trace {
+    overflow: hidden;
+}
+
+.sales-workflow-heading,
+.sales-workflow-related {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.sales-workflow-heading h2 {
+    margin: .15rem 0 0;
+    font-size: 1.05rem;
+}
+
+.sales-workflow-next {
+    margin: 0;
+    color: var(--color-muted, #667085);
+}
+
+.sales-workflow-stages {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: .5rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sales-workflow-stage {
+    position: relative;
+    min-width: 0;
+}
+
+.sales-workflow-stage:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 1rem;
+    left: calc(100% - .1rem);
+    width: .7rem;
+    border-top: 1px solid #d0d5dd;
+}
+
+.sales-workflow-stage-link {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: .15rem .4rem;
+    min-height: 4.1rem;
+    padding: .55rem;
+    border: 1px solid #e4e7ec;
+    border-radius: .55rem;
+    color: inherit;
+    text-decoration: none;
+    background: #fff;
+}
+
+a.sales-workflow-stage-link:hover {
+    border-color: var(--color-accent);
+    background: #f8fbff;
+}
+
+.sales-workflow-icon {
+    font-weight: 800;
+}
+
+.sales-workflow-stage-completed .sales-workflow-icon {
+    color: #067647;
+}
+
+.sales-workflow-stage-in_progress .sales-workflow-icon,
+.sales-workflow-stage-partial .sales-workflow-icon {
+    color: #b54708;
+}
+
+.sales-workflow-stage.is-current .sales-workflow-stage-link {
+    border-color: var(--color-accent);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.sales-workflow-label {
+    overflow-wrap: anywhere;
+    font-weight: 700;
+}
+
+.sales-workflow-current {
+    grid-column: 1 / -1;
+    width: max-content;
+    padding: .08rem .35rem;
+    border-radius: 999px;
+    color: #175cd3;
+    background: #eff8ff;
+    font-size: .68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.sales-workflow-stage-link small {
+    grid-column: 1 / -1;
+    overflow-wrap: anywhere;
+    color: var(--color-muted, #667085);
+}
+
+.sales-workflow-records {
+    margin-top: .35rem;
+    font-size: .8rem;
+}
+
+.sales-workflow-records ul {
+    margin: .35rem 0 0;
+    padding-left: 1rem;
+}
+
+.sales-workflow-records li {
+    margin: .2rem 0;
+}
+
+.sales-workflow-records small {
+    display: block;
+    color: var(--color-muted, #667085);
+}
+
+.sales-workflow-related {
+    justify-content: flex-start;
+    margin-top: .8rem;
+    padding-top: .7rem;
+    border-top: 1px solid #eaecf0;
+    font-size: .85rem;
+}
+
+@media (max-width: 1100px) {
+    .sales-workflow-stages {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .sales-workflow-stage::after {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .sales-workflow-stages {
+        grid-template-columns: 1fr;
+    }
+}
+
 .mobile-menu-button {
     display: none;
 }
@@ -2130,6 +2306,8 @@ a {
     top: calc(100% + 10px);
     right: 0;
     width: min(720px, calc(100vw - 48px));
+    max-width: none;
+    box-sizing: border-box;
     padding: 22px;
     border: 1px solid var(--color-border);
     border-radius: 14px;
@@ -2435,6 +2613,7 @@ a {
     .calendar-create-form {
         position: static;
         width: 100%;
+        max-width: 100%;
         margin-top: 10px;
         box-shadow: 0 10px 30px rgba(16, 24, 40, 0.12);
     }
@@ -9375,3 +9554,11 @@ form[action$="/procurement/requisitions"] > .btn {
 .action-required-row .record-action-chip { margin-left: .35rem; }
 .task-integrity-warning { color: #8b1d1d; margin: .5rem 0 0; }
 @media (max-width: 560px) { .action-task-list { grid-template-columns: 1fr; } }
+.branch-geofence-map {
+    width: 100%;
+    min-height: 360px;
+    margin-top: 1rem;
+    border: 1px solid var(--border-color, #d7dee8);
+    border-radius: 0.75rem;
+    background: #eef2f7;
+}

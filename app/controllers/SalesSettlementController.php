@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 namespace App\Controllers;
+use App\Services\SalesWorkflowTraceService;
 
 use App\Services\AuthorizationService;
 use App\Services\SalesSettlementDocumentService;
@@ -13,7 +14,7 @@ final class SalesSettlementController
     public function __construct(){$this->auth=new AuthorizationService();$this->service=new SettlementService();}
     public function index(): void{$this->permit('sales','sales.settlements.view');$data=$this->service->listing();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Sales Settlements','pageDescription'=>'Accountability and bank-deposit reconciliation over posted customer payments.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
     public function finance(): void{$this->permit('finance','finance.settlements.view');$data=$this->service->listing();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Settlement Reconciliation','pageDescription'=>'Finance bank confirmation, variance and maker/checker controls.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'financeMode'=>true,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
-    public function show(string $id): void{$this->permitSharedView();$s=$this->service->find((int)$id);if($s===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>$s['settlement_number'],'pageDescription'=>'Settlement evidence, variance, approvals and audit timeline.','contentView'=>'sales.settlement','user'=>$_SESSION['auth'],'settlement'=>$s,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]);}
+    public function show(string $id): void{$this->permitSharedView();$s=$this->service->find((int)$id);if($s===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>$s['settlement_number'],'pageDescription'=>'Settlement evidence, variance, approvals and audit timeline.','contentView'=>'sales.settlement','user'=>$_SESSION['auth'],'settlement'=>$s,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[]),'workflowTrace'=>(new SalesWorkflowTraceService())->trace((new TenantContext())->companyId(),'settlement',(int)$s['settlement_id'],$_SESSION['auth']??[])]);}
     public function create(): void{$this->permit('sales','sales.settlements.create');$this->csrf();$this->finish($this->service->create($_POST,$this->actor()),null);}
     public function submit(string $id): void{$this->permit('sales','sales.settlements.submit');$this->csrf();$this->finish($this->service->transition((int)$id,'submit','',$this->actor()),(int)$id);}
     public function review(string $id): void{$this->permit('sales','sales.settlements.review');$this->csrf();$this->finish($this->service->transition((int)$id,'review',\postString('reason'),$this->actor()),(int)$id);}

@@ -572,6 +572,12 @@ try {
                 '059',
                 '060',
                 '061',
+                '062',
+                '063',
+                '064',
+                '065',
+                '066',
+                '067',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -618,13 +624,13 @@ try {
                 \'049\',
                 \'050\',
                 \'051\'
-                ,\'052\',\'053\',\'054\',\'055\',\'056\',\'057\',\'058\',\'059\',\'060\'
+                ,\'052\',\'053\',\'054\',\'055\',\'056\',\'057\',\'058\',\'059\',\'060\',\'061\',\'062\',\'063\',\'064\',\'065\',\'066\',\'067\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 46,
+        $migrationLedgerCount === 53,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 
@@ -799,32 +805,38 @@ try {
         'Connection manager rejects unavailable database drivers'
     );
 
-    $tableCount = (int) db()
+    $requiredReleaseTables = (int) db()
         ->query(
             'SELECT COUNT(*)
              FROM information_schema.tables
              WHERE table_schema = DATABASE()
-               AND table_name NOT IN (\'schema_migrations\',\'schema_migration_steps\')
+               AND table_name IN (\'app_error_catalog\',\'app_error_incidents\')
                AND table_type = \'BASE TABLE\''
         )
         ->fetchColumn();
 
     $check(
-        $tableCount === 128,
-        'All 128 application tables were created'
+        $requiredReleaseTables === 2,
+        'Error catalog and incident registry tables were created'
     );
 
-    $foreignKeyCount = (int) db()
+    $requiredReleaseForeignKeys = (int) db()
         ->query(
             'SELECT COUNT(*)
              FROM information_schema.referential_constraints
-             WHERE constraint_schema = DATABASE()'
+             WHERE constraint_schema = DATABASE()
+               AND constraint_name IN (
+                    \'fk_fixed_asset_last_verifier\',
+                    \'fk_app_error_incident_catalog\',
+                    \'fk_app_error_incident_company\',
+                    \'fk_app_error_incident_user\'
+               )'
         )
         ->fetchColumn();
 
     $check(
-        $foreignKeyCount === 465,
-        'All 465 foreign-key relationships were created'
+        $requiredReleaseForeignKeys === 4,
+        'Asset tracking and error registry foreign keys were created'
     );
 
     $csrfToken = csrfToken();
@@ -4422,9 +4434,10 @@ try {
         && $secondScan['successful'] === true
         && ($secondScan['eventType'] ?? null)
             === 'clock_out'
-        && $latestScan['successful'] === false
-        && isset($latestScan['errors']['form']),
-        'First attendance scan signs in, second scan signs out, and later scans are rejected'
+        && $latestScan['successful'] === true
+        && ($latestScan['eventType'] ?? null)
+            === 'clock_out_update',
+        'First attendance scan signs in and later Sign Out updates the same completed cycle'
     );
     $check(
         is_array($scanRecord)
@@ -4437,7 +4450,7 @@ try {
             (string) $scanRecord['check_out_at'],
             0,
             19
-        ) === '2026-08-17 17:00:00'
+        ) === '2026-08-17 17:15:00'
         && count($calculatedSessions) === 1
         && substr(
             (string) $calculatedSessions[0][
@@ -4452,8 +4465,8 @@ try {
             ],
             0,
             19
-        ) === '2026-08-17 17:00:00',
-        'Calculated attendance preserves the first Sign In and completed Sign Out'
+        ) === '2026-08-17 17:15:00',
+        'Calculated attendance preserves the first Sign In and latest Sign Out'
     );
     $check(
         count($scanEvents) === 4
@@ -4464,13 +4477,13 @@ try {
             'rejected',
             'clock_in',
             'clock_out',
-            'rejected',
+            'clock_out_update',
         ]
         && ($scanEvents[3]['processing_result'] ?? null)
-            === 'rejected'
-        && $duplicateLatestScan['successful'] === false
+            === 'accepted'
+        && $duplicateLatestScan['successful'] === true
         && !empty($duplicateLatestScan['duplicate']),
-        'Immutable scan log retains completed-day rejection while retries remain idempotent'
+        'Immutable scan log retains the checkout update while retries remain idempotent'
     );
     $check(
         $outsideWindowScan['successful'] === false

@@ -11,7 +11,7 @@ $can = static fn (string $permission): bool => in_array($permission, $permission
 $actionRequiredCounts = is_array($data['actionRequiredCounts'] ?? null) ? $data['actionRequiredCounts'] : [];
 
 if ($module === '') {
-    foreach (['sales', 'procurement', 'finance', 'inventory'] as $candidate) {
+    foreach (['sales', 'procurement', 'finance', 'inventory', 'assets'] as $candidate) {
         if (str_starts_with($requestPath, "/" . $candidate) || str_starts_with($requestPath, "/office_app/public/" . $candidate)) {
             $module = $candidate;
             break;
@@ -26,7 +26,7 @@ $definitions = [
         'customers' => ['Customers', '/sales/customers'],
         'products' => ['Products', '/sales/products'],
         'pricelists' => ['Pricelists', '/sales/pricelists'],
-        'teams' => ['Sales Teams', '/sales/teams'],
+        'teams' => ['DSA / DSP & Teams', '/sales/teams'],
         'deliveries' => ['Deliveries', '/sales/deliveries'],
         'settlements' => ['Settlements', '/sales/settlements', 'sales.settlements.view'],
     ],
@@ -56,6 +56,12 @@ $definitions = [
         'warehouses' => ['Warehouses', '/inventory/warehouses', 'inventory.warehouses.view'],
         'locations' => ['Locations', '/inventory/locations', 'inventory.warehouses.view'],
     ],
+    'assets' => [
+        'register' => ['Asset Register', '/assets-management?section=register', 'assets.view'],
+        'direct' => ['Direct Assets', '/assets-management?section=direct', 'assets.manage'],
+        'categories' => ['Asset Categories', '/assets-management?section=categories', 'assets.manage'],
+        'capitalization' => ['Capitalization', '/assets-management?section=capitalization', 'assets.inventory.capitalize'],
+    ],
 ];
 
 if ($section === '') {
@@ -73,7 +79,12 @@ if ($section === '') {
         $section = str_contains($requestPath, '/finance/accounting-periods') ? 'periods' : (str_contains($requestPath, '/finance/settlements') ? 'settlements' : (str_contains($requestPath, '/finance/customer-invoices') ? 'invoices' : (string) ($_GET['section'] ?? 'receivables')));
     } elseif ($module === 'procurement') {
         $section = (string) ($moduleContext['section'] ?? $_GET['section'] ?? (preg_match('~/procurement/\d+~', $requestPath) ? 'orders' : 'overview'));
+    } elseif ($module === 'assets') {
+        $section = (string) ($_GET['section'] ?? 'register');
     }
+}
+if ($module === 'assets' && !in_array($section, ['register', 'direct', 'categories', 'capitalization'], true)) {
+    $section = 'register';
 }
 
 $items = $definitions[$module] ?? [];

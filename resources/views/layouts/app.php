@@ -43,7 +43,7 @@ $requestPath = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $taskModule = (string) ($data['moduleContext']['module'] ?? '');
 $taskSection = (string) ($data['moduleContext']['section'] ?? '');
 if ($taskModule === '') {
-    foreach (['sales', 'procurement', 'finance', 'inventory', 'hr', 'administration'] as $candidate) {
+    foreach (['sales', 'procurement', 'finance', 'inventory', 'assets', 'hr', 'administration'] as $candidate) {
         if (str_contains($requestPath, '/' . $candidate)) { $taskModule = $candidate; break; }
     }
 }
@@ -52,8 +52,12 @@ if ($taskSection === '') {
     elseif ($taskModule === 'procurement') $taskSection = (string) ($_GET['section'] ?? (preg_match('~/procurement/\d+~', $requestPath) ? 'orders' : 'overview'));
     elseif ($taskModule === 'finance') $taskSection = str_contains($requestPath, '/customer-invoices') ? 'invoices' : (str_contains($requestPath, '/settlements') ? 'settlements' : (string) ($_GET['section'] ?? 'receivables'));
     elseif ($taskModule === 'inventory') $taskSection = str_contains($requestPath, '/receipts') ? 'receipts' : (string) ($_GET['section'] ?? 'stock');
+    elseif ($taskModule === 'assets') $taskSection = (string) ($_GET['section'] ?? 'register');
     elseif ($taskModule === 'hr') $taskSection = str_contains($requestPath, '/leave') ? 'leave' : '';
     elseif ($taskModule === 'administration') $taskSection = str_contains($requestPath, '/integration-events') ? 'integration_events' : '';
+}
+if ($taskModule === 'assets' && !in_array($taskSection, ['register', 'direct', 'categories', 'capitalization'], true)) {
+    $taskSection = 'register';
 }
 $data['actionRequiredModule'] = $taskModule;
 $data['actionRequiredSection'] = $taskSection;

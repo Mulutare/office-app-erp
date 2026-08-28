@@ -44,6 +44,12 @@ final class DashboardController
             'account' => $this->dashboard->signedInAccount(
                 $_SESSION['auth']
             ),
+            'sessionSuccess' => \getFlash(
+                'dashboard_session_success'
+            ),
+            'sessionError' => \getFlash(
+                'dashboard_session_error'
+            ),
         ]);
     }
 }

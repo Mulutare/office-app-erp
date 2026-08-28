@@ -17,12 +17,14 @@ final class SalesService
         private ?SalesRepository $sales = null,
         private ?AuditLogWriter $audit = null,
         private ?TenantContext $tenant = null,
-        private ?InventoryRepository $inventory = null
+        private ?InventoryRepository $inventory = null,
+        private ?AppErrorReporter $errorReporter = null
     ) {
         $this->sales ??= RepositoryFactory::sales();
         $this->audit ??= RepositoryFactory::auditLogs();
         $this->tenant ??= new TenantContext();
         $this->inventory ??= RepositoryFactory::inventory();
+        $this->errorReporter ??= new AppErrorReporter();
     }
 
     /** @return array<string, mixed> */
@@ -50,6 +52,7 @@ final class SalesService
     {
         $calculation=(string)($input['calculation']??'fixed');$values=['name'=>trim((string)($input['name']??'')),'currency'=>strtoupper(trim((string)($input['currency']??'ETB'))),'valid_from'=>$this->date($input['valid_from']??null),'valid_to'=>$this->date($input['valid_to']??null),'product_id'=>$this->optionalId($input['product_id']??null),'category'=>$this->nullable($input['category']??null),'minimum_quantity'=>$this->decimal($input['minimum_quantity']??1),'calculation'=>$calculation,'fixed_price'=>$calculation==='fixed'?$this->money($input['fixed_price']??0):null,'percentage_adjustment'=>$calculation==='percentage'?$this->money($input['percentage_adjustment']??0):null,'rule_from'=>$this->date($input['rule_from']??null),'rule_to'=>$this->date($input['rule_to']??null),'priority'=>(int)($input['priority']??100)];
         if($values['name']===''||!in_array($calculation,['fixed','percentage'],true)||$values['minimum_quantity']<=0)return ['successful'=>false,'errors'=>['form'=>'Name, calculation and positive minimum quantity are required.']];
+        if($calculation==='fixed'&&$values['fixed_price']<=0)return['successful'=>false,'errors'=>['fixed_price'=>$this->errorReporter->report('SAL-PRC-001',null,['entity_type'=>'pricelist'])]];
         try{return ['successful'=>true,'id'=>$this->sales->createPricelist($this->tenant->companyId(),$values,$actorId)];}catch(Throwable $e){return ['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
     }
 
@@ -66,11 +69,11 @@ final class SalesService
 
     public function createSalesTeam(array $input,int $actorId): array
     {
-        $name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return ['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{return ['successful'=>true,'id'=>$this->sales->createTeam($this->tenant->companyId(),['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members,$actorId)];}catch(Throwable $e){return ['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
+        $name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return ['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{return ['successful'=>true,'id'=>$this->sales->createTeam($this->tenant->companyId(),['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members,$actorId)];}catch(Throwable $e){$message=$e->getMessage();if(str_contains($message,'uq_sales_team_name'))return ['successful'=>false,'errors'=>['name'=>'A DSA / DSP team with this name already exists.']];return ['successful'=>false,'errors'=>['form'=>$message]];}
     }
     public function salesTeam(int $id): ?array{return $this->sales->team($this->tenant->companyId(),$id);}
     public function updateSalesTeam(int $id,array $input): array
-    {$name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{$this->sales->updateTeam($this->tenant->companyId(),$id,['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    {$name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{$this->sales->updateTeam($this->tenant->companyId(),$id,['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members);return['successful'=>true,'id'=>$id];}catch(Throwable $e){$message=$e->getMessage();if(str_contains($message,'uq_sales_team_name'))return['successful'=>false,'errors'=>['name'=>'A DSA / DSP team with this name already exists.']];return['successful'=>false,'errors'=>['form'=>$message]];}}
     public function setSalesTeamActive(int $id,bool $active): array{try{$this->sales->setTeamActive($this->tenant->companyId(),$id,$active);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
 
     public function createQuotation(array $input,int $actorId): array
@@ -893,6 +896,10 @@ final class SalesService
                 continue;
             }
             $price = $this->sales->resolvePrice($companyId, $pricelistId, $productId, $quantity, $quotationDate, (float) $product['unit_price']);
+            if ($price <= 0) {
+                $errors['line_' . ($index + 1)] = $this->errorReporter->report('SAL-QUO-001',null,['entity_type'=>'quotation','product_id'=>$productId,'pricelist_id'=>$pricelistId]);
+                continue;
+            }
             $discount = $this->money($submitted['discount_amount'] ?? 0);
             $taxRate = $this->money($submitted['tax_rate'] ?? 0);
             $gross = round($quantity * $price, 2);
@@ -941,7 +948,7 @@ final class SalesService
         $calculation=(string)($input['calculation']??'fixed');$from=$this->date($input['rule_from']??null);$to=$this->date($input['rule_to']??null);$values=['product_id'=>$this->optionalId($input['product_id']??null),'category'=>$this->nullable($input['category']??null),'minimum_quantity'=>$this->decimal($input['minimum_quantity']??1),'calculation'=>$calculation,'fixed_price'=>$calculation==='fixed'?$this->money($input['fixed_price']??0):null,'percentage_adjustment'=>$calculation==='percentage'?$this->money($input['percentage_adjustment']??0):null,'rule_from'=>$from,'rule_to'=>$to,'priority'=>(int)($input['priority']??100)];
         if(!in_array($calculation,['fixed','percentage'],true)||$values['minimum_quantity']<=0)return['errors'=>['form'=>'Enter a valid pricing calculation and positive minimum quantity.']];
         if($from!==null&&$to!==null&&$to<$from)return['errors'=>['rule_to'=>'Rule end date cannot precede its start date.']];
-        if($calculation==='fixed'&&$values['fixed_price']<0)return['errors'=>['fixed_price'=>'Fixed price cannot be negative.']];
+        if($calculation==='fixed'&&$values['fixed_price']<=0)return['errors'=>['fixed_price'=>$this->errorReporter->report('SAL-PRC-001',null,['entity_type'=>'pricelist_rule'])]];
         if($calculation==='percentage'&&$values['percentage_adjustment']<-100)return['errors'=>['percentage_adjustment'=>'Percentage adjustment cannot reduce price below zero.']];
         return['values'=>$values];
     }

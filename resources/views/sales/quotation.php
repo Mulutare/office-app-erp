@@ -23,6 +23,7 @@ $lineOptions = static function (array $products, int $selected): void {
 };
 ?>
 <div class="sales-workspace" data-section="quotations">
+    <?php if (!$editing): ?><?php \view('components.sales-workflow-trace', ['workflowTrace' => $data['workflowTrace'] ?? null]); ?><?php endif; ?>
     <div class="page-actions">
         <a class="btn btn-secondary" href="/office_app/public/sales/quotations">Back to quotations</a>
         <?php if (!$editing): ?><a class="btn btn-secondary" href="/office_app/public/sales/quotations/<?= e($quotation['quotation_id']) ?>/proforma.pdf">Download Proforma PDF</a><?php endif; ?>
@@ -32,7 +33,7 @@ $lineOptions = static function (array $products, int $selected): void {
     </div>
 
     <?php if ($notice !== null): ?><div class="alert alert-success"><?= e($notice['message'] ?? '') ?></div><?php endif; ?>
-    <?php if ($errors !== []): ?><div class="alert alert-danger" role="alert"><strong>The quotation was not saved.</strong><?php foreach ($errors as $error): ?><div><?= e($error) ?></div><?php endforeach; ?></div><?php endif; ?>
+    <?php if ($errors !== []): ?><div class="alert alert-danger" role="alert"><strong>The quotation was not saved.</strong></div><?php foreach ($errors as $error): ?><?php if(is_array($error)):?><?php \view('components.app-error',['error'=>$error]);?><?php else:?><div class="alert alert-danger"><?= e((string)$error) ?></div><?php endif;?><?php endforeach; ?><?php endif; ?>
 
     <header class="section-heading">
         <div><p class="eyebrow">Quotations</p><h2><?= e($mode === 'create' ? 'New quotation' : ($quotation['quotation_number'] ?? 'Quotation')) ?></h2></div>
@@ -46,7 +47,7 @@ $lineOptions = static function (array $products, int $selected): void {
                 <div class="form-field"><label>Customer</label><select name="customer_id" required><option value="">Select customer</option><?php foreach ($data['customers'] as $customer): ?><option value="<?= e($customer['customer_id']) ?>" <?= (int) $value('customer_id') === (int) $customer['customer_id'] ? 'selected' : '' ?>><?= e($customer['customer_number'] . ' - ' . $customer['name']) ?></option><?php endforeach; ?></select></div>
                 <div class="form-field"><label>Quotation date</label><input type="date" name="quotation_date" value="<?= e($value('quotation_date', date('Y-m-d'))) ?>" required></div>
                 <div class="form-field"><label>Expiration date</label><input type="date" name="expiration_date" value="<?= e($value('expiration_date')) ?>"></div>
-                <div class="form-field"><label>Salesperson</label><select name="agent_id"><option value="">Unassigned</option><?php foreach ($data['agents'] as $agent): ?><option value="<?= e($agent['agent_id']) ?>" <?= (int) $value('agent_id') === (int) $agent['agent_id'] ? 'selected' : '' ?>><?= e($agent['name']) ?></option><?php endforeach; ?></select></div>
+                <div class="form-field"><label>DSA / DSP</label><select name="agent_id"><option value="">Unassigned</option><?php foreach ($data['agents'] as $agent): ?><option value="<?= e($agent['agent_id']) ?>" <?= (int) $value('agent_id') === (int) $agent['agent_id'] ? 'selected' : '' ?>><?= e($agent['name']) ?></option><?php endforeach; ?></select></div>
                 <div class="form-field"><label>Sales team</label><select name="team_id"><option value="">Unassigned</option><?php foreach ($data['salesTeams'] as $team): ?><option value="<?= e($team['team_id']) ?>" <?= (int) $value('team_id') === (int) $team['team_id'] ? 'selected' : '' ?>><?= e($team['name']) ?></option><?php endforeach; ?></select></div>
                 <div class="form-field"><label>Pricelist</label><select name="pricelist_id"><option value="">Standard price</option><?php foreach ($data['pricelists'] as $price): if (empty($price['active']) && (int) $value('pricelist_id') !== (int) $price['pricelist_id']) continue; ?><option value="<?= e($price['pricelist_id']) ?>" <?= (int) $value('pricelist_id') === (int) $price['pricelist_id'] ? 'selected' : '' ?>><?= e($price['name']) ?></option><?php endforeach; ?></select></div>
                 <div class="form-field"><label>Payment terms (days)</label><input type="number" min="0" name="payment_terms_days" value="<?= e($value('payment_terms_days', 0)) ?>"></div>

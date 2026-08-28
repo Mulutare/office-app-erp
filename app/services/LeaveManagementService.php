@@ -180,15 +180,54 @@ final class LeaveManagementService
             }
         }
         $selfRequests = [];
+        $selfBalances = [];
         $teamRequests = [];
 
         if ($employee !== null) {
+            $employeeId = (int) $employee['employee_id'];
+
             $selfRequests =
                 $this->leave->requestsForEmployee(
                     $companyId,
-                    (int) $employee['employee_id'],
+                    $employeeId,
                     $status
                 );
+
+            $selfBalances =
+                $this->leave->balancesForEmployee(
+                    $companyId,
+                    $employeeId,
+                    date('Y-01-01'),
+                    date('Y-12-31')
+                );
+
+            foreach ($selfBalances as &$balance) {
+                $availableDays =
+                    (float) (
+                        $balance['annual_entitlement']
+                        ?? 0
+                    )
+                    + (float) (
+                        $balance['carry_over_days']
+                        ?? 0
+                    )
+                    + (float) (
+                        $balance['adjustment_days']
+                        ?? 0
+                    );
+
+                $balance['available_days'] =
+                    $availableDays;
+
+                $balance['remaining_days'] =
+                    $availableDays
+                    - (float) (
+                        $balance['used_days']
+                        ?? 0
+                    );
+            }
+
+            unset($balance);
         }
 
         if ($canApproveTeam) {
@@ -291,6 +330,7 @@ final class LeaveManagementService
                 )
                 : [],
             'employee' => $employee,
+            'balances' => $selfBalances,
             'summary' => $this->summaryFrom(
                 $requests
             ),

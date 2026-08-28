@@ -2027,8 +2027,12 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                     'backorderPickingId' => $this->positiveOrNull($prior['backorder_picking_id'])];
             }
             $headerStatement = $connection->prepare(
-                "SELECT * FROM inventory_pickings
-                 WHERE company_id = :company_id AND picking_id = :picking_id
+                "SELECT p.*, o.currency AS document_currency
+                 FROM inventory_pickings p
+                 LEFT JOIN sales_orders o
+                   ON o.company_id = p.company_id
+                  AND o.order_id = p.sales_order_id
+                 WHERE p.company_id = :company_id AND p.picking_id = :picking_id
                  FOR UPDATE"
             );
             $headerStatement->execute(['company_id' => $companyId, 'picking_id' => $pickingId]);
@@ -2164,6 +2168,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                         'unitCost' => $unitCost,
                         'movementType' => $movementType,
                         'operationTypeId' => (int) $header['operation_type_id'],
+                        'currency' => (string) ($header['document_currency'] ?? 'ETB'),
                         'referenceType' => 'inventory_picking',
                         'referenceId' => $pickingId,
                         'referenceNumber' => (string) $header['picking_number'],

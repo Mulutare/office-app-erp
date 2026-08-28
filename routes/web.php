@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 use App\Controllers\AuditLogController;
+use App\Controllers\AuthenticatedSessionController;
 use App\Controllers\AttendanceController;
 use App\Controllers\AttendanceSelfServiceController;
 use App\Controllers\UserAdministrationController;
@@ -43,6 +44,8 @@ use App\Controllers\WorkforceCalendarController;
 
 $userAdministrationController =
     new UserAdministrationController();
+$authenticatedSessionController =
+    new AuthenticatedSessionController();
 $roleAdministrationController =
     new RoleAdministrationController();
 $userActivityController =
@@ -305,6 +308,7 @@ $router->post('/assets-management/{id}/activate',[$assetController,'activate']);
 $router->post('/assets-management/{id}/depreciation/{lineId}/post',[$assetController,'postDepreciation']);
 $router->post('/assets-management/{id}/transfer',[$assetController,'transfer']);
 $router->post('/assets-management/{id}/maintenance',[$assetController,'maintenance']);
+$router->post('/assets-management/{id}/tracking',[$assetController,'tracking']);
 $router->post('/assets-management/{id}/dispose',[$assetController,'dispose']);
 $router->get('/assets-management/{id}',[$assetController,'show']);
 $router->get('/inventory/receipts/{id}',[$inventoryController,'showReceipt']);
@@ -680,6 +684,14 @@ $router->get(
     '/dashboard',
     [$dashboardController, 'index']
 );
+$router->post(
+    '/dashboard/sessions/{id}/terminate',
+    [$authenticatedSessionController, 'terminateDashboardSession']
+);
+$router->post(
+    '/dashboard/sessions/terminate-others',
+    [$authenticatedSessionController, 'terminateDashboardOthers']
+);
 $router->get(
     '/analytics',
     [$powerBiController, 'index']
@@ -737,6 +749,14 @@ $router->get(
 $router->post(
     '/administration/users/update',
     [$userAdministrationController, 'update']
+);
+$router->post(
+    '/administration/users/sessions/terminate',
+    [$authenticatedSessionController, 'terminateAdminSession']
+);
+$router->post(
+    '/administration/users/sessions/terminate-all',
+    [$authenticatedSessionController, 'terminateAdminAll']
 );
 
 $router->get(

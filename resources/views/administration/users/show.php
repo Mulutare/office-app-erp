@@ -42,6 +42,21 @@ $canUnlock = !empty($data['canUnlock']);
 $canViewActivity = !empty(
     $data['canViewActivity']
 );
+$activeSessions = is_array($data['activeSessions'] ?? null)
+    ? $data['activeSessions']
+    : [];
+$isSelf = !empty($data['isSelf']);
+$sessionSuccess = is_string($data['sessionSuccess'] ?? null)
+    ? $data['sessionSuccess']
+    : '';
+$sessionError = is_string($data['sessionError'] ?? null)
+    ? $data['sessionError']
+    : '';
+$bulkSessionConfirmation = $isSelf
+    ? 'Terminate all other login sessions for this account? Your current session will remain active.'
+    : 'Terminate all active login sessions for '
+        . (string) ($profile['display_name'] ?? $profile['username'] ?? 'this user')
+        . '?';
 $resetCredentials = is_array(
     $data['resetCredentials'] ?? null
 )
@@ -89,6 +104,13 @@ if (!empty($profile['is_locked'])) {
     <div class="alert alert-success" role="status">
         <?= e($successMessage) ?>
     </div>
+<?php endif; ?>
+
+<?php if ($sessionSuccess !== ''): ?>
+    <div class="alert alert-success" role="status"><?= e($sessionSuccess) ?></div>
+<?php endif; ?>
+<?php if ($sessionError !== ''): ?>
+    <div class="alert alert-danger" role="alert"><?= e($sessionError) ?></div>
 <?php endif; ?>
 
 <?php if ($resetCredentials !== null): ?>
@@ -244,6 +266,48 @@ if (!empty($profile['is_locked'])) {
         <span class="badge <?= e($statusClass) ?>">
             <?= e($statusLabel) ?>
         </span>
+    </div>
+</section>
+
+<section class="card authenticated-sessions-card" aria-labelledby="active-login-sessions-title">
+    <div class="session-section-heading">
+        <div>
+            <h2 class="card-title" id="active-login-sessions-title">Active login sessions</h2>
+            <p>Active sessions: <strong><?= e(count($activeSessions)) ?></strong></p>
+        </div>
+        <form method="post" action="<?= e(appBasePath()) ?>/administration/users/sessions/terminate-all" onsubmit="return confirm(<?= e(json_encode($bulkSessionConfirmation) ?: '"Terminate active login sessions?"') ?>);">
+            <?= csrfField() ?>
+            <input type="hidden" name="user_id" value="<?= e($profile['user_id'] ?? '') ?>">
+            <button type="submit" class="btn btn-danger-outline"><?= $isSelf ? 'Terminate all other sessions' : 'Terminate all sessions' ?></button>
+        </form>
+    </div>
+    <?php if ($isSelf): ?><p class="session-safety-note">Your current session will remain active.</p><?php endif; ?>
+    <div class="dashboard-session-table-wrap">
+        <table class="dashboard-session-table">
+            <thead><tr><th>Session</th><th>Signed in</th><th>Last activity</th><th>IP</th><th>Device / Browser</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+            <?php foreach ($activeSessions as $session): ?>
+                <tr>
+                    <td><?= !empty($session['current']) ? 'Current' : 'Other' ?></td>
+                    <td><?= e($formatDate($session['signed_in_at'] ?? null)) ?></td>
+                    <td><?= e($formatDate($session['last_activity_at'] ?? null)) ?></td>
+                    <td><?= e($session['ip_address'] ?? '') ?></td>
+                    <td><?= e($session['device'] ?? 'Unknown device') ?></td>
+                    <td><span class="dashboard-session-active"><?= e($session['status'] ?? 'Active') ?></span></td>
+                    <td>
+                        <?php if (empty($session['current'])): ?>
+                            <form method="post" action="<?= e(appBasePath()) ?>/administration/users/sessions/terminate" onsubmit="return confirm('Terminate this login session?');">
+                                <?= csrfField() ?>
+                                <input type="hidden" name="user_id" value="<?= e($profile['user_id'] ?? '') ?>">
+                                <input type="hidden" name="authenticated_user_session_id" value="<?= e($session['authenticated_user_session_id'] ?? '') ?>">
+                                <button type="submit" class="btn btn-danger-outline btn-compact">Terminate</button>
+                            </form>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
 </section>
 

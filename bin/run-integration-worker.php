@@ -117,6 +117,20 @@ while ($running) {
             )
         );
 
+        $driverCode = $exception instanceof PDOException
+            ? (int) ($exception->errorInfo[1] ?? 0)
+            : 0;
+        if (
+            $exception instanceof PDOException
+            && in_array($driverCode, [2006, 2013], true)
+        ) {
+            fwrite(
+                STDERR,
+                'Integration worker lost its database connection; exiting for supervised restart.' . PHP_EOL
+            );
+            exit(1);
+        }
+
         if ($running) {
             sleep($errorSeconds);
         }

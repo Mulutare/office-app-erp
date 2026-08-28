@@ -1,0 +1,330 @@
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    min-height: 100%;
+    margin: 0;
+}
+
+.pt-login-body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    color: #111111;
+    background: #f4f5f7;
+    font-family:
+        "Segoe UI",
+        Arial,
+        sans-serif;
+}
+
+.pt-login-body::before {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    width: 100%;
+    height: 33px;
+    content: "";
+    background: #76506e;
+}
+
+.pt-login-page {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    min-height: 100vh;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 158px 20px 50px;
+}
+
+.pt-login-card {
+    width: 100%;
+    max-width: 526px;
+    min-height: 610px;
+    padding: 28px 20px 24px;
+    background: #ffffff;
+}
+
+.pt-login-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.pt-login-logo {
+    display: block;
+    width: 160px;
+    height: auto;
+    object-fit: contain;
+}
+
+.pt-login-brand h1 {
+    margin: 20px 0 17px;
+    color: #050505;
+    font-size: 27px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.pt-login-divider {
+    width: 100%;
+    height: 1px;
+    margin-bottom: 31px;
+    background: #d8dce2;
+}
+
+.pt-login-error {
+    padding: 11px 13px;
+    margin: -12px 0 20px;
+    border: 1px solid #e5a8a8;
+    background: #fff4f4;
+    color: #9b1c1c;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.pt-picker-label,
+.pt-form-heading {
+    margin: 0 0 21px;
+    color: #111111;
+    font-size: 18px;
+    font-weight: 400;
+}
+
+.pt-account-list {
+    overflow: hidden;
+    border: 1px solid #d6dbe1;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.pt-account-row {
+    position: relative;
+    display: flex;
+    width: 100%;
+    min-height: 51px;
+    align-items: center;
+    padding: 7px 47px 7px 20px;
+    border: 0;
+    border-bottom: 1px solid #d6dbe1;
+    background: #ffffff;
+    color: #111111;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.pt-account-row:last-child {
+    border-bottom: 0;
+}
+
+.pt-account-row:hover,
+.pt-account-row:focus-visible {
+    z-index: 1;
+    outline: 2px solid #111111;
+    outline-offset: -2px;
+    background: #fafafa;
+}
+
+.pt-account-avatar {
+    display: inline-flex;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    align-items: center;
+    justify-content: center;
+    margin-right: 11px;
+    border-radius: 7px;
+    color: #ffffff;
+    background: #54a832;
+    font-size: 17px;
+    font-weight: 500;
+}
+
+.pt-account-name {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 17px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pt-account-remove {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    display: inline-flex;
+    width: 29px;
+    height: 29px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    transform: translateY(-50%);
+    background: transparent;
+    color: #050505;
+    cursor: pointer;
+    font-size: 25px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.pt-account-remove:hover {
+    background: #f0f0f0;
+    border-radius: 50%;
+}
+
+.pt-use-another {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 25px 10px 21px;
+    border: 0;
+    background: transparent;
+    color: #76506e;
+    cursor: pointer;
+    font: inherit;
+    font-size: 15px;
+}
+
+.pt-use-another:hover {
+    text-decoration: underline;
+}
+
+.pt-user-outline {
+    font-size: 15px;
+}
+
+.pt-login-form {
+    display: grid;
+    gap: 18px;
+}
+
+.pt-back-button {
+    width: fit-content;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #76506e;
+    cursor: pointer;
+    font: inherit;
+    font-size: 14px;
+}
+
+.pt-back-button:hover {
+    text-decoration: underline;
+}
+
+.pt-field {
+    display: grid;
+    gap: 7px;
+}
+
+.pt-field label {
+    color: #222222;
+    font-size: 14px;
+}
+
+.pt-field input {
+    width: 100%;
+    height: 47px;
+    padding: 10px 12px;
+    border: 1px solid #8a8f98;
+    border-radius: 3px;
+    outline: 0;
+    background: #ffffff;
+    color: #111111;
+    font: inherit;
+    font-size: 16px;
+}
+
+.pt-field input:focus {
+    border: 2px solid #76506e;
+    padding: 9px 11px;
+}
+
+.pt-password-wrap {
+    position: relative;
+}
+
+.pt-password-wrap input {
+    padding-right: 64px;
+}
+
+.pt-password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 7px;
+    padding: 6px 8px;
+    border: 0;
+    transform: translateY(-50%);
+    background: transparent;
+    color: #76506e;
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+}
+
+.pt-sign-in-button {
+    width: 100%;
+    min-height: 47px;
+    margin-top: 3px;
+    border: 0;
+    border-radius: 3px;
+    background: #76506e;
+    color: #ffffff;
+    cursor: pointer;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.pt-sign-in-button:hover {
+    background: #62435c;
+}
+
+.pt-login-footer {
+    padding-top: 25px;
+    margin-top: 27px;
+    border-top: 1px solid #d8dce2;
+    color: #858585;
+    font-size: 12px;
+    text-align: center;
+}
+
+@media (max-width: 620px) {
+    .pt-login-body::before {
+        height: 20px;
+    }
+
+    .pt-login-page {
+        align-items: flex-start;
+        padding: 52px 12px 24px;
+    }
+
+    .pt-login-card {
+        min-height: 0;
+        padding: 24px 18px;
+    }
+
+    .pt-login-logo {
+        width: 135px;
+        height: auto;
+    }
+
+    .pt-login-brand h1 {
+        margin-top: 13px;
+        font-size: 24px;
+    }
+
+    .pt-account-row {
+        padding-left: 12px;
+    }
+}

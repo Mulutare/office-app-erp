@@ -123,6 +123,10 @@ return [
         'APP_BASE_PATH',
         '/office_app/public'
     ),
+    'google_maps_browser_api_key' => $stringEnvironment(
+        'GOOGLE_MAPS_BROWSER_API_KEY',
+        ''
+    ),
     'web_push' => [
         'enabled' => $booleanEnvironment(
             'WEB_PUSH_ENABLED',

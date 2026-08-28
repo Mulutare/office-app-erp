@@ -6,6 +6,8 @@ namespace App\Controllers;
 
 use App\Services\AuthorizationService;
 use App\Services\SalesService;
+use App\Services\SalesWorkflowTraceService;
+use App\Services\TenantContext;
 
 final class SalesController
 {
@@ -36,7 +38,7 @@ final class SalesController
         $this->authorize('sales.view');
         $order=$this->sales->orderDetail((int)$id);
         if($order===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage')]);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage'),'workflowTrace'=>$this->workflowTrace('order',(int)$order['order_id'])]);
     }
     public function createInvoice(string $id): void
     {$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
@@ -53,7 +55,7 @@ final class SalesController
     {
         $this->authorize('sales.view');$delivery=$this->sales->delivery((int)$id);
         if($delivery===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.transfers.manage'),'canReturn'=>$this->can('inventory.transfers.manage')]);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.transfers.manage'),'canReturn'=>$this->can('inventory.transfers.manage'),'workflowTrace'=>$this->workflowTrace('delivery',(int)$delivery['picking_id'])]);
     }
     public function completeDelivery(string $id): void
     {
@@ -111,7 +113,20 @@ final class SalesController
             'old' => \getFlash('sales_old', []),
             'canEdit' => $this->can('sales.orders.create'),
             'canTransition' => $this->can('sales.orders.submit'),
+            'workflowTrace' => $quotationId === null
+                ? null
+                : $this->workflowTrace('quotation', $quotationId),
         ] + $workspace);
+    }
+
+    private function workflowTrace(string $type, int $id): ?array
+    {
+        return (new SalesWorkflowTraceService())->trace(
+            (new TenantContext())->companyId(),
+            $type,
+            $id,
+            $_SESSION['auth'] ?? []
+        );
     }
 
     private function renderWorkspace(string $section): void
@@ -382,7 +397,7 @@ final class SalesController
         if (!\verifyCsrfToken(\postString('_token'))) {
             \flash('sales_errors', ['form' => 'The form session expired. Please try again.']);
             \flash('sales_old', ['form' => $form]);
-            \redirect('/sales');
+            \redirect($this->salesReturnPath($form));
         }
     }
 
@@ -456,7 +471,37 @@ final class SalesController
         } else {
             \flash('sales_notice', ['message' => $message]);
         }
-        \redirect('/sales');
+        \redirect($this->salesReturnPath($form));
+    }
+
+    private function salesReturnPath(string $form): string
+    {
+        $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        if ($referer !== '') {
+            $path = (string) (parse_url($referer, PHP_URL_PATH) ?? '');
+            $query = (string) (parse_url($referer, PHP_URL_QUERY) ?? '');
+            $base = rtrim(\appBasePath(), '/');
+            $salesPrefix = $base . '/sales';
+
+            if ($path === $salesPrefix || str_starts_with($path, $salesPrefix . '/')) {
+                $relative = substr($path, strlen($base));
+                return $relative . ($query !== '' ? '?' . $query : '');
+            }
+
+            if ($path === '/sales' || str_starts_with($path, '/sales/')) {
+                return $path . ($query !== '' ? '?' . $query : '');
+            }
+        }
+
+        return match ($form) {
+            'territory', 'agent', 'team', 'target' => '/sales/teams',
+            'customer' => '/sales/customers',
+            'product' => '/sales/products',
+            'pricelist', 'pricelist_rule' => '/sales/pricelists',
+            'quotation', 'quotation_action' => '/sales/quotations',
+            'order', 'payment', 'sales_invoice' => '/sales/orders',
+            default => '/sales',
+        };
     }
 
     private function finishTo(array $result,string $form,string $message,array $old,string $failurePath,string $successPath): never

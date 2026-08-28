@@ -174,7 +174,7 @@ if (!in_array($inventorySection, ['stock', 'movements'], true)) $inventorySectio
                 <?php else: ?>
                     <?php foreach ($stockMovements as $movement): ?>
                         <tr>
-                            <td><?= e((string) ($movement['reference_number'] ?? 'Manual')) ?></td>
+                            <td><?php $refType=(string)($movement['reference_type']??''); $refId=(int)($movement['reference_id']??0); $refNumber=(string)($movement['reference_number']??'Manual'); $refUrl=null; if($refId>0){ if(in_array($refType,['goods_receipt','goods_receipt_putaway'],true)){$refUrl='/office_app/public/inventory/receipts/'.$refId;} elseif($refType==='inventory_picking' && str_starts_with($refNumber,'DLV-')){$refUrl='/office_app/public/sales/deliveries/'.$refId;} elseif($refType==='sales_order'){$refUrl='/office_app/public/sales/orders/'.$refId;} } ?><?php if($refUrl!==null):?><a href="<?=e($refUrl)?>"><?=e($refNumber)?></a><?php else:?><?=e($refNumber)?><?php endif;?></td>
                             <td><?= e((string) ($movement['operation_type_name'] ?? $movement['movement_type'] ?? 'Movement')) ?></td>
                             <td><strong><?= e((string) ($movement['product_name'] ?? 'Product')) ?></strong><br><span class="text-muted"><?= e((string) ($movement['sku'] ?? '')) ?></span></td>
                             <td><?= e((string) ($movement['source_location_name'] ?? 'External / Vendor')) ?></td>
