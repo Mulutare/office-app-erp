@@ -18,25 +18,33 @@ final class SalesService
         private ?AuditLogWriter $audit = null,
         private ?TenantContext $tenant = null,
         private ?InventoryRepository $inventory = null,
-        private ?AppErrorReporter $errorReporter = null
+        private ?AppErrorReporter $errorReporter = null,
+        private ?InventoryOperationalAccessService $operationalAccess = null
     ) {
         $this->sales ??= RepositoryFactory::sales();
         $this->audit ??= RepositoryFactory::auditLogs();
         $this->tenant ??= new TenantContext();
         $this->inventory ??= RepositoryFactory::inventory();
         $this->errorReporter ??= new AppErrorReporter();
+        $this->operationalAccess ??= new InventoryOperationalAccessService();
     }
 
     /** @return array<string, mixed> */
     public function workspace(): array
     {
         $companyId = $this->tenant->companyId();
+        $actorId=(int)($_SESSION['auth']['user_id']??0);
+        $products=$this->sales->products($companyId);
+        $warehouses=$this->operationalAccess->warehousesForUser($companyId,$actorId);
+        $locations=$this->operationalAccess->locationsForUser($companyId,$actorId);
+        $availability=[];$productIds=array_map(static fn(array $p):int=>(int)$p['product_id'],$products);
+        foreach($locations as $location){foreach($this->operationalAccess->availability($companyId,$actorId,(int)$location['warehouse_id'],(int)$location['location_id'],$productIds) as $row){$availability[]=$row+['warehouse_id'=>(int)$location['warehouse_id'],'location_id'=>(int)$location['location_id']];}}
 
         return [
             'summary' => $this->sales->dashboard($companyId),
             'orders' => $this->sales->orders($companyId),
             'customers' => $this->sales->customers($companyId),
-            'products' => $this->sales->products($companyId),
+            'products' => $products,
             'agents' => $this->sales->agents($companyId),
             'territories' => $this->sales->territories($companyId),
             'targets' => $this->sales->targets($companyId),
@@ -45,6 +53,9 @@ final class SalesService
             'quotations' => $this->sales->quotations($companyId),
             'pricelists' => $this->sales->pricelists($companyId),
             'salesTeams' => $this->sales->teams($companyId),
+            'fulfilmentWarehouses' => $warehouses,
+            'fulfilmentLocations' => $locations,
+            'fulfilmentAvailability' => $availability,
         ];
     }
 
@@ -104,6 +115,8 @@ final class SalesService
     }
 
     public function deliveries(): array{return $this->inventory->deliveryPickings($this->tenant->companyId());}
+    public function fulfilmentOptions(int $actorId,array $productIds=[]): array{$companyId=$this->tenant->companyId();$locations=$this->operationalAccess->locationsForUser($companyId,$actorId);$matrix=[];foreach($locations as $location){foreach($this->operationalAccess->availability($companyId,$actorId,(int)$location['warehouse_id'],(int)$location['location_id'],$productIds) as $row)$matrix[]=$row+['warehouse_id'=>(int)$location['warehouse_id'],'location_id'=>(int)$location['location_id']];}return ['warehouses'=>$this->operationalAccess->warehousesForUser($companyId,$actorId),'locations'=>$locations,'availability'=>$matrix];}
+    public function exactAvailability(int $actorId,int $warehouseId,int $locationId,array $productIds): array{return $this->operationalAccess->availability($this->tenant->companyId(),$actorId,$warehouseId,$locationId,$productIds);}
     public function delivery(int $id): ?array{return $this->inventory->deliveryPicking($this->tenant->companyId(),$id);}
     public function completeDelivery(int $id,array $input,int $actorId): array
     {
@@ -201,13 +214,18 @@ final class SalesService
         }
     }
 
-    public function transitionQuotation(int $id,string $action,int $actorId): array
+    public function transitionQuotation(int $id,string $action,int $actorId,array $input=[]): array
     {
         try {
+            $warehouseId=(int)($input['warehouse_id']??0);$sourceLocationId=(int)($input['source_location_id']??0);
+            if($action==='confirm')$this->operationalAccess->assertAuthorizedSource($this->tenant->companyId(),$actorId,$warehouseId,$sourceLocationId);
             $result = $this->sales->transitionQuotation(
-                $this->tenant->companyId(), $id, $action, $actorId
+                $this->tenant->companyId(), $id, $action, $actorId,
+                $action==='confirm'?['warehouse_id'=>$warehouseId,'source_location_id'=>$sourceLocationId]:null
             );
             if ($action === 'confirm' && !empty($result['orderId'])) {
+                \db()->prepare('UPDATE sales_orders SET warehouse_id=:warehouse_id,source_location_id=:source_location_id,updated_by=:actor WHERE company_id=:company_id AND order_id=:order_id')
+                    ->execute(['warehouse_id'=>$warehouseId,'source_location_id'=>$sourceLocationId,'actor'=>$actorId,'company_id'=>$this->tenant->companyId(),'order_id'=>(int)$result['orderId']]);
                 $this->sales->activateOrderFromConfirmedQuotation(
                     $this->tenant->companyId(), $id, (int) $result['orderId'], $actorId
                 );
@@ -430,6 +448,8 @@ final class SalesService
     public function createOrder(array $input, int $actorId): array
     {
         $companyId = $this->tenant->companyId();
+        $warehouseId=(int)($input['warehouse_id']??0);$sourceLocationId=(int)($input['source_location_id']??0);
+        try{$this->operationalAccess->assertAuthorizedSource($companyId,$actorId,$warehouseId,$sourceLocationId);}catch(Throwable $e){return ['successful'=>false,'errors'=>['fulfilment'=>$e->getMessage()]];}
         $products = [];
         foreach ($this->sales->products($companyId) as $product) {
             $products[(int) $product['product_id']] = $product;
@@ -557,6 +577,8 @@ final class SalesService
         }
         $order = [
             'branch_id' => null,
+            'warehouse_id' => $warehouseId,
+            'source_location_id' => $sourceLocationId,
             'customer_id' => $customerId,
             'territory_id' => $territoryId,
             'agent_id' => $agentId,
@@ -636,13 +658,26 @@ final class SalesService
         string $action,
         ?string $reason,
         int $actorId,
-        ?string $idempotencyKey = null
+        ?string $idempotencyKey = null,
+        ?int $warehouseId = null,
+        ?int $sourceLocationId = null
     ): array
     {
         $companyId = $this->tenant->companyId();
         try {
             if ($action === 'fulfill') {
                 $action = 'confirm';
+            }
+            $transactionStarted=$action==='confirm'&&!\db()->inTransaction();
+            if($transactionStarted)\db()->beginTransaction();
+            if($action==='confirm'){
+                $order=$this->sales->orderDetail($companyId,$orderId);
+                if($order===null)throw new \RuntimeException('Sales order was not found.');
+                $warehouseId=$warehouseId??(int)($order['warehouse_id']??0);
+                $sourceLocationId=$sourceLocationId??(int)($order['source_location_id']??0);
+                $this->operationalAccess->assertAuthorizedSource($companyId,$actorId,$warehouseId,$sourceLocationId);
+                \db()->prepare('UPDATE sales_orders SET warehouse_id=:warehouse_id,source_location_id=:source_location_id,updated_by=:actor WHERE company_id=:company_id AND order_id=:order_id AND status=\'approved\'')
+                    ->execute(['warehouse_id'=>$warehouseId,'source_location_id'=>$sourceLocationId,'actor'=>$actorId,'company_id'=>$companyId,'order_id'=>$orderId]);
             }
             $key = trim((string) $idempotencyKey);
             if ($key === '' || strlen($key) > 100) {
@@ -652,6 +687,7 @@ final class SalesService
                 $companyId, $orderId, $action, $reason, $actorId, $key
             );
             $delivery=$action==='confirm'?$this->prepareDelivery($companyId,$orderId,$actorId):[];
+            if($transactionStarted)\db()->commit();
             if (!empty($transition['replayed'])) {
                 return ['successful' => true, 'replayed' => true]+$delivery;
             }
@@ -660,6 +696,7 @@ final class SalesService
             ], $companyId);
             return ['successful' => true]+$delivery;
         } catch (Throwable $exception) {
+            if(isset($transactionStarted)&&$transactionStarted&&\db()->inTransaction())\db()->rollBack();
             if (!$exception instanceof \RuntimeException) {
                 error_log('Sales order transition failed: ' . $exception->getMessage());
             }
@@ -827,10 +864,10 @@ final class SalesService
         $deliveryLines=array_values(array_filter($order['lines'],static fn(array $line)=>(string)($line['product_type']??'stockable')!=='service'));
         if($deliveryLines===[])return ['pickingId'=>null,'inventoryReserved'=>false,'deliveryRequired'=>false];
         $lines=array_map(static fn(array $line)=>['product_id'=>(int)$line['product_id'],'quantity'=>(float)$line['quantity']],$deliveryLines);
+        $warehouseId=(int)($order['warehouse_id']??0);$sourceLocationId=(int)($order['source_location_id']??0);
+        if($warehouseId<=0||$sourceLocationId<=0)throw new \RuntimeException('Select a Warehouse and Source Location before confirmation.');
         $now=date('Y-m-d H:i:s');$reserved=true;
-        try{$this->inventory->reserveSalesOrder($companyId,$orderId,isset($order['branch_id'])?(int)$order['branch_id']:null,$lines,$now);}catch(\RuntimeException $reservationFailure){
-            if(!str_contains(strtolower($reservationFailure->getMessage()),'stock'))throw $reservationFailure;$reserved=false;
-        }
+        $this->inventory->reserveSalesOrder($companyId,$orderId,$warehouseId,$sourceLocationId,$lines,$now);
         $pickingIds=$this->inventory->ensureDeliveryPickings($companyId,$orderId,$actorId,$now);
         return ['pickingId'=>$pickingIds[0]??null,'inventoryReserved'=>$reserved,'deliveryRequired'=>true];
     }

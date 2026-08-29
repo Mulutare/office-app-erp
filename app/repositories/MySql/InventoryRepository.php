@@ -27,16 +27,20 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
         $statement = $this->connection()->prepare(
             "SELECT p.picking_id,p.picking_number,p.sales_order_id,p.backorder_of_id,
                     p.status,p.reserved_at,p.completed_at,o.order_number,c.name customer_name,
+                    w.name warehouse_name,src.name source_location_name,dst.name destination_location_name,
                     COALESCE(SUM(l.requested_quantity),0) requested_quantity,
                     COALESCE(SUM(l.reserved_quantity),0) reserved_quantity,
                     COALESCE(SUM(l.completed_quantity),0) completed_quantity
              FROM inventory_pickings p
              INNER JOIN sales_orders o ON o.company_id=p.company_id AND o.order_id=p.sales_order_id
              INNER JOIN sales_customers c ON c.company_id=o.company_id AND c.customer_id=o.customer_id
+             LEFT JOIN inventory_warehouses w ON w.company_id=p.company_id AND w.warehouse_id=p.warehouse_id
+             LEFT JOIN inventory_warehouse_locations src ON src.company_id=p.company_id AND src.location_id=p.source_location_id
+             LEFT JOIN inventory_warehouse_locations dst ON dst.company_id=p.company_id AND dst.location_id=p.destination_location_id
              LEFT JOIN inventory_picking_lines l ON l.company_id=p.company_id AND l.picking_id=p.picking_id
              WHERE p.company_id=:company_id AND p.picking_type='delivery'
              GROUP BY p.picking_id,p.picking_number,p.sales_order_id,p.backorder_of_id,p.status,
-                      p.reserved_at,p.completed_at,o.order_number,c.name
+                      p.reserved_at,p.completed_at,o.order_number,c.name,w.name,src.name,dst.name
              ORDER BY p.picking_id DESC"
         );
         $statement->execute(['company_id'=>$companyId]);
@@ -51,9 +55,9 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
              FROM inventory_pickings p
              INNER JOIN sales_orders o ON o.company_id=p.company_id AND o.order_id=p.sales_order_id
              INNER JOIN sales_customers c ON c.company_id=o.company_id AND c.customer_id=o.customer_id
-             INNER JOIN inventory_warehouses w ON w.company_id=p.company_id AND w.warehouse_id=p.warehouse_id
-             INNER JOIN inventory_warehouse_locations src ON src.company_id=p.company_id AND src.location_id=p.source_location_id
-             INNER JOIN inventory_warehouse_locations dst ON dst.company_id=p.company_id AND dst.location_id=p.destination_location_id
+             LEFT JOIN inventory_warehouses w ON w.company_id=p.company_id AND w.warehouse_id=p.warehouse_id
+             LEFT JOIN inventory_warehouse_locations src ON src.company_id=p.company_id AND src.location_id=p.source_location_id
+             LEFT JOIN inventory_warehouse_locations dst ON dst.company_id=p.company_id AND dst.location_id=p.destination_location_id
              WHERE p.company_id=:company_id AND p.picking_id=:picking_id
                AND p.picking_type IN ('delivery','customer_return')"
         );
@@ -102,7 +106,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             if((string)$picking['status']!=='waiting_stock')throw new RuntimeException('Only a delivery waiting for stock can be reserved.');
             $lines=$connection->prepare('SELECT product_id,requested_quantity quantity FROM inventory_picking_lines WHERE company_id=:company_id AND picking_id=:picking_id ORDER BY picking_line_id');
             $lines->execute(['company_id'=>$companyId,'picking_id'=>$pickingId]);$orderLines=$lines->fetchAll(PDO::FETCH_ASSOC);
-            $this->reserveSalesOrder($companyId,(int)$picking['sales_order_id'],$this->positiveOrNull($picking['branch_id']),$orderLines,$reservedAt);
+            $this->reserveSalesOrder($companyId,(int)$picking['sales_order_id'],(int)$picking['warehouse_id'],(int)$picking['source_location_id'],$orderLines,$reservedAt);
             $allocations=$connection->prepare("SELECT allocations.*
                 FROM inventory_sales_reservation_allocations allocations
                 INNER JOIN inventory_warehouse_locations locations
@@ -807,7 +811,8 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
     public function reserveSalesOrder(
         int $companyId,
         int $orderId,
-        ?int $branchId,
+        int $warehouseId,
+        int $sourceLocationId,
         array $lines,
         string $reservedAt
     ): array {
@@ -851,7 +856,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
 
         try {
             $orderStatement = $connection->prepare(
-                "SELECT order_id, branch_id, status
+                "SELECT order_id, branch_id, warehouse_id, source_location_id, status
                  FROM sales_orders
                  WHERE company_id = :company_id
                    AND order_id = :order_id
@@ -870,21 +875,10 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 );
             }
 
-            $orderBranchId = isset($order['branch_id'])
-                ? (int) $order['branch_id']
-                : null;
-
-            if ($branchId !== null && $branchId > 0) {
-                if (
-                    $orderBranchId !== null
-                    && $orderBranchId !== $branchId
-                ) {
-                    throw new RuntimeException(
-                        'The sales order branch does not match the reservation request.'
-                    );
-                }
-
-                $orderBranchId = $branchId;
+            if ($warehouseId <= 0 || $sourceLocationId <= 0
+                || (int) ($order['warehouse_id'] ?? 0) !== $warehouseId
+                || (int) ($order['source_location_id'] ?? 0) !== $sourceLocationId) {
+                throw new RuntimeException('The reservation source must exactly match the Sales Order warehouse and source location.');
             }
 
             $existingStatement = $connection->prepare(
@@ -953,6 +947,9 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 }
 
                 if ($same) {
+                    $sourceMismatch=$connection->prepare("SELECT COUNT(*) FROM inventory_sales_reservation_allocations WHERE company_id=:company_id AND order_id=:order_id AND status IN('reserved','partially_released','partially_fulfilled') AND (warehouse_id<>:warehouse_id OR location_id<>:location_id)");
+                    $sourceMismatch->execute(['company_id'=>$companyId,'order_id'=>$orderId,'warehouse_id'=>$warehouseId,'location_id'=>$sourceLocationId]);
+                    if((int)$sourceMismatch->fetchColumn()>0)throw new RuntimeException('The existing reservation does not match the selected Sales Order fulfillment source. Release it before confirming.');
                     $allocationCountStatement =
                         $connection->prepare(
                             "SELECT COUNT(*)
@@ -1003,44 +1000,21 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             }
 
             $warehouseStatement = $connection->prepare(
-                "SELECT
-                    warehouse_id,
-                    branch_id,
-                    allow_negative_stock,
-                    is_default
-                 FROM inventory_warehouses
-                 WHERE company_id = :company_id
-                   AND active = TRUE
-                   AND deleted_at IS NULL
-                   AND (
-                        (
-                            :has_branch = 1
-                            AND branch_id = :branch_id
-                        )
-                        OR is_default = TRUE
-                        OR :without_branch = 1
-                   )
-                 ORDER BY
-                    CASE
-                        WHEN :has_branch_order = 1
-                         AND branch_id = :branch_id_order
-                            THEN 0
-                        ELSE 1
-                    END,
-                    is_default DESC,
-                    warehouse_id
-                 LIMIT 1
+                "SELECT w.warehouse_id,w.allow_negative_stock
+                 FROM inventory_warehouses w
+                 INNER JOIN inventory_warehouse_locations l
+                   ON l.company_id=w.company_id AND l.warehouse_id=w.warehouse_id
+                 WHERE w.company_id=:company_id AND w.warehouse_id=:warehouse_id
+                   AND l.location_id=:location_id
+                   AND w.active=TRUE AND w.deleted_at IS NULL
+                   AND l.active=TRUE AND l.deleted_at IS NULL
+                   AND l.picking_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE
                  FOR UPDATE"
             );
             $warehouseStatement->execute([
                 'company_id' => $companyId,
-                'has_branch' =>
-                    $orderBranchId !== null ? 1 : 0,
-                'branch_id' => $orderBranchId,
-                'has_branch_order' =>
-                    $orderBranchId !== null ? 1 : 0,
-                'branch_id_order' => $orderBranchId,
-                'without_branch' => $orderBranchId === null ? 1 : 0,
+                'warehouse_id' => $warehouseId,
+                'location_id' => $sourceLocationId,
             ]);
             $warehouse = $warehouseStatement->fetch(
                 PDO::FETCH_ASSOC
@@ -1052,9 +1026,6 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 );
             }
 
-            $warehouseId = (int) $warehouse[
-                'warehouse_id'
-            ];
             $allowNegative = !empty(
                 $warehouse['allow_negative_stock']
             );
@@ -1174,6 +1145,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                             :company_id
                        AND balances.warehouse_id =
                             :warehouse_id
+                       AND balances.location_id = :location_id
                        AND balances.product_id =
                             :product_id
                        AND locations.active = TRUE
@@ -1185,15 +1157,13 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                             balances.quantity_available > 0
                             OR :allow_negative = 1
                        )
-                     ORDER BY
-                        locations.pick_priority,
-                        locations.location_id,
-                        balances.stock_balance_id
+                     ORDER BY balances.stock_balance_id
                      FOR UPDATE"
                 );
                 $candidateStatement->execute([
                     'company_id' => $companyId,
                     'warehouse_id' => $warehouseId,
+                    'location_id' => $sourceLocationId,
                     'product_id' => $productId,
                     'allow_negative' =>
                         $allowNegative ? 1 : 0,
@@ -1201,6 +1171,12 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 $candidates = $candidateStatement->fetchAll(
                     PDO::FETCH_ASSOC
                 );
+
+                if($candidates===[]&&$allowNegative){
+                    $connection->prepare('INSERT IGNORE INTO inventory_stock_balances(company_id,warehouse_id,location_id,product_id) VALUES(:company_id,:warehouse_id,:location_id,:product_id)')->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId,'location_id'=>$sourceLocationId,'product_id'=>$productId]);
+                    $candidateStatement->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId,'location_id'=>$sourceLocationId,'product_id'=>$productId,'allow_negative'=>1]);
+                    $candidates=$candidateStatement->fetchAll(PDO::FETCH_ASSOC);
+                }
 
                 if ($candidates === []) {
                     throw new RuntimeException(
@@ -1894,27 +1870,27 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
             $allocations->execute(['company_id' => $companyId, 'order_id' => $orderId]);
             $rows = $allocations->fetchAll(PDO::FETCH_ASSOC);
             if ($rows === []) {
-                $warehouse=$connection->prepare("SELECT warehouse_id FROM inventory_warehouses WHERE company_id=:company_id AND active=TRUE AND deleted_at IS NULL ORDER BY is_default DESC,warehouse_id LIMIT 1 FOR UPDATE");
-                $warehouse->execute(['company_id'=>$companyId]);$warehouseId=(int)$warehouse->fetchColumn();
-                if($warehouseId<=0)throw new RuntimeException('No active fulfilment warehouse is configured for this sales order.');
-                $operationType=$this->defaultOperationType($companyId,$warehouseId,'delivery');
-                $customerLocation=$this->virtualLocation($companyId,$warehouseId,'customer');
-                $sourceLocation=(int)($operationType['default_source_location_id']??0);
-                if($sourceLocation<=0)throw new RuntimeException('The fulfilment warehouse has no default dispatch location.');
-                $orderLines=$connection->prepare('SELECT product_id,quantity FROM sales_order_lines WHERE company_id=:company_id AND order_id=:order_id ORDER BY order_line_id');
-                $orderLines->execute(['company_id'=>$companyId,'order_id'=>$orderId]);$unreserved=$orderLines->fetchAll(PDO::FETCH_ASSOC);
-                if($unreserved===[])throw new RuntimeException('The Sales Order has no delivery lines.');
-                $number=sprintf('DLV-%d-%d-%s',$orderId,$warehouseId,substr(hash('sha256',$companyId.':'.$orderId.':'.$warehouseId),0,8));
-                $header=$connection->prepare("INSERT INTO inventory_pickings(company_id,warehouse_id,operation_type_id,sales_order_id,picking_type,picking_number,source_location_id,destination_location_id,status,created_by) VALUES(:company_id,:warehouse_id,:operation_type_id,:sales_order_id,'delivery',:number,:source,:destination,'waiting_stock',:actor)");
-                $header->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId,'operation_type_id'=>(int)$operationType['operation_type_id'],'sales_order_id'=>$orderId,'number'=>$number,'source'=>$sourceLocation,'destination'=>(int)$customerLocation['location_id'],'actor'=>$this->positiveOrNull($actorId)]);
-                $pickingId=(int)$connection->lastInsertId();$line=$connection->prepare("INSERT INTO inventory_picking_lines(company_id,picking_id,product_id,source_location_id,destination_location_id,requested_quantity,reserved_quantity,status) VALUES(:company_id,:picking_id,:product_id,:source,:destination,:quantity,0,'ready')");
-                foreach($unreserved as $orderLine)$line->execute(['company_id'=>$companyId,'picking_id'=>$pickingId,'product_id'=>(int)$orderLine['product_id'],'source'=>$sourceLocation,'destination'=>(int)$customerLocation['location_id'],'quantity'=>(float)$orderLine['quantity']]);
-                if($ownsTransaction)$connection->commit();return[$pickingId];
+                throw new RuntimeException('The Sales Order has no exact-location reservation from which to create a delivery.');
+            }
+
+            $orderSource=$connection->prepare('SELECT warehouse_id,source_location_id FROM sales_orders WHERE company_id=:company_id AND order_id=:order_id FOR UPDATE');
+            $orderSource->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
+            $selected=$orderSource->fetch(PDO::FETCH_ASSOC);
+            if(!is_array($selected)||(int)($selected['warehouse_id']??0)<=0||(int)($selected['source_location_id']??0)<=0){
+                throw new RuntimeException('The Sales Order has no explicit fulfillment source.');
+            }
+            foreach($rows as $row){
+                if((int)$row['warehouse_id']!==(int)$selected['warehouse_id']||(int)$row['location_id']!==(int)$selected['source_location_id']){
+                    throw new RuntimeException('Reservation metadata does not match the Sales Order fulfillment source.');
+                }
             }
 
             $groups = [];
             foreach ($rows as $row) {
                 $groups[(int) $row['warehouse_id']][] = $row;
+            }
+            if(count($groups)!==1){
+                throw new RuntimeException('A Sales Order delivery cannot be split across warehouses.');
             }
             $ids = [];
             foreach ($groups as $warehouseId => $lines) {

@@ -69,13 +69,16 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             'SELECT o.*, c.name customer_name, c.address customer_address,
                     a.name agent_name, q.quotation_id, q.quotation_number, q.billing_address,
                     q.delivery_address, q.payment_terms_days, q.pricelist_id,
-                    q.team_id, t.name team_name, p.name pricelist_name
+                    q.team_id, t.name team_name, p.name pricelist_name,
+                    w.name warehouse_name,src.name source_location_name
              FROM sales_orders o
              INNER JOIN sales_customers c ON c.customer_id=o.customer_id
              LEFT JOIN sales_agents a ON a.agent_id=o.agent_id
              LEFT JOIN sales_quotations q ON q.company_id=o.company_id AND q.sales_order_id=o.order_id
              LEFT JOIN sales_teams t ON t.company_id=q.company_id AND t.team_id=q.team_id
              LEFT JOIN sales_pricelists p ON p.company_id=q.company_id AND p.pricelist_id=q.pricelist_id
+             LEFT JOIN inventory_warehouses w ON w.company_id=o.company_id AND w.warehouse_id=o.warehouse_id
+             LEFT JOIN inventory_warehouse_locations src ON src.company_id=o.company_id AND src.location_id=o.source_location_id
              WHERE o.company_id=:company_id AND o.order_id=:order_id AND o.deleted_at IS NULL'
         );
         $header->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
@@ -351,7 +354,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         }
     }
 
-    public function transitionQuotation(int $companyId,int $quotationId,string $action,int $actorId): array
+    public function transitionQuotation(int $companyId,int $quotationId,string $action,int $actorId,?array $fulfilment=null): array
     {
         $c=$this->connection();$c->beginTransaction();try{$s=$c->prepare('SELECT * FROM sales_quotations WHERE company_id=:company_id AND quotation_id=:id FOR UPDATE');$s->execute(['company_id'=>$companyId,'id'=>$quotationId]);$q=$s->fetch(PDO::FETCH_ASSOC);if(!is_array($q))throw new RuntimeException('Quotation was not found.');if($action==='confirm'&&$q['status']==='confirmed'){$c->commit();return ['orderId'=>(int)$q['sales_order_id'],'replayed'=>true];}$allowed=['send'=>['draft'],'confirm'=>['draft','sent'],'cancel'=>['draft','sent']];if(!in_array($q['status'],$allowed[$action]??[],true))throw new RuntimeException('Quotation transition is not allowed from '.$q['status'].'.');if($action==='confirm'&&$q['expiration_date']!==null&&$q['expiration_date']<date('Y-m-d'))throw new RuntimeException('Expired quotation cannot be confirmed.');$status=$action==='send'?'sent':($action==='cancel'?'cancelled':'confirmed');$orderId=null;if($action==='confirm'){$lines=$c->prepare('SELECT * FROM sales_quotation_lines WHERE company_id=:company_id AND quotation_id=:id ORDER BY sequence');$lines->execute(['company_id'=>$companyId,'id'=>$quotationId]);$order=['branch_id'=>null,'customer_id'=>$q['customer_id'],'territory_id'=>null,'agent_id'=>$q['agent_id'],'order_number'=>$this->reserveDocumentNumber($companyId,null,'order'),'external_reference'=>$q['quotation_number'],'order_date'=>date('Y-m-d'),'due_date'=>date('Y-m-d',strtotime('+'.(int)$q['payment_terms_days'].' days')),'status'=>'submitted','currency'=>$q['currency'],'subtotal'=>$q['untaxed_amount'],'discount_amount'=>0,'tax_amount'=>$q['tax_amount'],'total_amount'=>$q['total_amount'],'notes'=>$q['notes'],'confirmed_at'=>null,'commission_amount'=>0];$orderLines=[];foreach($lines->fetchAll(PDO::FETCH_ASSOC) as $l)$orderLines[]=['product_id'=>$l['product_id'],'description'=>$l['description'],'quantity'=>$l['quantity'],'unit_price'=>$l['unit_price'],'discount_amount'=>$l['discount_amount'],'tax_rate'=>$l['tax_rate'],'line_total'=>$l['line_total'],'commission_rate'=>0];$orderId=$this->createOrder($companyId,$order,$orderLines,$actorId);}$u=$c->prepare('UPDATE sales_quotations SET status=:status,sales_order_id=:order_id,sent_at=CASE WHEN :sent=1 THEN NOW() ELSE sent_at END,confirmed_at=CASE WHEN :confirmed=1 THEN NOW() ELSE confirmed_at END,cancelled_at=CASE WHEN :cancelled=1 THEN NOW() ELSE cancelled_at END,updated_by=:actor WHERE company_id=:company_id AND quotation_id=:id');$u->execute(['status'=>$status,'order_id'=>$orderId,'sent'=>$action==='send'?1:0,'confirmed'=>$action==='confirm'?1:0,'cancelled'=>$action==='cancel'?1:0,'actor'=>$actorId,'company_id'=>$companyId,'id'=>$quotationId]);$c->commit();return ['orderId'=>$orderId,'replayed'=>false];}catch(Throwable $e){if($c->inTransaction())$c->rollBack();throw $e;}
     }
@@ -634,7 +637,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         string $idempotencyKey
     ): array {
         $connection = $this->connection();
-        $connection->beginTransaction();
+        $ownsTransaction = !$connection->inTransaction();
+        if ($ownsTransaction) { $connection->beginTransaction(); }
         try {
             $statement = $connection->prepare(
                 'SELECT * FROM sales_orders
@@ -657,7 +661,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             $existing->execute(['company_id' => $companyId, 'idempotency_key' => $idempotencyKey]);
             $prior = $existing->fetch(PDO::FETCH_ASSOC);
             if (is_array($prior)) {
-                $connection->commit();
+                if ($ownsTransaction) { $connection->commit(); }
                 return ['oldStatus' => $prior['from_status'], 'newStatus' => $prior['to_status'], 'replayed' => true];
             }
             $allowed = [
@@ -759,10 +763,10 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'action' => $action, 'reason' => $reason, 'actor_id' => $actorId,
                 'idempotency_key' => $idempotencyKey,
             ]);
-            $connection->commit();
+            if ($ownsTransaction) { $connection->commit(); }
             return ['oldStatus' => $current, 'newStatus' => $newStatus];
         } catch (Throwable $exception) {
-            if ($connection->inTransaction()) {
+            if ($ownsTransaction && $connection->inTransaction()) {
                 $connection->rollBack();
             }
             throw $exception;
@@ -818,12 +822,13 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         try {
             $statement = $connection->prepare(
                 'INSERT INTO sales_orders
-                    (company_id, branch_id, customer_id, territory_id, agent_id, order_number, external_reference, order_date, due_date, status, currency, subtotal, discount_amount, tax_amount, total_amount, notes, confirmed_at, created_by, updated_by)
+                    (company_id, branch_id, warehouse_id, source_location_id, customer_id, territory_id, agent_id, order_number, external_reference, order_date, due_date, status, currency, subtotal, discount_amount, tax_amount, total_amount, notes, confirmed_at, created_by, updated_by)
                  VALUES
-                    (:company_id, :branch_id, :customer_id, :territory_id, :agent_id, :order_number, :external_reference, :order_date, :due_date, :status, :currency, :subtotal, :discount_amount, :tax_amount, :total_amount, :notes, :confirmed_at, :created_by, :updated_by)'
+                    (:company_id, :branch_id, :warehouse_id, :source_location_id, :customer_id, :territory_id, :agent_id, :order_number, :external_reference, :order_date, :due_date, :status, :currency, :subtotal, :discount_amount, :tax_amount, :total_amount, :notes, :confirmed_at, :created_by, :updated_by)'
             );
             $orderValues = $order;
             unset($orderValues['commission_amount']);
+            $orderValues += ['warehouse_id'=>null,'source_location_id'=>null];
             $statement->execute($orderValues + [
                 'company_id' => $companyId,
                 'created_by' => $actorId,
@@ -1066,6 +1071,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'branch_id' => isset($order['branch_id'])
                     ? (int) $order['branch_id']
                     : null,
+                'warehouse_id' => isset($order['warehouse_id']) ? (int)$order['warehouse_id'] : null,
+                'source_location_id' => isset($order['source_location_id']) ? (int)$order['source_location_id'] : null,
                 'customer_id' => $order['customer_id'],
                 'currency' => $order['currency'],
                 'total_amount' => $order['total_amount'],

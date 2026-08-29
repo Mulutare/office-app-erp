@@ -578,6 +578,7 @@ try {
                 '065',
                 '066',
                 '067',
+                '068',
             ],
         'MySQL forward-migration catalog is ordered and preflight protected'
     );
@@ -624,13 +625,13 @@ try {
                 \'049\',
                 \'050\',
                 \'051\'
-                ,\'052\',\'053\',\'054\',\'055\',\'056\',\'057\',\'058\',\'059\',\'060\',\'061\',\'062\',\'063\',\'064\',\'065\',\'066\',\'067\'
+                ,\'052\',\'053\',\'054\',\'055\',\'056\',\'057\',\'058\',\'059\',\'060\',\'061\',\'062\',\'063\',\'064\',\'065\',\'066\',\'067\',\'068\'
              )'
         )
         ->fetchColumn();
 
     $check(
-        $migrationLedgerCount === 53,
+        $migrationLedgerCount === 54,
         'MySQL forward migrations are recorded in the migration ledger'
     );
 

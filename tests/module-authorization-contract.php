@@ -48,7 +48,7 @@ $check(
     'Analytics navigation comes only from effective company modules'
 );
 $check(substr_count($sales, '$this->authorizeInventoryDelivery();') === 3, 'All three Sales inventory-backed delivery mutations use the cross-module gate');
-$check(str_contains($sales, "requireModule('sales')") && str_contains($sales, "'inventory.transfers.manage'"), 'Sales delivery mutations require Sales, Inventory, and the Inventory transfer permission');
+$check(str_contains($sales, "requireModule('sales')") && str_contains($sales, "'inventory.deliveries.validate'") && !str_contains(substr($sales,(int)strpos($sales,'private function authorizeInventoryDelivery')), "'inventory.transfers.manage'"), 'Sales delivery mutations require Sales, Inventory, and the delivery-validation permission');
 $check(substr_count($sales, "requireModulePermission('finance','finance.records.manage')") === 2, 'Invoice and credit-note mutations preserve Finance gating');
 foreach ([$inventory, $warehouse, $location] as $controller) {
     $check(str_contains($controller, 'requireModulePermission(') && str_contains($controller, "'inventory'"), 'Inventory-owned controller enforces entitlement and permission');

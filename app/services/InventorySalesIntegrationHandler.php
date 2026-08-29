@@ -103,15 +103,17 @@ final class InventorySalesIntegrationHandler
             );
         }
 
-        $branchId = isset($payload['branch_id'])
-            && (int) $payload['branch_id'] > 0
-                ? (int) $payload['branch_id']
-                : null;
+        $warehouseId = (int) ($payload['warehouse_id'] ?? 0);
+        $sourceLocationId = (int) ($payload['source_location_id'] ?? 0);
+        if ($warehouseId <= 0 || $sourceLocationId <= 0) {
+            throw new RuntimeException('The confirmed Sales Order has no explicit fulfillment source.');
+        }
 
         $this->inventory->reserveSalesOrder(
             $companyId,
             $orderId,
-            $branchId,
+            $warehouseId,
+            $sourceLocationId,
             $lines,
             $occurredAt
         );

@@ -17,7 +17,7 @@ if ($tasks === [] && !$filtered) return;
     <?php if ($tasks === []): ?><p class="empty-state">No records currently require an action you are authorized to perform.</p><?php endif; ?>
     <ul class="action-task-list">
         <?php foreach ($tasks as $task): ?>
-            <li data-action-task-reference="<?= e((string) $task['reference']) ?>" data-action-task-next="<?= e((string) $task['next_action']) ?>"><a href="<?= e((string) $task['url']) ?>"><strong><?= e((string) $task['reference']) ?></strong><span class="record-action-chip">Action required</span><small>Next: <?= e((string) $task['next_action']) ?></small></a></li>
+            <li data-action-task-reference="<?= e((string) $task['reference']) ?>" data-action-task-next="<?= e((string) $task['next_action']) ?>"><a href="<?= e((string) $task['url']) ?>"><strong><?= e((string) $task['reference']) ?></strong><span class="record-action-chip">Action required</span><small>Next: <?= e((string) $task['next_action']) ?><?php if(!empty($task['context'])):?><br>Source: <?=e((string)$task['context'])?><?php endif;?></small></a></li>
         <?php endforeach; ?>
     </ul>
 </section>

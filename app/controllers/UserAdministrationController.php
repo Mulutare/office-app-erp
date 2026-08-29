@@ -12,6 +12,7 @@ use App\Services\UserPasswordResetService;
 use App\Services\UserAccountStatusService;
 use App\Services\UserAccountUnlockService;
 use App\Services\AuthenticatedSessionService;
+use App\Services\InventoryOperationalAccessService;
 
 final class UserAdministrationController
 {
@@ -23,6 +24,7 @@ final class UserAdministrationController
     private UserPasswordResetService $passwordResets;
     private UserAccountStatusService $accountStatus;
     private UserAccountUnlockService $accountUnlocks;
+    private InventoryOperationalAccessService $inventoryAccess;
 
     public function __construct()
     {
@@ -48,6 +50,7 @@ final class UserAdministrationController
 
         $this->accountUnlocks =
             new UserAccountUnlockService();
+        $this->inventoryAccess = new InventoryOperationalAccessService();
     }
 
     public function show(): void
@@ -149,6 +152,7 @@ final class UserAdministrationController
                 $_SESSION['auth']['permissions'] ?? [],
                 true
             ),
+            'canManageInventoryAccess' => in_array('inventory.warehouse_access.manage',$_SESSION['auth']['permissions']??[],true),
             'activeSessions' => $activeSessions,
             'isSelf' => $isSelf,
             'sessionSuccess' => \getFlash(
@@ -874,6 +878,25 @@ final class UserAdministrationController
             []
         ),
     ]);
+}
+
+public function inventoryAccess(): void
+{
+    $this->authorization->requirePermission('administration.users.manage');
+    $this->authorization->requirePermission('inventory.warehouse_access.manage');
+    $userId=$this->queryInteger('id',0);
+    try{$form=$this->inventoryAccess->assignmentForm((int)($_SESSION['auth']['company']['company_id']??0),$userId);}catch(\Throwable){$this->notFound();}
+    \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Warehouse access','pageDescription'=>'Assign operational warehouses and stock source locations.','contentView'=>'administration.users.inventory-access','user'=>$_SESSION['auth'],'access'=>$form,'errors'=>\getFlash('inventory_access_errors',[]),'notice'=>\getFlash('inventory_access_notice')]);
+}
+
+public function saveInventoryAccess(): void
+{
+    $this->authorization->requirePermission('administration.users.manage');
+    $this->authorization->requirePermission('inventory.warehouse_access.manage');
+    $userId=(int)\postString('user_id');
+    if(!\verifyCsrfToken(\postString('_token'))){\flash('inventory_access_errors',['form'=>'The form session expired. Please try again.']);\redirect('/administration/users/inventory-access?id='.$userId);}
+    try{$this->inventoryAccess->saveAssignments((int)($_SESSION['auth']['company']['company_id']??0),$userId,(array)($_POST['warehouse_ids']??[]),(array)($_POST['location_ids']??[]),(int)($_SESSION['auth']['user_id']??0));\flash('inventory_access_notice',['message'=>'Operational warehouse and location access saved.']);}catch(\Throwable $e){\flash('inventory_access_errors',['form'=>$e->getMessage()]);}
+    \redirect('/administration/users/inventory-access?id='.$userId);
 }
 
 public function store(): void

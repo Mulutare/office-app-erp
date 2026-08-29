@@ -50,6 +50,7 @@ final class ActionRequiredCountService
                     'entity' => $entity,
                     'reference' => (string) $row['reference'],
                     'next_action' => $action,
+                    'context' => (string)($row['context']??''),
                     'action_key' => $key,
                     'url' => appBasePath() . str_replace('{id}', (string) $row['id'], $this->targetTemplate($key)),
                 ];
@@ -77,8 +78,8 @@ final class ActionRequiredCountService
             if ($can('sales.payments.record') && !$can('finance.records.manage')) {
                 $add("SELECT DISTINCT o.order_id id,o.order_number reference FROM sales_orders o INNER JOIN finance_invoices i ON i.company_id=o.company_id AND i.sales_order_id=o.order_id WHERE o.company_id=:company_id AND i.document_type='customer_invoice' AND i.status='posted' AND i.residual_amount>0 AND o.deleted_at IS NULL", $parameters, 'sales_order', 'Record customer payment', 'record_payment', '/sales/orders/{id}');
             }
-        } elseif ($module === 'sales' && $section === 'deliveries' && $can('inventory.transfers.manage')) {
-            $add("SELECT picking_id id,picking_number reference FROM inventory_pickings WHERE company_id=:company_id AND picking_type='delivery' AND status IN('draft','ready')", $parameters, 'delivery', 'Validate delivery', 'validate_delivery', '/sales/deliveries/{id}');
+        } elseif ($module === 'sales' && $section === 'deliveries' && $can('inventory.deliveries.validate')) {
+            $add("SELECT p.picking_id id,p.picking_number reference,CONCAT(COALESCE(w.name,'Legacy / not recorded'),' / ',COALESCE(src.name,'Legacy / not recorded'),' -> ',COALESCE(dst.name,'Legacy / not recorded')) context FROM inventory_pickings p LEFT JOIN inventory_warehouses w ON w.company_id=p.company_id AND w.warehouse_id=p.warehouse_id LEFT JOIN inventory_warehouse_locations src ON src.company_id=p.company_id AND src.location_id=p.source_location_id LEFT JOIN inventory_warehouse_locations dst ON dst.company_id=p.company_id AND dst.location_id=p.destination_location_id WHERE p.company_id=:company_id AND p.picking_type='delivery' AND p.status IN('draft','ready')", $parameters, 'delivery', 'Validate delivery', 'validate_delivery', '/sales/deliveries/{id}');
         } elseif ($module === 'sales' && $section === 'settlements') {
             if ($can('sales.settlements.submit')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='draft' AND created_by=:user_id", $parameters, 'settlement', 'Submit settlement', 'submit_settlement', '/sales/settlements/{id}');
             if ($can('sales.settlements.review')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='submitted'", $parameters, 'settlement', 'Review settlement', 'review_settlement', '/sales/settlements/{id}');
@@ -261,7 +262,7 @@ SQL, ['c1'=>$companyId,'c2'=>$companyId,'c3'=>$companyId,'c5'=>$companyId,'actor
         $counts['sales']['settlements'] = ($can('sales.settlements.review') ? $sales['settlements'] : 0)
             + ($can('sales.settlements.submit') ? $sales['draft_settlements'] : 0)
             + ($can('sales.settlements.create') ? $sales['payments_to_settle'] : 0);
-        $counts['sales']['deliveries'] = $can('inventory.transfers.manage') ? $sales['deliveries'] : 0;
+        $counts['sales']['deliveries'] = $can('inventory.deliveries.validate') ? $sales['deliveries'] : 0;
 
         $counts['assets']['register'] = count($this->itemsFor(
             $companyId,

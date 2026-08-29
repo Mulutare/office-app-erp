@@ -141,7 +141,8 @@ interface InventoryRepository
     public function reserveSalesOrder(
         int $companyId,
         int $orderId,
-        ?int $branchId,
+        int $warehouseId,
+        int $sourceLocationId,
         array $lines,
         string $reservedAt
     ): array;

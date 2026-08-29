@@ -38,7 +38,9 @@ final class SalesController
         $this->authorize('sales.view');
         $order=$this->sales->orderDetail((int)$id);
         if($order===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage'),'workflowTrace'=>$this->workflowTrace('order',(int)$order['order_id'])]);
+        $fulfilment=$this->sales->fulfilmentOptions($this->actorId(),array_column($order['lines'],'product_id'));
+        $availability=[];if((int)($order['warehouse_id']??0)>0&&(int)($order['source_location_id']??0)>0){try{$availability=$this->sales->exactAvailability($this->actorId(),(int)$order['warehouse_id'],(int)$order['source_location_id'],array_column($order['lines'],'product_id'));}catch(\Throwable){}}
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'fulfilmentWarehouses'=>$fulfilment['warehouses'],'fulfilmentLocations'=>$fulfilment['locations'],'fulfilmentAvailability'=>$availability,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage'),'canConfirm'=>$this->can('sales.orders.confirm'),'workflowTrace'=>$this->workflowTrace('order',(int)$order['order_id'])]);
     }
     public function createInvoice(string $id): void
     {$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
@@ -55,7 +57,7 @@ final class SalesController
     {
         $this->authorize('sales.view');$delivery=$this->sales->delivery((int)$id);
         if($delivery===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.transfers.manage'),'canReturn'=>$this->can('inventory.transfers.manage'),'workflowTrace'=>$this->workflowTrace('delivery',(int)$delivery['picking_id'])]);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.deliveries.validate'),'canReturn'=>$this->can('inventory.deliveries.validate'),'workflowTrace'=>$this->workflowTrace('delivery',(int)$delivery['picking_id'])]);
     }
     public function completeDelivery(string $id): void
     {
@@ -237,7 +239,7 @@ final class SalesController
         $this->requireCsrf('order');
         $input = $this->input([
             'customer_id', 'order_date', 'due_date', 'currency', 'territory_id',
-            'agent_id', 'branch_id', 'notes',
+            'agent_id', 'branch_id', 'warehouse_id', 'source_location_id', 'notes',
         ]) + [
             'confirm' => isset($_POST['confirm']),
             'lines' => $this->orderLines(),
@@ -271,11 +273,11 @@ final class SalesController
     }
     private function quotationTransition(int $id,string $action): void
     {
-        $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$result=$this->sales->transitionQuotation($id,$action,$this->actorId());$this->finishTo($result,'quotation_action','Quotation updated successfully.',['quotation_id'=>$id,'action'=>$action],'/sales/quotations/'.$id,'/sales/quotations/'.$id);
+        $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$result=$this->sales->transitionQuotation($id,$action,$this->actorId(),['warehouse_id'=>\postString('warehouse_id'),'source_location_id'=>\postString('source_location_id')]);$this->finishTo($result,'quotation_action','Quotation updated successfully.',['quotation_id'=>$id,'action'=>$action],'/sales/quotations/'.$id,'/sales/quotations/'.$id);
     }
     public function transitionQuotation(): void
     {
-        $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$input=$this->input(['quotation_id','action']);$this->finish($this->sales->transitionQuotation((int)$input['quotation_id'],$input['action'],$this->actorId()),'quotation_action','Quotation updated successfully.',$input);
+        $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$input=$this->input(['quotation_id','action','warehouse_id','source_location_id']);$this->finish($this->sales->transitionQuotation((int)$input['quotation_id'],$input['action'],$this->actorId(),$input),'quotation_action','Quotation updated successfully.',$input);
     }
     public function storePricelist(): void
     {
@@ -320,11 +322,12 @@ final class SalesController
         };
         $this->authorize($permission);
         $this->requireCsrf('order_action');
-        $input = $this->input(['order_id', 'action', 'reason', 'idempotency_key']);
+        $input = $this->input(['order_id', 'action', 'reason', 'idempotency_key', 'warehouse_id', 'source_location_id']);
         $this->finish(
             $this->sales->transitionOrder(
                 (int) $input['order_id'], $input['action'],
-                $input['reason'] ?: null, $this->actorId(), $input['idempotency_key']
+                $input['reason'] ?: null, $this->actorId(), $input['idempotency_key'],
+                (int)$input['warehouse_id']?:null,(int)$input['source_location_id']?:null
             ),
             'order_action', $action==='fulfill'?'Inventory delivery prepared successfully.':'Order status updated successfully.', $input
         );
@@ -388,7 +391,7 @@ final class SalesController
         $this->authorization->requireModule('sales');
         $this->authorization->requireModulePermission(
             'inventory',
-            'inventory.transfers.manage'
+            'inventory.deliveries.validate'
         );
     }
 

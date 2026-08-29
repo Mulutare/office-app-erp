@@ -166,6 +166,7 @@ if (!empty($profile['is_locked'])) {
     </a>
 
     <div class="details-actions">
+        <?php if (!empty($data['canManageInventoryAccess'])): ?><a href="<?= e(appBasePath()) ?>/administration/users/inventory-access?id=<?=e($profile['user_id']??'')?>" class="btn btn-secondary">Warehouse access</a><?php endif; ?>
         <?php if ($canViewActivity): ?>
             <a
                 href="<?= e(appBasePath()) ?>/administration/users/activity?id=<?= e(

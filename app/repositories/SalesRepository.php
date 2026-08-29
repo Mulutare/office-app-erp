@@ -116,5 +116,6 @@ interface SalesRepository
     public function setTeamActive(int $companyId, int $teamId, bool $active): void;
     public function createQuotation(int $companyId, array $quotation, array $lines, int $actorId): int;
     public function updateQuotation(int $companyId, int $quotationId, array $quotation, array $lines, int $actorId): void;
-    public function transitionQuotation(int $companyId, int $quotationId, string $action, int $actorId): array;
+    /** @param array<string,int>|null $fulfilment */
+    public function transitionQuotation(int $companyId, int $quotationId, string $action, int $actorId, ?array $fulfilment = null): array;
 }

@@ -750,6 +750,8 @@ $router->post(
     '/administration/users/update',
     [$userAdministrationController, 'update']
 );
+$router->get('/administration/users/inventory-access',[$userAdministrationController,'inventoryAccess']);
+$router->post('/administration/users/inventory-access',[$userAdministrationController,'saveInventoryAccess']);
 $router->post(
     '/administration/users/sessions/terminate',
     [$authenticatedSessionController, 'terminateAdminSession']
