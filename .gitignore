@@ -38,6 +38,8 @@ Thumbs.db
 config/database.php
 config/app.local.php
 dist/
+/.deploy/production.env
+/.deploy/*.lock
 
 backups/
 *.before-*

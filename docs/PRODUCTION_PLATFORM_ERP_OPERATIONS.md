@@ -1,5 +1,7 @@
 # Production platform ERP operations
 
+The supported one-command cPanel workflow and rollback procedure are documented in [PRODUCTION_DEPLOYMENT_RUNBOOK.md](PRODUCTION_DEPLOYMENT_RUNBOOK.md).
+
 This is the authoritative environment/runbook record for the OfficeApp ERP production host. It contains no passwords or secrets and does not authorize a deployment.
 
 ## Platform identity

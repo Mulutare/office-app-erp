@@ -1,5 +1,7 @@
 # cPanel deployment runbook
 
+The automated, fail-closed production workflow is documented in [PRODUCTION_DEPLOYMENT_RUNBOOK.md](PRODUCTION_DEPLOYMENT_RUNBOOK.md).
+
 The authoritative production environment and operating procedure is [PRODUCTION_PLATFORM_ERP_OPERATIONS.md](PRODUCTION_PLATFORM_ERP_OPERATIONS.md). This short entry point intentionally contains no credentials.
 
 ## Production topology
