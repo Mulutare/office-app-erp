@@ -2,7 +2,7 @@
 param([int]$ProductionMigration=-1,[switch]$SkipBuild,[switch]$AllowDirty)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest;$root=(Resolve-Path(Join-Path $PSScriptRoot '..')).Path
 $head=(git -C $root rev-parse HEAD).Trim();$branch=(git -C $root branch --show-current).Trim();$status=@(git -C $root status --porcelain --untracked-files=no);if($status.Count-and-not$AllowDirty){throw 'Tracked working-tree changes exist. Commit the intended release before packaging.'}
-if(-not$SkipBuild){& (Join-Path $PSScriptRoot 'build-cpanel-package.ps1')}
+if(-not$SkipBuild){& (Join-Path $PSScriptRoot 'build-cpanel-package.ps1') | Out-Null}
 $sourcePackage=Join-Path $root 'dist/officeapp-cpanel.tar.gz';$sourceManifest=Join-Path $root 'dist/deployment-manifest.txt';if(-not(Test-Path $sourcePackage)-or-not(Test-Path $sourceManifest)){throw 'Canonical cPanel package artifacts are absent.'}
 $builtManifest=Get-Content -Raw $sourceManifest;if($builtManifest-notmatch"Git commit SHA:\s*$head"){throw 'Package manifest commit does not equal HEAD.'}
 $short=$head.Substring(0,7);$release=Join-Path $root "dist/releases/$short";New-Item -ItemType Directory -Path $release -Force|Out-Null;Copy-Item $sourcePackage (Join-Path $release 'officeapp-cpanel.tar.gz') -Force
