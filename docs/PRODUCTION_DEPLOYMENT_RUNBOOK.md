@@ -5,11 +5,10 @@ This workflow prepares and validates releases locally by default. It changes pro
 ## One-time cPanel setup
 
 1. Keep the cPanel document root at `/home/passiontech/public_html/erp.passiontechnologiesplc.com`; the existing bridge must continue loading `/home/passiontech/office_app/public`.
-2. Create a least-privilege cPanel API token and copy `.deploy/production.env.example` to the ignored `.deploy/production.env`.
+2. Copy `.deploy/production.env.example` to the ignored `.deploy/production.env`; set only the HTTPS runner URL, production URL, and matching deployment secret.
 3. Add a random 32-or-more-character `deployment_secret` to the production-only `/home/passiontech/office_app/config/app.local.php`. Add `deployment_allowed_ips` with the deployment source IP whenever a stable address is available. Neither value belongs in Git or a release archive.
-4. Once, upload `deployment/production-runner.php` as `/home/passiontech/public_html/erp.passiontechnologiesplc.com/.officeapp-deployment.php`, set it to `0600`, and set `DEPLOYMENT_RUNNER_URL` to its HTTPS URL. The runner returns 404 without the production secret, accepts only signed fixed actions, and its migration-status operation is read-only. It remains installed because every future deployment must securely discover the ledger before making any production mutation.
-5. Confirm cPanel permits UAPI Fileman upload/list/metadata and the legacy cPanel API 2 Fileman operations used for mkdir, copy, move, rename, chmod, extraction, and trash. The command stops if these capabilities are unavailable.
-6. Confirm `/usr/bin/mysqldump`, `/usr/bin/gzip`, PHP `proc_open`, and sufficient backup space are available. A verified database backup is mandatory before migration.
+4. Perform the single final manual replacement of `deployment/production-runner.php` at `/home/passiontech/public_html/erp.passiontechnologiesplc.com/.officeapp-deployment.php` and set it to `0600`. The runner returns 404 without a configured secret, uses HMAC authentication, and accepts only narrow allowlisted deployment operations.
+5. Confirm PHP 8.1 has `PharData`, `proc_open`, and zlib, `/usr/bin/mysqldump` is executable, and `/home/passiontech` has sufficient space. The runner's read-only preflight verifies these before it creates a lock or staging directory.
 
 ## Commands
 
@@ -28,7 +27,7 @@ Normal deployment never needs `-ProductionMigration`. With `-Execute`, the first
 
 ## Safety and recovery
 
-The deployer uses local and remote locks, stages under `/home/passiontech/deployment-staging/<sha>-<utc>/`, preserves production-only configuration and storage, creates compressed database and full application backups, validates staging, and performs a same-filesystem directory cutover. The permanent minimal runner is HMAC authenticated with timestamp validation, uses replay protection for mutating actions, accepts only fixed deployment actions, and cannot execute caller-supplied commands or SQL.
+The deployer has no cPanel API, Terminal, Bash, SSH, or unrestricted filesystem dependency. It uploads bounded ordered HTTPS chunks, verifies final size and SHA-256, rejects unsafe archive entries, stages under `/home/passiontech/deployment-staging/<sha>-<utc>/`, preserves production configuration and storage, creates verified database and full application backups, and performs a same-filesystem cutover. The permanent minimal runner uses timestamped HMAC requests and replay protection for every write action. It accepts neither arbitrary commands, SQL, nor paths.
 
 If post-cutover health fails, the application directory is restored automatically. Since forward database migrations may already have run, database restore is never automatic. Inspect the report and migration ledger, then restore the matching database backup only after an explicit compatibility decision.
 
