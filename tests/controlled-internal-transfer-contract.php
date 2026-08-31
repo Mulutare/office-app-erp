@@ -1,0 +1,18 @@
+<?php declare(strict_types=1);
+$root=dirname(__DIR__);$failures=0;$checks=0;$source=static fn(string $p)=>(string)file_get_contents($root.'/'.$p);$check=static function(bool $ok,string $message)use(&$failures,&$checks):void{$checks++;fwrite($ok?STDOUT:STDERR,($ok?'PASS ':'FAIL ').$message.PHP_EOL);if(!$ok)$failures++;};
+$migration=$source('database/migrations/mysql/070_controlled_internal_stock_transfers.php');$service=$source('app/services/InventoryService.php');$access=$source('app/services/InventoryOperationalAccessService.php');$controller=$source('app/controllers/InventoryController.php');$actions=$source('app/services/ActionRequiredCountService.php');$view=$source('resources/views/inventory/transfers.php');$sales=$source('app/services/SalesService.php');
+$check(str_contains($migration,"'version'=>'070'")&&str_contains($migration,'inventory_transfers')&&str_contains($migration,'inventory_transfer_lines'),'Migration 070 extends the existing transfer architecture');
+$check(str_contains($migration,"'in_transit','done'")&&str_contains($migration,'dispatched_quantity')&&str_contains($migration,'received_quantity'),'Controlled dispatch and receipt lifecycle is persisted');
+$check(str_contains($migration,'inventory.transfers.create')&&str_contains($migration,'inventory.transfers.approve')&&str_contains($migration,'inventory.transfers.dispatch')&&str_contains($migration,'inventory.transfers.receive'),'Atomic operational transfer permissions are cataloged');
+$check(!str_contains($migration,"r.code='warehouse_inventory_user' AND p.code='inventory.warehouses.manage'")&&str_contains($migration,"r.code='warehouse_inventory_user'"),'Warehouse role receives transfer operations without warehouse management');
+$check(str_contains($access,'assertAuthorizedSource')&&str_contains($access,'assertAuthorizedTransferDestination')&&str_contains($access,'inventory_user_location_access'),'Both sides use normalized operational assignments');
+$check(str_contains($service,'quantity_available')&&str_contains($service,'Transfer quantity exceeds exact source-location available stock'),'Creation enforces exact source availability');
+$check(str_contains($service,"location_usage='transit'")&&str_contains($service,"\$receiving?'transfer_in':'transfer_out'"),'Dispatch and receipt use controlled transit movements');
+$check(str_contains($service,"'destinationWarehouseId'=>\$receiving")&&str_contains($service,"'destinationLocationId'=>\$receiving"),'Receipt credits only the exact selected destination');
+$check(str_contains($service,'sourceWarehouse===$destinationWarehouse&&$sourceLocation===$destinationLocation'),'Same-warehouse transfers are allowed while same-location no-ops are rejected');
+$check(str_contains($controller,"'inventory.transfers.approve'")&&str_contains($controller,"'inventory.transfers.dispatch'")&&str_contains($controller,"'inventory.transfers.receive'"),'Controller enforces separated lifecycle permissions');
+$check(str_contains($actions,'Approve transfer')&&str_contains($actions,'Dispatch transfer')&&str_contains($actions,'Receive transfer'),'Action Required exposes controlled next actions');
+$check(str_contains($view,'On hand')&&str_contains($view,'Reserved')&&str_contains($view,'Available'),'Transfer confirmation shows exact source stock figures');
+$check(!str_contains($sales,'createTransfer(')&&!str_contains($sales,'inventory_transfers'),'Sales does not create automatic replenishment transfers');
+$check(str_contains($service,'auditTransfer')&&str_contains($service,"'referenceType'=>'inventory_transfer'"),'Transfer lifecycle and stock movements retain audit references');
+echo "$checks controlled transfer contract checks, $failures failures\n";exit($failures===0?0:1);

@@ -293,10 +293,12 @@ $router->post('/procurement/bills/{id}/post',[$procurementController,'postBill']
 $router->post('/procurement/bills/{id}/payments',[$procurementController,'payBill']);
 $router->post('/procurement/bills/{id}/reverse',[$procurementController,'reverseBill']);
 $router->post('/procurement/{id}/returns',[$procurementController,'vendorReturn']);
-$router->post(
-    '/inventory/transfers/post',
-    [$inventoryController, 'postTransfer']
-);
+$router->get('/inventory/transfers',[$inventoryController,'transfers']);
+$router->post('/inventory/transfers',[$inventoryController,'createTransfer']);
+$router->get('/inventory/transfers/{id}',[$inventoryController,'showTransfer']);
+$router->post('/inventory/transfers/{id}/action',[$inventoryController,'transferAction']);
+$router->post('/inventory/transfers/{id}/dispatch',[$inventoryController,'dispatchTransfer']);
+$router->post('/inventory/transfers/{id}/receive',[$inventoryController,'receiveTransfer']);
 $router->get('/inventory/receipts',[$inventoryController,'receipts']);
 $router->get('/inventory/receipts/create',[$inventoryController,'createReceipt']);
 $router->post('/inventory/receipts',[$inventoryController,'storeReceipt']);

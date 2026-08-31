@@ -225,7 +225,8 @@ class RoleRepository extends MySqlRepository
      * @return list<array<string, mixed>>
      */
     public function activePermissions(
-        bool $includePlatformPermissions = false
+        bool $includePlatformPermissions = false,
+        ?int $companyId = null
     ): array
     {
         $statement = $this->connection()->prepare(
@@ -237,6 +238,7 @@ class RoleRepository extends MySqlRepository
                 description
              FROM permissions
              WHERE active = TRUE
+               AND (:company_id IS NULL OR NOT EXISTS(SELECT 1 FROM erp_modules catalog WHERE catalog.code=permissions.module) OR EXISTS(SELECT 1 FROM erp_modules catalog INNER JOIN company_modules entitlement ON entitlement.module_id=catalog.module_id WHERE catalog.code=permissions.module AND entitlement.company_id=:enabled_company_id AND entitlement.enabled=TRUE AND entitlement.license_status=\'active\' AND (entitlement.expires_at IS NULL OR entitlement.expires_at>NOW())))
                AND (
                     :include_platform_permissions = 1
                     OR code NOT IN (
@@ -249,6 +251,8 @@ class RoleRepository extends MySqlRepository
         $statement->execute([
             'include_platform_permissions' =>
                 $includePlatformPermissions ? 1 : 0,
+            'company_id' => $companyId,
+            'enabled_company_id' => $companyId,
         ]);
 
         $permissions = $statement->fetchAll(
@@ -292,7 +296,8 @@ class RoleRepository extends MySqlRepository
      */
     public function validActivePermissionIds(
         array $permissionIds,
-        bool $includePlatformPermissions = false
+        bool $includePlatformPermissions = false,
+        ?int $companyId = null
     ): array {
         $permissionIds = array_values(array_unique(
             array_filter(
@@ -314,6 +319,7 @@ class RoleRepository extends MySqlRepository
             'SELECT permission_id
              FROM permissions
              WHERE active = TRUE
+               AND (? IS NULL OR NOT EXISTS(SELECT 1 FROM erp_modules catalog WHERE catalog.code=permissions.module) OR EXISTS(SELECT 1 FROM erp_modules catalog INNER JOIN company_modules entitlement ON entitlement.module_id=catalog.module_id WHERE catalog.code=permissions.module AND entitlement.company_id=? AND entitlement.enabled=TRUE AND entitlement.license_status=\'active\' AND (entitlement.expires_at IS NULL OR entitlement.expires_at>NOW())))
                AND (
                     ? = 1
                     OR code NOT IN (
@@ -325,8 +331,10 @@ class RoleRepository extends MySqlRepository
                 . $placeholders . ')'
         );
 
+        $statement->bindValue(1,$companyId,$companyId===null?\PDO::PARAM_NULL:\PDO::PARAM_INT);
+        $statement->bindValue(2,$companyId,$companyId===null?\PDO::PARAM_NULL:\PDO::PARAM_INT);
         $statement->bindValue(
-            1,
+            3,
             $includePlatformPermissions ? 1 : 0,
             \PDO::PARAM_INT
         );
@@ -335,7 +343,7 @@ class RoleRepository extends MySqlRepository
             $permissionIds as $index => $permissionId
         ) {
             $statement->bindValue(
-                $index + 2,
+                $index + 4,
                 $permissionId,
                 \PDO::PARAM_INT
             );

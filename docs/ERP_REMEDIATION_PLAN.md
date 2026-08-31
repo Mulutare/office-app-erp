@@ -76,3 +76,6 @@ Company Owner implicit access may remain, but it must be an explicit authorizati
 ## Rollback policy
 
 New migrations are forward-only and should be additive through the compatibility window. Application rollback restores the previous code while additive nullable columns/tables remain. Any data transformation, permission cutover, inventory opening or financial posting requires a verified pre-change database backup; MySQL DDL can auto-commit, so application rollback is not a database rollback. Never edit the migration ledger or existing migrations 061–067.
+# Migration 070 — controlled internal stock transfers
+
+Implemented locally: exact authorized source/destination selection, source availability confirmation, maker/checker approval, dispatch to transit, receipt into the selected destination, action-required routing, atomic permissions, permanent actor/timestamp quantities, and linked movement history. Production work remains backup, migration/reference sync, explicit role grants, resource-scope review, staging tests, and controlled cutover.

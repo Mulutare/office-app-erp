@@ -53,6 +53,7 @@ $definitions = [
         'stock' => ['Current Stock', '/inventory?section=stock'],
         'movements' => ['Movements', '/inventory?section=movements'],
         'receipts' => ['Receipts', '/inventory/receipts'],
+        'transfers' => ['Transfers', '/inventory/transfers', 'inventory.transfers.view'],
         'warehouses' => ['Warehouses', '/inventory/warehouses', 'inventory.warehouses.view'],
         'locations' => ['Locations', '/inventory/locations', 'inventory.warehouses.view'],
     ],

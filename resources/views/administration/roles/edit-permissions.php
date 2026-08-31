@@ -33,7 +33,9 @@ foreach ($permissions as $permission) {
     $module = (string) (
         $permission['module'] ?? 'Other'
     );
-    $permissionGroups[$module][] = $permission;
+    $codeParts = explode('.', (string)($permission['code'] ?? ''));
+    $area = count($codeParts) > 2 ? (string)$codeParts[1] : 'General';
+    $permissionGroups[$module][$area][] = $permission;
 }
 ?>
 
@@ -97,11 +99,13 @@ foreach ($permissions as $permission) {
 
     <div class="permission-editor">
         <?php foreach (
-            $permissionGroups as $module => $items
+            $permissionGroups as $module => $areas
         ): ?>
             <fieldset class="permission-editor-group">
                 <legend><?= e(ucwords($module)) ?></legend>
 
+                <?php foreach ($areas as $area => $items): ?>
+                    <h3 class="permission-area-heading"><?= e(ucwords(str_replace('_',' ',$area))) ?></h3>
                 <?php foreach ($items as $permission): ?>
                     <?php
                     $permissionId = (int) (
@@ -143,6 +147,7 @@ foreach ($permissions as $permission) {
                             </small>
                         </span>
                     </label>
+                <?php endforeach; ?>
                 <?php endforeach; ?>
             </fieldset>
         <?php endforeach; ?>

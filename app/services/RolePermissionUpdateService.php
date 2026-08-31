@@ -51,7 +51,8 @@ final class RolePermissionUpdateService
                         $_SESSION['auth'][
                             'is_platform_admin'
                         ]
-                    )
+                    ),
+                    $companyId
                 ),
             'selectedPermissionIds' =>
                 $this->roles->permissionIds(
@@ -131,7 +132,8 @@ final class RolePermissionUpdateService
         $validPermissionIds = $this->roles
             ->validActivePermissionIds(
                 $permissionIds,
-                $includePlatformPermissions
+                $includePlatformPermissions,
+                $this->tenant->companyId()
             );
         sort($permissionIds);
         sort($validPermissionIds);
@@ -171,7 +173,8 @@ final class RolePermissionUpdateService
 
         foreach (
             $this->roles->activePermissions(
-                $includePlatformPermissions
+                $includePlatformPermissions,
+                $this->tenant->companyId()
             )
             as $permission
         ) {

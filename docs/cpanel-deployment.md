@@ -63,6 +63,10 @@ Use these only for an existing database upgrade:
 /usr/local/bin/ea-php81 /home/passiontech/office_app/bin/sync-reference-data.php
 ```
 
+Migration 069 must be applied before deploying its application code. Run the reference-data synchronization immediately afterward so the inbound Procurement and atomic Assets permissions are visible; this does not grant them to ordinary existing company roles. Administrators must deliberately update those roles and assign warehouse/location resource access separately.
+
+Migration 070 must follow 069 before controlled Internal Transfers are enabled. Run reference-data synchronization, deliberately grant the atomic transfer permissions to existing operational roles, verify both source and destination resource assignments, and confirm every participating source warehouse has an active transit location before staging dispatch/receipt tests.
+
 Never run `bin/install-database.php` for an upgrade. When Terminal is unavailable, schedule each command separately as a private one-time cPanel Cron Job, send output to protected `storage/logs`, verify the result, and delete the job immediately. Never expose a migration web endpoint.
 
 See the authoritative operations document for GUI-only staging, bridge asset handling, backups, worker cron, smoke tests and rollback.

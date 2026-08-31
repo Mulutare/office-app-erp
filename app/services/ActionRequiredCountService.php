@@ -90,7 +90,11 @@ final class ActionRequiredCountService
             $this->addFinanceItems($items, $add, $parameters, $section, $can);
         } elseif ($module === 'inventory') {
             if ($section === 'receipts') $this->addReceiptItems($items, $add, $parameters, $can);
-            if ($section === 'movements' && $can('inventory.transfers.manage')) $add("SELECT transfer_id id,transfer_number reference FROM inventory_transfers WHERE company_id=:company_id AND status='draft'", $parameters, 'transfer', 'Process movement', 'process_movement', '/inventory?section=movements');
+            if ($section === 'transfers') {
+                if($can('inventory.transfers.approve'))$add("SELECT transfer_id id,transfer_number reference FROM inventory_transfers WHERE company_id=:company_id AND status='submitted' AND created_by<>:user_id",$parameters,'transfer','Approve transfer','approve_transfer','/inventory/transfers/{id}');
+                if($can('inventory.transfers.dispatch'))$add("SELECT transfer_id id,transfer_number reference FROM inventory_transfers WHERE company_id=:company_id AND status='approved'",$parameters,'transfer','Dispatch transfer','dispatch_transfer','/inventory/transfers/{id}');
+                if($can('inventory.transfers.receive'))$add("SELECT transfer_id id,transfer_number reference FROM inventory_transfers WHERE company_id=:company_id AND status='in_transit'",$parameters,'transfer','Receive transfer','receive_transfer','/inventory/transfers/{id}');
+            }
         } elseif ($module === 'assets' && $section === 'register') {
             if ($can('assets.activate')) {
                 $add("SELECT asset_id id,asset_number reference FROM fixed_assets WHERE company_id=:company_id AND status='draft'", $parameters, 'asset', 'Activate asset', 'activate_asset', '/assets-management/{id}');
@@ -209,13 +213,8 @@ SQL, ['c1'=>$companyId,'c2'=>$companyId,'c3'=>$companyId,'c4'=>$companyId,'actor
             + ($can('finance.bank_confirmations.create') ? $finance['confirm_settlements'] : 0);
 
         $counts['inventory']['receipts'] = $counts['procurement']['receipts'];
-        if ($can('inventory.transfers.manage')) {
-            $counts['inventory']['movements'] = $this->scalar(
-                $connection,
-                "SELECT COUNT(*) FROM inventory_transfers WHERE company_id=:company_id AND status='draft'",
-                ['company_id'=>$companyId]
-            );
-        }
+        $transferStates=[];if($can('inventory.transfers.approve'))$transferStates[]="(status='submitted' AND created_by<>".(int)$userId.")";if($can('inventory.transfers.dispatch'))$transferStates[]="status='approved'";if($can('inventory.transfers.receive'))$transferStates[]="status='in_transit'";
+        $counts['inventory']['transfers']=$transferStates===[]?0:$this->scalar($connection,"SELECT COUNT(*) FROM inventory_transfers WHERE company_id=:company_id AND (".implode(' OR ',$transferStates).')',['company_id'=>$companyId]);
 
         $sales = $this->row($connection, <<<'SQL'
 SELECT
@@ -349,8 +348,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
     /** @param list<array<string, int|string>> $items */
     private function addReceiptItems(array &$items, callable $add, array $parameters, callable $can): void
     {
-        if ($can('inventory.receipts.approve')) $add("SELECT goods_receipt_id id,receipt_number reference FROM inventory_goods_receipts WHERE company_id=:company_id AND status IN('draft','submitted') AND created_by<>:user_id", $parameters, 'goods_receipt', 'Approve receipt', 'approve_receipt', '/inventory/receipts/{id}');
-        if ($can('inventory.receipts.post')) $add("SELECT goods_receipt_id id,receipt_number reference FROM inventory_goods_receipts WHERE company_id=:company_id AND status='approved'", $parameters, 'goods_receipt', 'Post receipt', 'post_receipt', '/inventory/receipts/{id}');
+        if ($can('inventory.receipts.approve')) $add("SELECT r.goods_receipt_id id,CONCAT(r.receipt_number,' — ',w.name,' / ',COALESCE(l.name,'Legacy / not recorded')) reference FROM inventory_goods_receipts r INNER JOIN inventory_warehouses w ON w.company_id=r.company_id AND w.warehouse_id=r.warehouse_id LEFT JOIN inventory_warehouse_locations l ON l.company_id=r.company_id AND l.warehouse_id=r.warehouse_id AND l.location_id=r.destination_location_id WHERE r.company_id=:company_id AND r.status IN('draft','submitted') AND r.created_by<>:user_id", $parameters, 'goods_receipt', 'Approve receipt', 'approve_receipt', '/inventory/receipts/{id}');
+        if ($can('inventory.receipts.post')) $add("SELECT r.goods_receipt_id id,CONCAT(r.receipt_number,' — ',w.name,' / ',COALESCE(l.name,'Legacy / not recorded')) reference FROM inventory_goods_receipts r INNER JOIN inventory_warehouses w ON w.company_id=r.company_id AND w.warehouse_id=r.warehouse_id LEFT JOIN inventory_warehouse_locations l ON l.company_id=r.company_id AND l.warehouse_id=r.warehouse_id AND l.location_id=r.destination_location_id WHERE r.company_id=:company_id AND r.status='approved'", $parameters, 'goods_receipt', 'Post receipt', 'post_receipt', '/inventory/receipts/{id}');
         if ($can('procurement.receipts.create')) $add("SELECT po.purchase_order_id id,po.po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status IN('confirmed','partially_received') AND EXISTS(SELECT 1 FROM purchase_order_lines l WHERE l.company_id=po.company_id AND l.purchase_order_id=po.purchase_order_id AND l.received_quantity<l.ordered_quantity)", $parameters, 'purchase_order', 'Create goods receipt', 'create_receipt', '/procurement/{id}');
     }
 

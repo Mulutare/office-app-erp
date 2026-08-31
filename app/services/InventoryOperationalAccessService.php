@@ -67,6 +67,35 @@ final class InventoryOperationalAccessService
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /** @return list<array<string,mixed>> */
+    public function receivingLocationsForUser(int $companyId, int $userId, ?int $warehouseId = null): array
+    {
+        if (!$this->hasPermission($companyId,$userId,'inventory.warehouses.use') || !$this->hasPermission($companyId,$userId,'procurement.receiving_destinations.use')) return [];
+        $implicit=$this->hasImplicitAllAccess($companyId,$userId);
+        $sql="SELECT l.location_id,l.warehouse_id,l.code,l.name FROM inventory_warehouse_locations l INNER JOIN inventory_warehouses w ON w.company_id=l.company_id AND w.warehouse_id=l.warehouse_id WHERE l.company_id=:company_id AND w.active=TRUE AND w.deleted_at IS NULL AND l.active=TRUE AND l.deleted_at IS NULL AND l.receiving_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE";
+        $parameters=['company_id'=>$companyId];
+        if($warehouseId!==null){$sql.=' AND l.warehouse_id=:warehouse_id';$parameters['warehouse_id']=$warehouseId;}
+        if(!$implicit){$sql.=" AND EXISTS(SELECT 1 FROM inventory_user_warehouse_access wa WHERE wa.company_id=l.company_id AND wa.user_id=:warehouse_user AND wa.warehouse_id=l.warehouse_id AND wa.active=TRUE) AND EXISTS(SELECT 1 FROM inventory_user_location_access la WHERE la.company_id=l.company_id AND la.user_id=:location_user AND la.warehouse_id=l.warehouse_id AND la.location_id=l.location_id AND la.active=TRUE)";$parameters['warehouse_user']=$userId;$parameters['location_user']=$userId;}
+        $sql.=' ORDER BY l.warehouse_id,l.name,l.location_id';$statement=\db()->prepare($sql);$statement->execute($parameters);return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** @return array<string,mixed> */
+    public function assertAuthorizedDestination(int $companyId,int $userId,int $warehouseId,int $locationId): array
+    {
+        if(!$this->hasPermission($companyId,$userId,'inventory.warehouses.use')||!$this->hasPermission($companyId,$userId,'procurement.receiving_destinations.use'))throw new RuntimeException('You are not authorized to select Procurement receiving destinations.');
+        foreach($this->receivingLocationsForUser($companyId,$userId,$warehouseId) as $location)if((int)$location['location_id']===$locationId)return $location;
+        throw new RuntimeException('Select an active, assigned receiving location in the selected warehouse.');
+    }
+
+    /** @return array<string,mixed> */
+    public function assertAuthorizedTransferDestination(int $companyId,int $userId,int $warehouseId,int $locationId): array
+    {
+        if(!$this->hasPermission($companyId,$userId,'inventory.warehouses.use'))throw new RuntimeException('You are not authorized to use warehouse stock operationally.');
+        $sql="SELECT w.warehouse_id,w.name warehouse_name,l.location_id,l.name location_name FROM inventory_warehouses w INNER JOIN inventory_warehouse_locations l ON l.company_id=w.company_id AND l.warehouse_id=w.warehouse_id WHERE w.company_id=:company_id AND w.warehouse_id=:warehouse_id AND l.location_id=:location_id AND w.active=TRUE AND w.deleted_at IS NULL AND l.active=TRUE AND l.deleted_at IS NULL AND l.receiving_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE";$statement=\db()->prepare($sql);$statement->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId,'location_id'=>$locationId]);$destination=$statement->fetch(PDO::FETCH_ASSOC);if(!is_array($destination))throw new RuntimeException('Select an active internal receiving destination in the selected warehouse.');
+        if(!$this->hasImplicitAllAccess($companyId,$userId)){$access=\db()->prepare("SELECT COUNT(*) FROM inventory_user_warehouse_access wa INNER JOIN inventory_user_location_access la ON la.company_id=wa.company_id AND la.user_id=wa.user_id AND la.warehouse_id=wa.warehouse_id WHERE wa.company_id=:company_id AND wa.user_id=:user_id AND wa.warehouse_id=:warehouse_id AND la.location_id=:location_id AND wa.active=TRUE AND la.active=TRUE");$access->execute(['company_id'=>$companyId,'user_id'=>$userId,'warehouse_id'=>$warehouseId,'location_id'=>$locationId]);if((int)$access->fetchColumn()!==1)throw new RuntimeException('You are not assigned to use the selected destination warehouse and location.');}
+        return $destination;
+    }
+
     /** @return array<string,mixed> */
     public function assertAuthorizedSource(
         int $companyId,

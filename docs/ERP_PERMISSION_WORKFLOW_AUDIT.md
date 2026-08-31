@@ -438,3 +438,6 @@ Counts for this audit classification (module areas, not individual assertions): 
 ## 12. Release decision
 
 Do not deploy Sales fulfilment changes until INV-001/AUTH-001 scope design, forward migration, legacy-order policy, exact-location locking and full role/concurrency/reconciliation tests are approved. The deployment package tooling may be released independently after its build and archive validation pass in a Docker-enabled environment.
+# Controlled internal stock transfers (migration 070)
+
+The existing `inventory_transfers` architecture now uses separate create, approve, dispatch, and receive permissions. Warehouse configuration permission is not an operational prerequisite. Both route endpoints are validated against normalized user warehouse/location assignments. Dispatch moves exact source-location stock into the source warehouse transit location; receipt alone credits the exact destination. Existing ordinary company roles are not automatically escalated.
