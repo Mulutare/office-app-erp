@@ -90,7 +90,7 @@ final class ApiV1SalesController
     public function orders(): void
     {
         $this->authenticated('sales.orders.read', false, function (array $client): array {
-            return [200, ['data' => RepositoryFactory::sales()->orders((int) $client['company_id'], 200)]];
+            return [200, ['data' => $this->scopedOrders($client)]];
         });
     }
 
@@ -98,7 +98,7 @@ final class ApiV1SalesController
     {
         $this->authenticated('sales.orders.read', false, function (array $client) use ($id): array {
             return [200, ['data' => $this->find(
-                RepositoryFactory::sales()->orders((int) $client['company_id'], 200),
+                $this->scopedOrders($client),
                 'order_id', $id, 'order_not_found'
             )]];
         });
@@ -141,7 +141,7 @@ final class ApiV1SalesController
     {
         $this->authenticated('sales.receivables.read', false, function (array $client): array {
             $rows = array_values(array_filter(
-                RepositoryFactory::sales()->orders((int) $client['company_id'], 200),
+                $this->scopedOrders($client),
                 static fn (array $row): bool => (float) ($row['balance_due'] ?? 0) > 0
             ));
             return [200, ['data' => $rows]];
@@ -152,7 +152,7 @@ final class ApiV1SalesController
     {
         $this->authenticated('sales.receivables.read', false, function (array $client) use ($id): array {
             $row = $this->find(
-                RepositoryFactory::sales()->orders((int) $client['company_id'], 200),
+                $this->scopedOrders($client),
                 'order_id', $id, 'receivable_not_found'
             );
             if ((float) ($row['balance_due'] ?? 0) <= 0) {
@@ -165,8 +165,15 @@ final class ApiV1SalesController
     public function reportSummary(): void
     {
         $this->authenticated('sales.reports.read', false, function (array $client): array {
-            return [200, ['data' => RepositoryFactory::sales()->dashboard((int) $client['company_id'])]];
+            $orders=$this->scopedOrders($client);return [200, ['data' => ['order_count'=>count($orders),'revenue'=>round(array_sum(array_map(static fn(array $row):float=>(float)($row['total_amount']??0),$orders)),2)]]];
         });
+    }
+
+    /** @param array<string,mixed> $client @return list<array<string,mixed>> */
+    private function scopedOrders(array $client): array
+    {
+        $company=(int)$client['company_id'];$user=(int)$client['service_user_id'];$access=new \App\Services\InventoryOperationalAccessService();
+        return array_values(array_filter(RepositoryFactory::sales()->orders($company,200),static fn(array $row):bool=>$access->canAccessRecord($company,$user,$row)));
     }
 
     private function transition(string $id, string $action, string $scope): void

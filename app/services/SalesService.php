@@ -40,15 +40,23 @@ final class SalesService
         $availability=[];$productIds=array_map(static fn(array $p):int=>(int)$p['product_id'],$products);
         foreach($locations as $location){foreach($this->operationalAccess->availability($companyId,$actorId,(int)$location['warehouse_id'],(int)$location['location_id'],$productIds) as $row){$availability[]=$row+['warehouse_id'=>(int)$location['warehouse_id'],'location_id'=>(int)$location['location_id']];}}
 
+        $orders = array_values(array_filter($this->sales->orders($companyId), fn(array $order): bool => $this->canAccessOrderRow($order, $actorId)));
+        $summary = $this->sales->dashboard($companyId);
+        $summary['orderCount']=count($orders);$summary['salesTotal']=$summary['receivableTotal']=$summary['overdueTotal']=0.0;
+        foreach($orders as $order){$status=(string)($order['status']??'');$balance=(float)($order['balance_due']??0);if(in_array($status,['approved','confirmed','fulfilled','partially_paid','paid'],true))$summary['salesTotal']+=(float)($order['total_amount']??0);if(in_array($status,['approved','confirmed','fulfilled','partially_paid'],true)){$summary['receivableTotal']+=$balance;if(($order['due_date']??'')<date('Y-m-d'))$summary['overdueTotal']+=$balance;}}
+        $allowedOrderIds=array_fill_keys(array_map(static fn(array $order):int=>(int)$order['order_id'],$orders),true);
+        $commissions=array_values(array_filter($this->sales->commissions($companyId),static fn(array $row):bool=>isset($allowedOrderIds[(int)($row['order_id']??0)])));
+        $summary['commissionTotal']=array_sum(array_map(static fn(array $row):float=>in_array((string)($row['status']??''),['accrued','approved'],true)?(float)($row['commission_amount']??0):0.0,$commissions));
+
         return [
-            'summary' => $this->sales->dashboard($companyId),
-            'orders' => $this->sales->orders($companyId),
+            'summary' => $summary,
+            'orders' => $orders,
             'customers' => $this->sales->customers($companyId),
             'products' => $products,
             'agents' => $this->sales->agents($companyId),
             'territories' => $this->sales->territories($companyId),
             'targets' => $this->sales->targets($companyId),
-            'commissions' => $this->sales->commissions($companyId),
+            'commissions' => $commissions,
             'serialNumbers' => $this->sales->serialNumbers($companyId),
             'quotations' => $this->sales->quotations($companyId),
             'pricelists' => $this->sales->pricelists($companyId),
@@ -111,23 +119,26 @@ final class SalesService
 
     public function orderDetail(int $id): ?array
     {
-        return $this->sales->orderDetail($this->tenant->companyId(), $id);
+        $companyId=$this->tenant->companyId();$order=$this->sales->orderDetail($companyId,$id);
+        return is_array($order)&&$this->canAccessOrderRow($order,(int)($_SESSION['auth']['user_id']??0))?$order:null;
     }
 
-    public function deliveries(): array{return $this->inventory->deliveryPickings($this->tenant->companyId());}
+    public function deliveries(): array{$company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);return array_values(array_filter($this->inventory->deliveryPickings($company),fn(array $row):bool=>$this->operationalAccess->canAccessRecord($company,$actor,$row)));}
     public function fulfilmentOptions(int $actorId,array $productIds=[]): array{$companyId=$this->tenant->companyId();$locations=$this->operationalAccess->locationsForUser($companyId,$actorId);$matrix=[];foreach($locations as $location){foreach($this->operationalAccess->availability($companyId,$actorId,(int)$location['warehouse_id'],(int)$location['location_id'],$productIds) as $row)$matrix[]=$row+['warehouse_id'=>(int)$location['warehouse_id'],'location_id'=>(int)$location['location_id']];}return ['warehouses'=>$this->operationalAccess->warehousesForUser($companyId,$actorId),'locations'=>$locations,'availability'=>$matrix];}
     public function exactAvailability(int $actorId,int $warehouseId,int $locationId,array $productIds): array{return $this->operationalAccess->availability($this->tenant->companyId(),$actorId,$warehouseId,$locationId,$productIds);}
-    public function delivery(int $id): ?array{return $this->inventory->deliveryPicking($this->tenant->companyId(),$id);}
+    public function delivery(int $id): ?array{$company=$this->tenant->companyId();$row=$this->inventory->deliveryPicking($company,$id);return is_array($row)&&$this->operationalAccess->canAccessRecord($company,(int)($_SESSION['auth']['user_id']??0),$row)?$row:null;}
     public function completeDelivery(int $id,array $input,int $actorId): array
     {
+        if($this->delivery($id)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];
         $quantities=[];foreach((array)($input['completed_quantity']??[]) as $lineId=>$quantity){$quantities[(int)$lineId]=max(0,(float)$quantity);}
         try{$result=$this->inventory->completePicking($this->tenant->companyId(),$id,$quantities,!empty($input['create_backorder']),trim((string)($input['idempotency_key']??''))?:bin2hex(random_bytes(16)),$actorId,date('Y-m-d H:i:s'));return ['successful'=>true]+$result;}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
     }
     public function reserveDelivery(int $id,int $actorId): array
-    {try{return['successful'=>true]+$this->inventory->reserveDeliveryPicking($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    {if($this->delivery($id)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];try{return['successful'=>true]+$this->inventory->reserveDeliveryPicking($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
 
     public function createReturn(int $deliveryId,array $input,int $actorId): array
     {
+        if($this->delivery($deliveryId)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];
         $quantities=[];
         foreach((array)($input['return_quantity']??[]) as $lineId=>$quantity){
             $quantities[(int)$lineId]=max(0,(float)$quantity);
@@ -145,14 +156,14 @@ final class SalesService
     public function createInvoice(int $orderId,string $policy,int $actorId): array
     {
         if(!in_array($policy,['ordered','delivered'],true))return['successful'=>false,'errors'=>['invoice_policy'=>'Select ordered or delivered invoice policy.']];
-        if($this->sales->orderDetail($this->tenant->companyId(),$orderId)===null)return['successful'=>false,'errors'=>['form'=>'Sales Order was not found.']];
+        if($this->orderDetail($orderId)===null)return['successful'=>false,'errors'=>['form'=>'Sales Order was not found.']];
         try{$invoiceId=(new FinancePostingService())->createCustomerInvoiceFromOrder($this->tenant->companyId(),$orderId,$policy,$actorId);return['successful'=>true,'invoiceId'=>$invoiceId];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
     }
 
     public function createCreditNote(int $orderId,int $actorId): array
     {
         $companyId = $this->tenant->companyId();
-        $order = $this->sales->orderDetail($companyId, $orderId);
+        $order = $this->orderDetail($orderId);
 
         if ($order === null) {
             return [
@@ -665,6 +676,8 @@ final class SalesService
     {
         $companyId = $this->tenant->companyId();
         try {
+            $order=$this->sales->orderDetail($companyId,$orderId);
+            if(!is_array($order)||!$this->canAccessOrderRow($order,$actorId))throw new \RuntimeException('Sales order was not found.');
             if ($action === 'fulfill') {
                 $action = 'confirm';
             }
@@ -709,6 +722,7 @@ final class SalesService
     {
         $companyId = $this->tenant->companyId();
         try {
+            $scope=\db()->prepare('SELECT o.warehouse_id,o.source_location_id FROM sales_commissions c INNER JOIN sales_orders o ON o.company_id=c.company_id AND o.order_id=c.order_id WHERE c.company_id=:company AND c.commission_id=:id');$scope->execute(['company'=>$companyId,'id'=>$commissionId]);$order=$scope->fetch(\PDO::FETCH_ASSOC);if(!is_array($order)||!$this->canAccessOrderRow($order,$actorId))throw new \RuntimeException('Commission was not found.');
             $this->sales->transitionCommission($companyId, $commissionId, $action, $actorId);
             $this->audit->record($actorId, 'TRANSITION_SALES_COMMISSION', 'sales', 'sales_commissions', (string) $commissionId, null, [
                 'action' => $action,
@@ -772,7 +786,7 @@ final class SalesService
     public function recordPayment(int $orderId, array $input, int $actorId): array
     {
         $companyId = $this->tenant->companyId();
-        $order = $this->sales->orderDetail($companyId, $orderId);
+        $order = $this->orderDetail($orderId);
 
         if ($order === null) {
             return [
@@ -1024,5 +1038,11 @@ final class SalesService
         $value = trim((string) $value);
         $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
         return $date !== false && $date->format('Y-m-d') === $value ? $value : null;
+    }
+
+    /** @param array<string,mixed> $order */
+    private function canAccessOrderRow(array $order,int $actorId): bool
+    {
+        return $this->operationalAccess->canAccessRecord($this->tenant->companyId(),$actorId,$order);
     }
 }

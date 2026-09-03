@@ -67,6 +67,9 @@ final class WarehouseManagementService
         $warehouses = $this->warehouses->listForCompany(
             $companyId
         );
+        $actorId=(int)($_SESSION['auth']['user_id']??0);
+        $access=new InventoryOperationalAccessService();
+        $warehouses=array_values(array_filter($warehouses,static fn(array $warehouse):bool=>$access->canAccessWarehouse($companyId,$actorId,(int)($warehouse['warehouse_id']??0))));
         $readinessRows = $this->locations
             ->readinessForCompany($companyId);
         $readinessByWarehouse = [];

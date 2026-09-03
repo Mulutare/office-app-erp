@@ -15,6 +15,25 @@ final class ProcurementService
     private InventoryOperationalAccessService $operationalAccess;
     public function __construct(){ $this->tenant=new TenantContext();$this->operationalAccess=new InventoryOperationalAccessService(); }
 
+    public function assertOrderAccess(int $orderId,int $actor): void
+    {
+        $statement=\db()->prepare('SELECT warehouse_id,destination_location_id FROM purchase_orders WHERE company_id=:company AND purchase_order_id=:id');
+        $statement->execute(['company'=>$this->tenant->companyId(),'id'=>$orderId]);
+        $order=$statement->fetch(PDO::FETCH_ASSOC);
+        if(!is_array($order)||!$this->canAccessOrder($order,$actor))throw new RuntimeException('Purchase Order was not found.');
+    }
+
+    public function orderAccessible(int $orderId,int $actor): bool
+    {
+        try{$this->assertOrderAccess($orderId,$actor);return true;}catch(RuntimeException){return false;}
+    }
+
+    /** @param array<string,mixed> $order */
+    private function canAccessOrder(array $order,int $actor): bool
+    {
+        return $this->operationalAccess->canAccessRecord($this->tenant->companyId(),$actor,$order,'warehouse_id','destination_location_id');
+    }
+
     /** @return array<string,mixed> */
     public function workspace(?int $orderId=null): array
     {
@@ -31,7 +50,11 @@ final class ProcurementService
             'payment_journals'=>$q("SELECT journal_id,journal_name,journal_type FROM finance_journals WHERE company_id=:company_id AND journal_type IN('bank','cash') AND active=TRUE ORDER BY journal_type,journal_name",$base)(),
             'departments'=>$q("SELECT department_id,code department_code,name department_name FROM hr_departments WHERE company_id=:company_id AND active=TRUE AND deleted_at IS NULL ORDER BY name",$base)(),
             'returns'=>$q("SELECT r.*,o.po_number,s.business_name supplier_name FROM procurement_vendor_returns r JOIN purchase_orders o ON o.company_id=r.company_id AND o.purchase_order_id=r.purchase_order_id JOIN purchase_suppliers s ON s.company_id=r.company_id AND s.supplier_id=r.supplier_id WHERE r.company_id=:company_id ORDER BY r.vendor_return_id DESC LIMIT 100",$base)()];
-        if($orderId){$s=$c->prepare("SELECT o.*,s.business_name supplier_name FROM purchase_orders o JOIN purchase_suppliers s ON s.company_id=o.company_id AND s.supplier_id=o.supplier_id WHERE o.company_id=:company_id AND o.purchase_order_id=:id");$s->execute($base+['id'=>$orderId]);$order=$s->fetch(PDO::FETCH_ASSOC);if(is_array($order)){$l=$c->prepare("SELECT l.*,p.sku,p.unit_of_measure,(l.ordered_quantity-l.received_quantity) remaining_to_receive,(l.received_quantity-l.returned_quantity-l.billed_quantity) remaining_to_bill FROM purchase_order_lines l JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id WHERE l.company_id=:company_id AND l.purchase_order_id=:id");$l->execute($base+['id'=>$orderId]);$order['lines']=$l->fetchAll(PDO::FETCH_ASSOC);$order['receipts']=$q("SELECT goods_receipt_id,receipt_number,status,receipt_date FROM inventory_goods_receipts WHERE company_id=:company_id AND purchase_order_id=:id ORDER BY goods_receipt_id",$base+['id'=>$orderId])();$order['bills']=$q("SELECT invoice_id,invoice_number,supplier_invoice_number,status,payment_status,total_amount,residual_amount FROM finance_invoices WHERE company_id=:company_id AND purchase_order_id=:id ORDER BY invoice_id",$base+['id'=>$orderId])();$order['returns']=$q("SELECT vendor_return_id,return_number,return_date,reason,status FROM procurement_vendor_returns WHERE company_id=:company_id AND purchase_order_id=:id ORDER BY vendor_return_id",$base+['id'=>$orderId])();$data['order']=$order;}}
+        $data['orders']=array_values(array_filter($data['orders'],fn(array $row):bool=>$this->canAccessOrder($row,$actor)));
+        $allowedOrderIds=array_fill_keys(array_map(static fn(array $row):int=>(int)$row['purchase_order_id'],$data['orders']),true);
+        $data['bills']=array_values(array_filter($data['bills'],static fn(array $row):bool=>isset($allowedOrderIds[(int)($row['purchase_order_id']??0)])));
+        $data['returns']=array_values(array_filter($data['returns'],static fn(array $row):bool=>isset($allowedOrderIds[(int)($row['purchase_order_id']??0)])));
+        if($orderId){$s=$c->prepare("SELECT o.*,s.business_name supplier_name FROM purchase_orders o JOIN purchase_suppliers s ON s.company_id=o.company_id AND s.supplier_id=o.supplier_id WHERE o.company_id=:company_id AND o.purchase_order_id=:id");$s->execute($base+['id'=>$orderId]);$order=$s->fetch(PDO::FETCH_ASSOC);if(is_array($order)&&$this->canAccessOrder($order,$actor)){$l=$c->prepare("SELECT l.*,p.sku,p.unit_of_measure,(l.ordered_quantity-l.received_quantity) remaining_to_receive,(l.received_quantity-l.returned_quantity-l.billed_quantity) remaining_to_bill FROM purchase_order_lines l JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id WHERE l.company_id=:company_id AND l.purchase_order_id=:id");$l->execute($base+['id'=>$orderId]);$order['lines']=$l->fetchAll(PDO::FETCH_ASSOC);$order['receipts']=$q("SELECT goods_receipt_id,receipt_number,status,receipt_date FROM inventory_goods_receipts WHERE company_id=:company_id AND purchase_order_id=:id ORDER BY goods_receipt_id",$base+['id'=>$orderId])();$order['bills']=$q("SELECT invoice_id,invoice_number,supplier_invoice_number,status,payment_status,total_amount,residual_amount FROM finance_invoices WHERE company_id=:company_id AND purchase_order_id=:id ORDER BY invoice_id",$base+['id'=>$orderId])();$order['returns']=$q("SELECT vendor_return_id,return_number,return_date,reason,status FROM procurement_vendor_returns WHERE company_id=:company_id AND purchase_order_id=:id ORDER BY vendor_return_id",$base+['id'=>$orderId])();$data['order']=$order;}}
         if(isset($data['order'])&&is_array($data['order'])){$destination=$c->prepare("SELECT w.name warehouse_name,l.name destination_location_name FROM purchase_orders o LEFT JOIN inventory_warehouses w ON w.company_id=o.company_id AND w.warehouse_id=o.warehouse_id LEFT JOIN inventory_warehouse_locations l ON l.company_id=o.company_id AND l.warehouse_id=o.warehouse_id AND l.location_id=o.destination_location_id WHERE o.company_id=:company_id AND o.purchase_order_id=:id");$destination->execute($base+['id'=>$orderId]);$names=$destination->fetch(PDO::FETCH_ASSOC);if(is_array($names))$data['order']+=$names;}
         return $data;
     }

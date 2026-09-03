@@ -10,10 +10,66 @@ use Throwable;
 
 final class InventoryOperationalAccessService
 {
+    public const ALL_ACCESS_PERMISSION = 'inventory.warehouses.all_access';
+
+    public function hasCompanyWideAccess(int $companyId, int $userId): bool
+    {
+        return $this->hasPermission($companyId, $userId, self::ALL_ACCESS_PERMISSION);
+    }
+
+    public function canAccessWarehouse(int $companyId, int $userId, int $warehouseId): bool
+    {
+        if ($warehouseId < 1) {
+            return false;
+        }
+        $sql = "SELECT COUNT(*) FROM inventory_warehouses w
+                WHERE w.company_id=:company_id AND w.warehouse_id=:warehouse_id
+                  AND w.active=TRUE AND w.deleted_at IS NULL";
+        $parameters = ['company_id'=>$companyId, 'warehouse_id'=>$warehouseId];
+        if (!$this->hasCompanyWideAccess($companyId, $userId)) {
+            $sql .= " AND EXISTS(SELECT 1 FROM inventory_user_warehouse_access a
+                         WHERE a.company_id=w.company_id AND a.user_id=:user_id
+                           AND a.warehouse_id=w.warehouse_id AND a.active=TRUE)";
+            $parameters['user_id'] = $userId;
+        }
+        $statement = \db()->prepare($sql);
+        $statement->execute($parameters);
+        return (int) $statement->fetchColumn() === 1;
+    }
+
+    public function canAccessLocation(int $companyId, int $userId, int $warehouseId, int $locationId): bool
+    {
+        if (!$this->canAccessWarehouse($companyId, $userId, $warehouseId) || $locationId < 1) {
+            return false;
+        }
+        $sql = "SELECT COUNT(*) FROM inventory_warehouse_locations l
+                WHERE l.company_id=:company_id AND l.warehouse_id=:warehouse_id
+                  AND l.location_id=:location_id AND l.active=TRUE AND l.deleted_at IS NULL";
+        $parameters = ['company_id'=>$companyId, 'warehouse_id'=>$warehouseId, 'location_id'=>$locationId];
+        if (!$this->hasCompanyWideAccess($companyId, $userId)) {
+            $sql .= " AND EXISTS(SELECT 1 FROM inventory_user_location_access a
+                         WHERE a.company_id=l.company_id AND a.user_id=:user_id
+                           AND a.warehouse_id=l.warehouse_id AND a.location_id=l.location_id
+                           AND a.active=TRUE)";
+            $parameters['user_id'] = $userId;
+        }
+        $statement = \db()->prepare($sql);
+        $statement->execute($parameters);
+        return (int) $statement->fetchColumn() === 1;
+    }
+
+    /** @param array<string,mixed> $record */
+    public function canAccessRecord(int $companyId, int $userId, array $record, string $warehouseKey='warehouse_id', string $locationKey='source_location_id'): bool
+    {
+        $warehouseId = (int) ($record[$warehouseKey] ?? 0);
+        $locationId = (int) ($record[$locationKey] ?? 0);
+        return $locationId > 0
+            ? $this->canAccessLocation($companyId, $userId, $warehouseId, $locationId)
+            : $this->canAccessWarehouse($companyId, $userId, $warehouseId);
+    }
     /** @return list<array<string,mixed>> */
     public function warehousesForUser(int $companyId, int $userId): array
     {
-        if (!$this->hasPermission($companyId,$userId,'inventory.warehouses.use')) { return []; }
         $implicit = $this->hasImplicitAllAccess($companyId, $userId);
         $sql = "SELECT w.warehouse_id,w.code,w.name,w.allow_negative_stock,w.branch_id
                 FROM inventory_warehouses w
@@ -36,7 +92,6 @@ final class InventoryOperationalAccessService
     /** @return list<array<string,mixed>> */
     public function locationsForUser(int $companyId, int $userId, ?int $warehouseId = null): array
     {
-        if (!$this->hasPermission($companyId,$userId,'inventory.warehouses.use')) { return []; }
         $implicit = $this->hasImplicitAllAccess($companyId, $userId);
         $sql = "SELECT l.location_id,l.warehouse_id,l.code,l.name,l.pick_priority
                 FROM inventory_warehouse_locations l
@@ -70,7 +125,7 @@ final class InventoryOperationalAccessService
     /** @return list<array<string,mixed>> */
     public function receivingLocationsForUser(int $companyId, int $userId, ?int $warehouseId = null): array
     {
-        if (!$this->hasPermission($companyId,$userId,'inventory.warehouses.use') || !$this->hasPermission($companyId,$userId,'procurement.receiving_destinations.use')) return [];
+        if (!$this->hasPermission($companyId,$userId,'procurement.receiving_destinations.use')) return [];
         $implicit=$this->hasImplicitAllAccess($companyId,$userId);
         $sql="SELECT l.location_id,l.warehouse_id,l.code,l.name FROM inventory_warehouse_locations l INNER JOIN inventory_warehouses w ON w.company_id=l.company_id AND w.warehouse_id=l.warehouse_id WHERE l.company_id=:company_id AND w.active=TRUE AND w.deleted_at IS NULL AND l.active=TRUE AND l.deleted_at IS NULL AND l.receiving_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE";
         $parameters=['company_id'=>$companyId];
@@ -82,7 +137,7 @@ final class InventoryOperationalAccessService
     /** @return array<string,mixed> */
     public function assertAuthorizedDestination(int $companyId,int $userId,int $warehouseId,int $locationId): array
     {
-        if(!$this->hasPermission($companyId,$userId,'inventory.warehouses.use')||!$this->hasPermission($companyId,$userId,'procurement.receiving_destinations.use'))throw new RuntimeException('You are not authorized to select Procurement receiving destinations.');
+        if(!$this->hasPermission($companyId,$userId,'procurement.receiving_destinations.use'))throw new RuntimeException('You are not authorized to select Procurement receiving destinations.');
         foreach($this->receivingLocationsForUser($companyId,$userId,$warehouseId) as $location)if((int)$location['location_id']===$locationId)return $location;
         throw new RuntimeException('Select an active, assigned receiving location in the selected warehouse.');
     }
@@ -90,7 +145,6 @@ final class InventoryOperationalAccessService
     /** @return array<string,mixed> */
     public function assertAuthorizedTransferDestination(int $companyId,int $userId,int $warehouseId,int $locationId): array
     {
-        if(!$this->hasPermission($companyId,$userId,'inventory.warehouses.use'))throw new RuntimeException('You are not authorized to use warehouse stock operationally.');
         $sql="SELECT w.warehouse_id,w.name warehouse_name,l.location_id,l.name location_name FROM inventory_warehouses w INNER JOIN inventory_warehouse_locations l ON l.company_id=w.company_id AND l.warehouse_id=w.warehouse_id WHERE w.company_id=:company_id AND w.warehouse_id=:warehouse_id AND l.location_id=:location_id AND w.active=TRUE AND w.deleted_at IS NULL AND l.active=TRUE AND l.deleted_at IS NULL AND l.receiving_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE";$statement=\db()->prepare($sql);$statement->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId,'location_id'=>$locationId]);$destination=$statement->fetch(PDO::FETCH_ASSOC);if(!is_array($destination))throw new RuntimeException('Select an active internal receiving destination in the selected warehouse.');
         if(!$this->hasImplicitAllAccess($companyId,$userId)){$access=\db()->prepare("SELECT COUNT(*) FROM inventory_user_warehouse_access wa INNER JOIN inventory_user_location_access la ON la.company_id=wa.company_id AND la.user_id=wa.user_id AND la.warehouse_id=wa.warehouse_id WHERE wa.company_id=:company_id AND wa.user_id=:user_id AND wa.warehouse_id=:warehouse_id AND la.location_id=:location_id AND wa.active=TRUE AND la.active=TRUE");$access->execute(['company_id'=>$companyId,'user_id'=>$userId,'warehouse_id'=>$warehouseId,'location_id'=>$locationId]);if((int)$access->fetchColumn()!==1)throw new RuntimeException('You are not assigned to use the selected destination warehouse and location.');}
         return $destination;
@@ -103,9 +157,6 @@ final class InventoryOperationalAccessService
         int $warehouseId,
         int $locationId
     ): array {
-        if (!$this->hasPermission($companyId, $userId, 'inventory.warehouses.use')) {
-            throw new RuntimeException('You are not authorized to use warehouse stock operationally.');
-        }
         $statement = \db()->prepare(
             "SELECT w.warehouse_id,w.name warehouse_name,w.allow_negative_stock,
                     l.location_id,l.name location_name
@@ -298,14 +349,7 @@ final class InventoryOperationalAccessService
 
     private function hasImplicitAllAccess(int $companyId, int $userId): bool
     {
-        $statement = \db()->prepare(
-            "SELECT COUNT(*) FROM company_user_roles ur
-             INNER JOIN roles r ON r.role_id=ur.role_id AND r.active=TRUE
-             WHERE ur.company_id=:company_id AND ur.user_id=:user_id
-               AND r.code IN('company_owner','system_administrator')"
-        );
-        $statement->execute(['company_id' => $companyId, 'user_id' => $userId]);
-        return (int) $statement->fetchColumn() > 0;
+        return $this->hasCompanyWideAccess($companyId, $userId);
     }
 
     private function hasPermission(int $companyId, int $userId, string $permission): bool

@@ -64,6 +64,9 @@ final class WarehouseLocationManagementService
         $locations = $this->locations->listForCompany(
             $companyId
         );
+        $actorId=(int)($_SESSION['auth']['user_id']??0);
+        $access=new InventoryOperationalAccessService();
+        $locations=array_values(array_filter($locations,static fn(array $location):bool=>$access->canAccessLocation($companyId,$actorId,(int)($location['warehouse_id']??0),(int)($location['location_id']??0))));
         $active = 0;
         $receiving = 0;
         $picking = 0;
@@ -102,8 +105,7 @@ final class WarehouseLocationManagementService
 
         return [
             'locations' => $locations,
-            'warehouses' => $this->locations
-                ->activeWarehousesForCompany($companyId),
+            'warehouses' => $access->warehousesForUser($companyId,$actorId),
             'summary' => [
                 'total' => count($locations),
                 'active' => $active,

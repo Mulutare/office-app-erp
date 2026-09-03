@@ -26,6 +26,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
     {
         $statement = $this->connection()->prepare(
             "SELECT p.picking_id,p.picking_number,p.sales_order_id,p.backorder_of_id,
+                    p.warehouse_id,p.source_location_id,p.destination_location_id,
                     p.status,p.reserved_at,p.completed_at,o.order_number,c.name customer_name,
                     w.name warehouse_name,src.name source_location_name,dst.name destination_location_name,
                     COALESCE(SUM(l.requested_quantity),0) requested_quantity,
@@ -39,7 +40,8 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
              LEFT JOIN inventory_warehouse_locations dst ON dst.company_id=p.company_id AND dst.location_id=p.destination_location_id
              LEFT JOIN inventory_picking_lines l ON l.company_id=p.company_id AND l.picking_id=p.picking_id
              WHERE p.company_id=:company_id AND p.picking_type='delivery'
-             GROUP BY p.picking_id,p.picking_number,p.sales_order_id,p.backorder_of_id,p.status,
+             GROUP BY p.picking_id,p.picking_number,p.sales_order_id,p.backorder_of_id,
+                      p.warehouse_id,p.source_location_id,p.destination_location_id,p.status,
                       p.reserved_at,p.completed_at,o.order_number,c.name,w.name,src.name,dst.name
              ORDER BY p.picking_id DESC"
         );
