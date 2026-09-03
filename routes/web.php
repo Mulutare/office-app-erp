@@ -20,6 +20,7 @@ use App\Controllers\EmployeePositionController;
 use App\Controllers\FinanceController;
 use App\Controllers\AssetController;
 use App\Controllers\InventoryController;
+use App\Controllers\StockRequestController;
 use App\Controllers\ProcurementController;
 use App\Controllers\WarehouseController;
 use App\Controllers\WarehouseLocationController;
@@ -73,6 +74,7 @@ $employeePositionController =
 $financeController = new FinanceController();
 $assetController = new AssetController();
 $inventoryController = new InventoryController();
+$stockRequestController = new StockRequestController();
 $procurementController = new ProcurementController();
 $warehouseController = new WarehouseController();
 $warehouseLocationController =
@@ -278,6 +280,14 @@ $router->get(
     '/inventory',
     [$inventoryController, 'index']
 );
+$router->get('/inventory/stock-requests',[$stockRequestController,'index']);
+$router->get('/inventory/stock-requests/{id}',[$stockRequestController,'show']);
+$router->post('/inventory/stock-requests',[$stockRequestController,'create']);
+$router->post('/inventory/stock-requests/{id}/process',[$stockRequestController,'process']);
+$router->post('/inventory/stock-requests/{id}/issue',[$stockRequestController,'issue']);
+$router->post('/inventory/stock-requests/{id}/receive',[$stockRequestController,'receive']);
+$router->post('/inventory/stock-requests/authorities',[$stockRequestController,'saveAuthority']);
+$router->post('/inventory/stock-requests/reorder-thresholds',[$stockRequestController,'saveReorderThreshold']);
 $router->get('/procurement',[$procurementController,'index']);
 $router->get('/procurement/{id}',[$procurementController,'showOrder']);
 $router->post('/procurement/suppliers',[$procurementController,'supplier']);

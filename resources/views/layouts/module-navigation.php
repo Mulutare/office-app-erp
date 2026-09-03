@@ -51,6 +51,7 @@ $definitions = [
     ],
     'inventory' => [
         'stock' => ['Current Stock', '/inventory?section=stock'],
+        'stock_requests' => ['Stock Requests', '/inventory/stock-requests', 'inventory.stock_requests.view'],
         'movements' => ['Movements', '/inventory?section=movements'],
         'receipts' => ['Receipts', '/inventory/receipts'],
         'transfers' => ['Transfers', '/inventory/transfers', 'inventory.transfers.view'],
@@ -72,8 +73,8 @@ if ($section === '') {
         }
         $section = $section ?: 'orders';
     } elseif ($module === 'inventory') {
-        foreach (['receipts', 'warehouses', 'locations'] as $candidate) {
-            if (str_contains($requestPath, '/inventory/' . $candidate)) { $section = $candidate; break; }
+        foreach (['stock-requests', 'receipts', 'warehouses', 'locations'] as $candidate) {
+            if (str_contains($requestPath, '/inventory/' . $candidate)) { $section = $candidate === 'stock-requests' ? 'stock_requests' : $candidate; break; }
         }
         $section = $section ?: (string) ($_GET['section'] ?? 'stock');
     } elseif ($module === 'finance') {
