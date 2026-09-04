@@ -26,7 +26,53 @@ final class SettlementRepository extends MySqlRepository
     public function find(int $companyId,int $id): ?array
     {
         $s=$this->connection()->prepare('SELECT s.*,b.bank_name,b.account_name,b.account_number,b.branch,b.swift_bic,c.name company_name,c.legal_name,c.contact_email,c.contact_phone FROM sales_settlements s JOIN company_bank_accounts b ON b.company_id=s.company_id AND b.bank_account_id=s.bank_account_id JOIN companies c ON c.company_id=s.company_id WHERE s.company_id=:c AND s.settlement_id=:id');$s->execute(['c'=>$companyId,'id'=>$id]);$row=$s->fetch(PDO::FETCH_ASSOC);if(!is_array($row))return null;
-        $q=$this->connection()->prepare('SELECT sl.*,p.payment_number,p.payment_date,p.reference_number,o.order_number,sc.name customer_name FROM sales_settlement_lines sl JOIN finance_payments p ON p.company_id=sl.company_id AND p.payment_id=sl.finance_payment_id JOIN sales_orders o ON o.company_id=sl.company_id AND o.order_id=sl.sales_order_id JOIN sales_customers sc ON sc.company_id=o.company_id AND sc.customer_id=o.customer_id WHERE sl.company_id=:c AND sl.settlement_id=:id ORDER BY sl.settlement_line_id');$q->execute(['c'=>$companyId,'id'=>$id]);$row['lines']=$q->fetchAll(PDO::FETCH_ASSOC);
+        $q=$this->connection()->prepare("SELECT
+    sl.*,
+    p.payment_number,
+    p.payment_date,
+    p.reference_number,
+    o.order_number,
+    sc.name customer_name,
+    qs.quick_sale_id,
+    qsr.report_id AS quick_sale_report_id,
+    qsr.invoice_reference AS quick_sale_receipt_reference,
+    CASE
+        WHEN qsr.evidence_path IS NOT NULL
+         AND qsr.evidence_path <> ''
+        THEN 1
+        ELSE 0
+    END AS quick_sale_has_receipt
+FROM sales_settlement_lines sl
+JOIN finance_payments p
+  ON p.company_id=sl.company_id
+ AND p.payment_id=sl.finance_payment_id
+JOIN sales_orders o
+  ON o.company_id=sl.company_id
+ AND o.order_id=sl.sales_order_id
+JOIN sales_customers sc
+  ON sc.company_id=o.company_id
+ AND sc.customer_id=o.customer_id
+LEFT JOIN sales_quotations q
+  ON q.company_id=sl.company_id
+ AND q.sales_order_id=sl.sales_order_id
+LEFT JOIN sales_quick_sales qs
+  ON qs.company_id=q.company_id
+ AND qs.quotation_id=q.quotation_id
+ AND qs.status='closed'
+LEFT JOIN sales_quick_sale_reports qsr
+  ON qsr.company_id=qs.company_id
+ AND qsr.quick_sale_id=qs.quick_sale_id
+ AND qsr.status='confirmed'
+ AND qsr.report_id=(
+     SELECT MAX(qsr2.report_id)
+     FROM sales_quick_sale_reports qsr2
+     WHERE qsr2.company_id=qs.company_id
+       AND qsr2.quick_sale_id=qs.quick_sale_id
+       AND qsr2.status='confirmed'
+ )
+WHERE sl.company_id=:c
+  AND sl.settlement_id=:id
+ORDER BY sl.settlement_line_id");$q->execute(['c'=>$companyId,'id'=>$id]);$row['lines']=$q->fetchAll(PDO::FETCH_ASSOC);
         $q=$this->connection()->prepare('SELECT bc.*,u.display_name creator_name FROM bank_confirmations bc JOIN users u ON u.user_id=bc.created_by WHERE bc.company_id=:c AND bc.settlement_id=:id ORDER BY bc.confirmation_id');$q->execute(['c'=>$companyId,'id'=>$id]);$row['confirmations']=$q->fetchAll(PDO::FETCH_ASSOC);
         $q=$this->connection()->prepare('SELECT e.*,u.display_name actor_name FROM sales_settlement_events e LEFT JOIN users u ON u.user_id=e.actor_id WHERE e.company_id=:c AND e.settlement_id=:id ORDER BY e.event_id');$q->execute(['c'=>$companyId,'id'=>$id]);$row['events']=$q->fetchAll(PDO::FETCH_ASSOC);return $row;
     }

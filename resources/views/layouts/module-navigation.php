@@ -21,6 +21,7 @@ if ($module === '') {
 
 $definitions = [
     'sales' => [
+        'quick_sale' => ['Quick Sale', '/sales/quick-sale'],
         'orders' => ['Sales Orders', '/sales/orders'],
         'quotations' => ['Quotations', '/sales/quotations'],
         'customers' => ['Customers', '/sales/customers'],
@@ -66,6 +67,23 @@ $definitions = [
     ],
 ];
 
+$simpleSalesUser = !empty(
+    $data['simpleSalesUser'] ?? false
+);
+
+if (
+    $simpleSalesUser
+    && $module === 'sales'
+) {
+    $definitions['sales'] = [
+        'quick_sale' => [
+            'Quick Sale',
+            '/sales/quick-sale',
+        ],
+    ];
+
+    $section = 'quick_sale';
+}
 if ($section === '') {
     if ($module === 'sales') {
         foreach (['quotations', 'orders', 'customers', 'products', 'pricelists', 'teams', 'deliveries', 'settlements'] as $candidate) {

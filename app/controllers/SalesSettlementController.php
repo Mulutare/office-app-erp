@@ -6,12 +6,13 @@ use App\Services\SalesWorkflowTraceService;
 use App\Services\AuthorizationService;
 use App\Services\SalesSettlementDocumentService;
 use App\Services\SettlementService;
+use App\Services\SalesQuickSaleService;
 use App\Services\TenantContext;
 
 final class SalesSettlementController
 {
-    private AuthorizationService $auth;private SettlementService $service;
-    public function __construct(){$this->auth=new AuthorizationService();$this->service=new SettlementService();}
+    private AuthorizationService $auth;private SettlementService $service;private SalesQuickSaleService $quickSales;
+    public function __construct(){$this->auth=new AuthorizationService();$this->service=new SettlementService();$this->quickSales=new SalesQuickSaleService();}
     public function index(): void{$this->permit('sales','sales.settlements.view');$data=$this->service->listing();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Sales Settlements','pageDescription'=>'Accountability and bank-deposit reconciliation over posted customer payments.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
     public function finance(): void{$this->permit('finance','finance.settlements.view');$data=$this->service->listing();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Settlement Reconciliation','pageDescription'=>'Finance bank confirmation, variance and maker/checker controls.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'financeMode'=>true,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
     public function show(string $id): void{$this->permitSharedView();$s=$this->service->find((int)$id);if($s===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>$s['settlement_number'],'pageDescription'=>'Settlement evidence, variance, approvals and audit timeline.','contentView'=>'sales.settlement','user'=>$_SESSION['auth'],'settlement'=>$s,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[]),'workflowTrace'=>(new SalesWorkflowTraceService())->trace((new TenantContext())->companyId(),'settlement',(int)$s['settlement_id'],$_SESSION['auth']??[])]);}
@@ -25,9 +26,51 @@ final class SalesSettlementController
     public function depositAdvice(string $id): void{$this->document((int)$id,'advice');}
     public function reconciliation(string $id): void{$this->document((int)$id,'reconciliation');}
     public function evidence(string $id,string $confirmationId): void{$this->permitSharedView();$e=$this->service->evidence((int)$id,(int)$confirmationId);if($e===null||!is_file($e['evidence_path'])){http_response_code(404);return;}header('Content-Type: '.$e['evidence_mime']);header('Content-Length: '.(string)$e['evidence_size']);header('Content-Disposition: attachment; filename="'.rawurlencode($e['evidence_original_name']).'"');header('X-Content-Type-Options: nosniff');readfile($e['evidence_path']);exit;}
-    private function permit(string $module,string $permission): void{$this->auth->requireModulePermission($module,$permission);}private function actor(): int{return (int)($_SESSION['auth']['user_id']??0);}private function csrf(): void{if(!\verifyCsrfToken(\postString('_token'))){\flash('settlement_errors',['form'=>'The form session expired.']);\redirect('/sales/settlements');}}
+    private function permit(string $module,string $permission): void
+    {
+        if (
+            $module === 'sales'
+            && $this->quickSales->isSimpleSalesUser(
+                $this->actor()
+            )
+        ) {
+            \redirect('/sales/quick-sale');
+        }
+
+        $this->auth->requireModulePermission(
+            $module,
+            $permission
+        );
+    }
+
+    private function actor(): int
+    {
+        return (int) (
+            $_SESSION['auth']['user_id'] ?? 0
+        );
+    }private function csrf(): void{if(!\verifyCsrfToken(\postString('_token'))){\flash('settlement_errors',['form'=>'The form session expired.']);\redirect('/sales/settlements');}}
     private function finish(array $r,?int $id): never{if(empty($r['successful']))\flash('settlement_errors',$r['errors']??[]);else \flash('settlement_notice',['message'=>'Settlement action completed.']);\redirect($id?'/sales/settlements/'.$id:'/sales/settlements');}
     private function pdf(array $d): never{header('Content-Type: application/pdf');header('Content-Disposition: attachment; filename="'.rawurlencode($d['filename']).'"');header('Content-Length: '.strlen($d['content']));echo $d['content'];exit;}
     private function document(int $id,string $type): never{$this->permitSharedView();$doc=(new SalesSettlementDocumentService())->settlement((new TenantContext())->companyId(),$id,$type);$this->pdf($doc);}
-    private function permitSharedView(): void{$this->auth->requireAnyModulePermission([['sales','sales.settlements.view'],['finance','finance.settlements.view']]);}
+    private function permitSharedView(): void
+    {
+        if (
+            $this->quickSales->isSimpleSalesUser(
+                $this->actor()
+            )
+        ) {
+            \redirect('/sales/quick-sale');
+        }
+
+        $this->auth->requireAnyModulePermission([
+            [
+                'sales',
+                'sales.settlements.view',
+            ],
+            [
+                'finance',
+                'finance.settlements.view',
+            ],
+        ]);
+    }
 }

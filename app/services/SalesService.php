@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Repositories\AuditLogWriter;
 use App\Repositories\InventoryRepository;
+use App\Repositories\ManagerTeamRepository;
 use App\Repositories\RepositoryFactory;
 use App\Repositories\SalesRepository;
 use PDOException;
@@ -19,7 +20,8 @@ final class SalesService
         private ?TenantContext $tenant = null,
         private ?InventoryRepository $inventory = null,
         private ?AppErrorReporter $errorReporter = null,
-        private ?InventoryOperationalAccessService $operationalAccess = null
+        private ?InventoryOperationalAccessService $operationalAccess = null,
+        private ?ManagerTeamRepository $managerTeams = null
     ) {
         $this->sales ??= RepositoryFactory::sales();
         $this->audit ??= RepositoryFactory::auditLogs();
@@ -27,6 +29,7 @@ final class SalesService
         $this->inventory ??= RepositoryFactory::inventory();
         $this->errorReporter ??= new AppErrorReporter();
         $this->operationalAccess ??= new InventoryOperationalAccessService();
+        $this->managerTeams ??= RepositoryFactory::managerTeams();
     }
 
     /** @return array<string, mixed> */
@@ -60,7 +63,7 @@ final class SalesService
             'serialNumbers' => $this->sales->serialNumbers($companyId),
             'quotations' => $this->sales->quotations($companyId),
             'pricelists' => $this->sales->pricelists($companyId),
-            'salesTeams' => $this->sales->teams($companyId),
+            'salesTeams' => $this->visibleSalesTeams($companyId, $actorId),
             'fulfilmentWarehouses' => $warehouses,
             'fulfilmentLocations' => $locations,
             'fulfilmentAvailability' => $availability,
@@ -90,7 +93,26 @@ final class SalesService
     {
         $name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return ['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{return ['successful'=>true,'id'=>$this->sales->createTeam($this->tenant->companyId(),['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members,$actorId)];}catch(Throwable $e){$message=$e->getMessage();if(str_contains($message,'uq_sales_team_name'))return ['successful'=>false,'errors'=>['name'=>'A DSA / DSP team with this name already exists.']];return ['successful'=>false,'errors'=>['form'=>$message]];}
     }
-    public function salesTeam(int $id): ?array{return $this->sales->team($this->tenant->companyId(),$id);}
+    public function salesTeam(int $id, ?int $actorId = null): ?array
+    {
+        $companyId = $this->tenant->companyId();
+        $actorId ??= (int) ($_SESSION['auth']['user_id'] ?? 0);
+
+        $team = $this->sales->team($companyId, $id);
+
+        if (
+            $team === null
+            || !$this->canAccessSalesTeam($team, $companyId, $actorId)
+        ) {
+            return null;
+        }
+
+        return $this->decorateSalesTeamManager(
+            $team,
+            $team,
+            $companyId
+        );
+    }
     public function updateSalesTeam(int $id,array $input): array
     {$name=trim((string)($input['name']??''));$members=array_values(array_unique(array_filter(array_map('intval',(array)($input['member_ids']??[])))));if($name==='')return['successful'=>false,'errors'=>['name'=>'Team name is required.']];try{$this->sales->updateTeam($this->tenant->companyId(),$id,['name'=>$name,'leader_agent_id'=>$this->optionalId($input['leader_agent_id']??null),'territory_id'=>$this->optionalId($input['territory_id']??null)],$members);return['successful'=>true,'id'=>$id];}catch(Throwable $e){$message=$e->getMessage();if(str_contains($message,'uq_sales_team_name'))return['successful'=>false,'errors'=>['name'=>'A DSA / DSP team with this name already exists.']];return['successful'=>false,'errors'=>['form'=>$message]];}}
     public function setSalesTeamActive(int $id,bool $active): array{try{$this->sales->setTeamActive($this->tenant->companyId(),$id,$active);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
@@ -225,6 +247,56 @@ final class SalesService
         }
     }
 
+    /**
+     * Quick Sale manager pricing adjustment.
+     *
+     * This deliberately does not loosen updateQuotation().
+     * Standard quotations remain editable only while draft.
+     *
+     * @param array<string,mixed> $input
+     * @return array<string,mixed>
+     */
+    public function updateQuickSaleQuotation(
+        int $id,
+        array $input,
+        int $actorId
+    ): array {
+        $companyId = $this->tenant->companyId();
+
+        $prepared = $this->prepareQuotation(
+            $input,
+            $companyId
+        );
+
+        if (isset($prepared['errors'])) {
+            return [
+                'successful' => false,
+                'errors' => $prepared['errors'],
+            ];
+        }
+
+        try {
+            $this->sales->updateQuickSaleQuotation(
+                $companyId,
+                $id,
+                $prepared['quotation'],
+                $prepared['lines'],
+                $actorId
+            );
+
+            return [
+                'successful' => true,
+                'id' => $id,
+            ];
+        } catch (Throwable $exception) {
+            return [
+                'successful' => false,
+                'errors' => [
+                    'form' => $exception->getMessage(),
+                ],
+            ];
+        }
+    }
     public function transitionQuotation(int $id,string $action,int $actorId,array $input=[]): array
     {
         try {
@@ -1017,6 +1089,265 @@ final class SalesService
         $companyId=$this->tenant->companyId();$allowed=['territory_id'=>array_column($this->sales->territories($companyId),'territory_id'),'agent_id'=>array_column($this->sales->agents($companyId),'agent_id'),'team_id'=>array_column($this->sales->teams($companyId),'team_id'),'pricelist_id'=>array_column($this->sales->pricelists($companyId),'pricelist_id')];foreach($allowed as $field=>$ids)if($v[$field]!==null&&!in_array($v[$field],array_map('intval',$ids),true))$errors[$field]='Select a '.$field.' from the current company.';return $errors;
     }
 
+    /** @return list<array<string,mixed>> */
+    private function visibleSalesTeams(
+        int $companyId,
+        int $actorId
+    ): array {
+        $scopeEmployeeIds =
+            $this->salesTeamScopeEmployeeIds($companyId, $actorId);
+
+        $visible = [];
+
+        foreach ($this->sales->teams($companyId) as $team) {
+            $teamId = (int) ($team['team_id'] ?? 0);
+
+            if ($teamId <= 0) {
+                continue;
+            }
+
+            $detail = $this->sales->team($companyId, $teamId);
+
+            if (!is_array($detail)) {
+                continue;
+            }
+
+            if (
+                $scopeEmployeeIds !== null
+                && !$this->teamContainsEmployee(
+                    $detail,
+                    $scopeEmployeeIds
+                )
+            ) {
+                continue;
+            }
+
+            $team = $this->decorateSalesTeamManager(
+                $team,
+                $detail,
+                $companyId
+            );
+
+            $team['members'] =
+                (array) ($detail['members'] ?? []);
+
+            $visible[] = $team;
+        }
+
+        return $visible;
+    }
+
+    private function canAccessSalesTeam(
+        array $team,
+        int $companyId,
+        int $actorId
+    ): bool {
+        $scopeEmployeeIds =
+            $this->salesTeamScopeEmployeeIds($companyId, $actorId);
+
+        return $scopeEmployeeIds === null
+            || $this->teamContainsEmployee(
+                $team,
+                $scopeEmployeeIds
+            );
+    }
+
+    /**
+     * null means unrestricted company-wide access.
+     *
+     * @return list<int>|null
+     */
+    private function salesTeamScopeEmployeeIds(
+        int $companyId,
+        int $actorId
+    ): ?array {
+        $context = $this->managerTeams
+            ->reportingContext($companyId, $actorId);
+
+        if (!is_array($context)) {
+            return [];
+        }
+
+        $jobTitle = strtolower(
+            trim((string) ($context['job_title'] ?? ''))
+        );
+
+        $employeeId =
+            (int) ($context['employee_id'] ?? 0);
+
+        if (in_array($jobTitle, ['dsa', 'dsp'], true)) {
+            return $employeeId > 0
+                ? [$employeeId]
+                : [];
+        }
+
+        if (
+            in_array(
+                $jobTitle,
+                [
+                    'shop manager',
+                    'district manager',
+                    'regional manager',
+                ],
+                true
+            )
+        ) {
+            $employeeIds = [];
+            $queue = [$actorId];
+            $visited = [];
+
+            while ($queue !== []) {
+                $managerUserId =
+                    (int) array_shift($queue);
+
+                if (
+                    $managerUserId <= 0
+                    || isset($visited[$managerUserId])
+                ) {
+                    continue;
+                }
+
+                $visited[$managerUserId] = true;
+
+                $reports = $this->managerTeams
+                    ->directReports(
+                        $companyId,
+                        $managerUserId,
+                        date('Y-m-d')
+                    );
+
+                foreach ($reports as $report) {
+                    $reportTitle = strtolower(
+                        trim((string) ($report['job_title'] ?? ''))
+                    );
+
+                    $reportEmployeeId =
+                        (int) ($report['employee_id'] ?? 0);
+
+                    $reportUserId =
+                        (int) ($report['user_id'] ?? 0);
+
+                    if (
+                        in_array(
+                            $reportTitle,
+                            ['dsa', 'dsp'],
+                            true
+                        )
+                        && $reportEmployeeId > 0
+                    ) {
+                        $employeeIds[$reportEmployeeId] =
+                            $reportEmployeeId;
+                    }
+
+                    if (
+                        in_array(
+                            $reportTitle,
+                            [
+                                'shop manager',
+                                'district manager',
+                                'regional manager',
+                            ],
+                            true
+                        )
+                        && $reportUserId > 0
+                    ) {
+                        $queue[] = $reportUserId;
+                    }
+                }
+            }
+
+            return array_values($employeeIds);
+        }
+
+        if (
+            in_array(
+                'sales.catalogue.manage',
+                $_SESSION['auth']['permissions'] ?? [],
+                true
+            )
+        ) {
+            return null;
+        }
+
+        return [];
+    }
+
+    /** @param list<int> $employeeIds */
+    private function teamContainsEmployee(
+        array $team,
+        array $employeeIds
+    ): bool {
+        if ($employeeIds === []) {
+            return false;
+        }
+
+        $allowed = array_fill_keys($employeeIds, true);
+
+        foreach ((array) ($team['members'] ?? []) as $member) {
+            $employeeId =
+                (int) ($member['employee_id'] ?? 0);
+
+            if (isset($allowed[$employeeId])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function decorateSalesTeamManager(
+        array $team,
+        array $detail,
+        int $companyId
+    ): array {
+        $managers = [];
+
+        foreach ((array) ($detail['members'] ?? []) as $member) {
+            $userId = (int) ($member['user_id'] ?? 0);
+
+            if ($userId <= 0) {
+                continue;
+            }
+
+            $context = $this->managerTeams
+                ->reportingContext($companyId, $userId);
+
+            if (!is_array($context)) {
+                continue;
+            }
+
+            $managerUserId =
+                (int) ($context['manager_user_id'] ?? 0);
+
+            $managerName = trim(
+                (string) (
+                    $context['manager_display_name'] ?? ''
+                )
+            );
+
+            if (
+                $managerUserId > 0
+                && $managerName !== ''
+            ) {
+                $managers[$managerUserId] =
+                    $managerName;
+            }
+        }
+
+        if (count($managers) === 1) {
+            $managerName =
+                (string) reset($managers);
+        } elseif (count($managers) > 1) {
+            $managerName = 'Multiple managers';
+        } else {
+            $managerName = 'Unassigned';
+        }
+
+        $team['manager_name'] = $managerName;
+        $team['leader_name'] = $managerName;
+
+        return $team;
+    }
     private function optionalId(mixed $value): ?int
     {
         $id = (int) $value;

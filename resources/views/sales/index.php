@@ -66,8 +66,60 @@ foreach (($data['actionRequiredItems'] ?? []) as $task) {
 <?php endif; ?>
 
 <?php if ($section === 'teams'): ?>
-<section class="card finance-filter-panel"><h2>Create sales team</h2><form method="post" action="/office_app/public/sales/teams" class="finance-filter-form"><?=csrfField()?><div class="form-field"><label>Team name</label><input name="name" required></div><div class="form-field"><label>Leader</label><select name="leader_agent_id"><option value="">Unassigned</option><?php foreach($agents as $a):?><option value="<?=e($a['agent_id'])?>"><?=e($a['name'])?></option><?php endforeach;?></select></div><div class="form-field"><label>Members</label><select name="member_ids[]" multiple><?php foreach($agents as $a):?><option value="<?=e($a['agent_id'])?>"><?=e($a['name'])?></option><?php endforeach;?></select></div><button class="btn btn-primary">Create team</button></form></section>
-<section class="card table-card"><div class="table-summary"><strong>Sales teams</strong><span><?=e(count($salesTeams))?></span></div><div class="table-responsive"><table class="data-table"><thead><tr><th>Team</th><th>Leader</th><th>Members</th><th>Status</th></tr></thead><tbody><?php foreach($salesTeams as $t):?><tr><td><?=e($t['name'])?></td><td><?=e($t['leader_name']??'Unassigned')?></td><td><?=e($t['member_count'])?></td><td><?=!empty($t['active'])?'Active':'Archived'?></td></tr><?php endforeach;?></tbody></table></div></section>
+<?php if (!empty($data['canManageCatalogue'])): ?><section class="card finance-filter-panel"><h2>Create sales team</h2><form method="post" action="/office_app/public/sales/teams" class="finance-filter-form"><?=csrfField()?><div class="form-field"><label>Team name</label><input name="name" required></div><div class="form-field" style="min-width:420px;grid-column:span 2"><label>Members</label><select name="member_ids[]" multiple size="8" style="width:100%;min-height:180px;height:auto"><?php foreach($agents as $a):?><option value="<?=e($a['agent_id'])?>"><?=e($a['name'])?></option><?php endforeach;?></select></div><button class="btn btn-primary">Create team</button></form></section><?php endif; ?>
+<section class="card table-card sales-team-list">
+    <div class="table-summary">
+        <strong>Sales teams</strong>
+        <span><?=e(count($salesTeams))?> teams</span>
+    </div>
+
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Team</th>
+                    <th>Manager</th>
+                    <th>Members</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach($salesTeams as $t): ?>
+                <?php $memberCount=count((array)($t['members']??[])); ?>
+                <tr>
+                    <td>
+                        <strong>
+                            <a class="table-link"
+                               href="/office_app/public/sales/teams/<?=e($t['team_id'])?>">
+                                <?=e($t['name'])?>
+                            </a>
+                        </strong>
+                    </td>
+
+                    <td>
+                        <?=e($t['manager_name']??'Unassigned')?>
+                    </td>
+
+                    <td>
+                        <a class="team-members-link"
+                           href="/office_app/public/sales/teams/<?=e($t['team_id'])?>">
+                            <?=e($memberCount)?>
+                            <?= $memberCount===1 ? 'member' : 'members' ?>
+                            <span aria-hidden="true">&rarr;</span>
+                        </a>
+                    </td>
+
+                    <td>
+                        <span class="badge <?=!empty($t['active'])?'badge-success':'badge-danger'?>">
+                            <?=!empty($t['active'])?'Active':'Archived'?>
+                        </span>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
 <?php endif; ?>
 
 <?php if ($section === 'customers'): ?>

@@ -58,9 +58,138 @@ final class ActionRequiredCountService
         };
         $parameters = ['company_id' => $companyId, 'user_id' => $userId];
 
-        if ($module === 'sales' && $section === 'quotations' && $can('sales.orders.submit')) {
-            $add("SELECT quotation_id id,quotation_number reference FROM sales_quotations WHERE company_id=:company_id AND status='draft' AND (expiration_date IS NULL OR expiration_date>=CURRENT_DATE)", $parameters, 'quotation', 'Mark sent or confirm', 'advance_quotation', '/sales/quotations/{id}');
-            $add("SELECT quotation_id id,quotation_number reference FROM sales_quotations WHERE company_id=:company_id AND status='sent' AND (expiration_date IS NULL OR expiration_date>=CURRENT_DATE)", $parameters, 'quotation', 'Confirm quotation', 'confirm_quotation', '/sales/quotations/{id}');
+        if ($module === 'sales' && $section === 'quick_sale' && $can('sales.view')) {
+            $add(
+                "SELECT
+                    qs.quick_sale_id id,
+                    q.quotation_number reference,
+                    CONCAT(
+                        COALESCE(a.name,'DSA/DSP'),
+                        ' / ',
+                        COALESCE(t.name,'Team')
+                    ) context
+                 FROM sales_quick_sales qs
+                 INNER JOIN sales_quotations q
+                   ON q.company_id=qs.company_id
+                  AND q.quotation_id=qs.quotation_id
+                 LEFT JOIN sales_agents a
+                   ON a.company_id=qs.company_id
+                  AND a.agent_id=qs.agent_id
+                 LEFT JOIN sales_teams t
+                   ON t.company_id=qs.company_id
+                  AND t.team_id=qs.team_id
+                 WHERE qs.company_id=:company_id
+                   AND qs.manager_user_id=:user_id
+                   AND qs.status='submitted'",
+                $parameters,
+                'quick_sale',
+                'Confirm Quick Sale',
+                'manage_quick_sale',
+                '/sales/quick-sale/{id}'
+            );
+
+            $add(
+                "SELECT
+                    qs.quick_sale_id id,
+                    q.quotation_number reference,
+                    CONCAT(
+                        COALESCE(a.name,'DSA/DSP'),
+                        ' / ',
+                        COALESCE(t.name,'Team'),
+                        ' / Sales report'
+                    ) context
+                 FROM sales_quick_sales qs
+                 INNER JOIN sales_quotations q
+                   ON q.company_id=qs.company_id
+                  AND q.quotation_id=qs.quotation_id
+                 LEFT JOIN sales_agents a
+                   ON a.company_id=qs.company_id
+                  AND a.agent_id=qs.agent_id
+                 LEFT JOIN sales_teams t
+                   ON t.company_id=qs.company_id
+                  AND t.team_id=qs.team_id
+                 WHERE qs.company_id=:company_id
+                   AND qs.manager_user_id=:user_id
+                   AND qs.status='reported'
+                   AND EXISTS(
+                       SELECT 1
+                       FROM sales_quick_sale_reports latest_report
+                       WHERE latest_report.company_id=qs.company_id
+                         AND latest_report.quick_sale_id=qs.quick_sale_id
+                         AND latest_report.report_id=(
+                             SELECT MAX(report_scan.report_id)
+                             FROM sales_quick_sale_reports report_scan
+                             WHERE report_scan.company_id=qs.company_id
+                               AND report_scan.quick_sale_id=qs.quick_sale_id
+                         )
+                         AND latest_report.status='submitted'
+                   )",
+                $parameters,
+                'quick_sale',
+                'Confirm Sales Report',
+                'manage_quick_sale',
+                '/sales/quick-sale/{id}'
+            );
+
+            $add(
+                "SELECT
+                    qs.quick_sale_id id,
+                    q.quotation_number reference,
+                    CONCAT(
+                        'Status: ',
+                        REPLACE(qs.status,'_',' ')
+                    ) context
+                 FROM sales_quick_sales qs
+                 INNER JOIN sales_quotations q
+                   ON q.company_id=qs.company_id
+                  AND q.quotation_id=qs.quotation_id
+                 WHERE qs.company_id=:company_id
+                   AND qs.user_id=:user_id
+                   AND qs.status IN(
+                       'allocated',
+                       'return_requested'
+                   )",
+                $parameters,
+                'quick_sale',
+                'Review Quick Sale status',
+                'review_quick_sale',
+                '/sales/quick-sale/{id}'
+            );
+
+            $add(
+                "SELECT
+                    qs.quick_sale_id id,
+                    q.quotation_number reference,
+                    'Manager returned sales report for correction' context
+                 FROM sales_quick_sales qs
+                 INNER JOIN sales_quotations q
+                   ON q.company_id=qs.company_id
+                  AND q.quotation_id=qs.quotation_id
+                 WHERE qs.company_id=:company_id
+                   AND qs.user_id=:user_id
+                   AND qs.status='reported'
+                   AND EXISTS(
+                       SELECT 1
+                       FROM sales_quick_sale_reports latest_report
+                       WHERE latest_report.company_id=qs.company_id
+                         AND latest_report.quick_sale_id=qs.quick_sale_id
+                         AND latest_report.report_id=(
+                             SELECT MAX(report_scan.report_id)
+                             FROM sales_quick_sale_reports report_scan
+                             WHERE report_scan.company_id=qs.company_id
+                               AND report_scan.quick_sale_id=qs.quick_sale_id
+                         )
+                         AND latest_report.status='correction_required'
+                   )",
+                $parameters,
+                'quick_sale',
+                'Correct Sales Report',
+                'review_quick_sale',
+                '/sales/quick-sale/{id}'
+            );
+        } elseif ($module === 'sales' && $section === 'quotations' && $can('sales.orders.submit')) {
+            $add("SELECT q.quotation_id id,q.quotation_number reference FROM sales_quotations q WHERE q.company_id=:company_id AND q.status='draft' AND (q.expiration_date IS NULL OR q.expiration_date>=CURRENT_DATE) AND NOT EXISTS(SELECT 1 FROM sales_quick_sales qs WHERE qs.company_id=q.company_id AND qs.quotation_id=q.quotation_id)", $parameters, 'quotation', 'Mark sent or confirm', 'advance_quotation', '/sales/quotations/{id}');
+            $add("SELECT q.quotation_id id,q.quotation_number reference FROM sales_quotations q WHERE q.company_id=:company_id AND q.status='sent' AND (q.expiration_date IS NULL OR q.expiration_date>=CURRENT_DATE) AND NOT EXISTS(SELECT 1 FROM sales_quick_sales qs WHERE qs.company_id=q.company_id AND qs.quotation_id=q.quotation_id)", $parameters, 'quotation', 'Confirm quotation', 'confirm_quotation', '/sales/quotations/{id}');
         } elseif ($module === 'sales' && $section === 'orders') {
             if ($can('sales.orders.submit')) {
                 $add("SELECT order_id id,order_number reference FROM sales_orders WHERE company_id=:company_id AND status='draft' AND created_by=:user_id AND deleted_at IS NULL", $parameters, 'sales_order', 'Submit order', 'submit_order', '/sales/orders/{id}');
@@ -83,7 +212,7 @@ final class ActionRequiredCountService
         } elseif ($module === 'sales' && $section === 'settlements') {
             if ($can('sales.settlements.submit')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='draft' AND created_by=:user_id", $parameters, 'settlement', 'Submit settlement', 'submit_settlement', '/sales/settlements/{id}');
             if ($can('sales.settlements.review')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='submitted'", $parameters, 'settlement', 'Review settlement', 'review_settlement', '/sales/settlements/{id}');
-            if ($can('sales.settlements.create')) $add("SELECT p.payment_id id,CONCAT(MIN(o.order_number),' · ',p.payment_number) reference FROM finance_payments p INNER JOIN finance_payment_allocations a ON a.company_id=p.company_id AND a.payment_id=p.payment_id INNER JOIN finance_invoices i ON i.company_id=a.company_id AND i.invoice_id=a.invoice_id INNER JOIN sales_orders o ON o.company_id=i.company_id AND o.order_id=i.sales_order_id WHERE p.company_id=:company_id AND p.direction='inbound' AND p.status='posted' AND i.document_type='customer_invoice' AND i.status='posted' AND o.status NOT IN('draft','cancelled') AND NOT EXISTS(SELECT 1 FROM sales_settlement_lines sl WHERE sl.company_id=p.company_id AND sl.finance_payment_id=p.payment_id) GROUP BY p.payment_id,p.payment_number", $parameters, 'payment', 'Create settlement', 'create_settlement', '/sales/settlements#create-settlement');
+            if ($can('sales.settlements.create')) $add("SELECT p.payment_id id,CONCAT(MIN(o.order_number),' - ',p.payment_number) reference FROM finance_payments p INNER JOIN finance_payment_allocations a ON a.company_id=p.company_id AND a.payment_id=p.payment_id INNER JOIN finance_invoices i ON i.company_id=a.company_id AND i.invoice_id=a.invoice_id INNER JOIN sales_orders o ON o.company_id=i.company_id AND o.order_id=i.sales_order_id WHERE p.company_id=:company_id AND p.direction='inbound' AND p.status='posted' AND i.document_type='customer_invoice' AND i.status='posted' AND o.status NOT IN('draft','cancelled') AND NOT EXISTS(SELECT 1 FROM sales_settlement_lines sl WHERE sl.company_id=p.company_id AND sl.finance_payment_id=p.payment_id) GROUP BY p.payment_id,p.payment_number", $parameters, 'payment', 'Create settlement', 'create_settlement', '/sales/settlements#create-settlement');
         } elseif ($module === 'procurement') {
             $this->addProcurementItems($items, $add, $parameters, $section, $can);
         } elseif ($module === 'finance') {
@@ -137,6 +266,75 @@ final class ActionRequiredCountService
 
         $can = static fn (string $permission): bool => in_array($permission, $permissions, true);
         $connection = \db();
+
+        if ($can('sales.view')) {
+            $managerQuickSales = $this->scalar(
+                $connection,
+                "SELECT COUNT(*)
+                 FROM sales_quick_sales
+                 WHERE company_id=:company_id
+                   AND manager_user_id=:user_id
+                   AND (
+                       status='submitted'
+                       OR (
+                           status='reported'
+                           AND EXISTS(
+                               SELECT 1
+                               FROM sales_quick_sale_reports latest_report
+                               WHERE latest_report.company_id=sales_quick_sales.company_id
+                                 AND latest_report.quick_sale_id=sales_quick_sales.quick_sale_id
+                                 AND latest_report.report_id=(
+                                     SELECT MAX(report_scan.report_id)
+                                     FROM sales_quick_sale_reports report_scan
+                                     WHERE report_scan.company_id=sales_quick_sales.company_id
+                                       AND report_scan.quick_sale_id=sales_quick_sales.quick_sale_id
+                                 )
+                                 AND latest_report.status='submitted'
+                           )
+                       )
+                   )",
+                [
+                    'company_id' => $companyId,
+                    'user_id' => $userId,
+                ]
+            );
+
+            $dsaQuickSales = $this->scalar(
+                $connection,
+                "SELECT COUNT(*)
+                 FROM sales_quick_sales
+                 WHERE company_id=:company_id
+                   AND user_id=:user_id
+                   AND (
+                       status IN(
+                           'allocated',
+                           'return_requested'
+                       )
+                       OR (
+                           status='reported'
+                           AND EXISTS(
+                               SELECT 1
+                               FROM sales_quick_sale_reports latest_report
+                               WHERE latest_report.company_id=sales_quick_sales.company_id
+                                 AND latest_report.quick_sale_id=sales_quick_sales.quick_sale_id
+                                 AND latest_report.report_id=(
+                                     SELECT MAX(report_scan.report_id)
+                                     FROM sales_quick_sale_reports report_scan
+                                     WHERE report_scan.company_id=sales_quick_sales.company_id
+                                       AND report_scan.quick_sale_id=sales_quick_sales.quick_sale_id
+                                 )
+                                 AND latest_report.status='correction_required'
+                           )
+                       )
+                   )",
+                [
+                    'company_id' => $companyId,
+                    'user_id' => $userId,
+                ]
+            );
+            $counts['sales']['quick_sale'] =
+                $managerQuickSales + $dsaQuickSales;
+        }
 
         $procurement = $this->row($connection, <<<'SQL'
 SELECT
@@ -218,7 +416,7 @@ SQL, ['c1'=>$companyId,'c2'=>$companyId,'c3'=>$companyId,'c4'=>$companyId,'actor
 
         $sales = $this->row($connection, <<<'SQL'
 SELECT
- (SELECT COUNT(*) FROM sales_quotations WHERE company_id=:c1 AND status IN('draft','sent') AND (expiration_date IS NULL OR expiration_date>=CURRENT_DATE)) quotations,
+ (SELECT COUNT(*) FROM sales_quotations q WHERE q.company_id=:c1 AND q.status IN('draft','sent') AND (q.expiration_date IS NULL OR q.expiration_date>=CURRENT_DATE) AND NOT EXISTS(SELECT 1 FROM sales_quick_sales qs WHERE qs.company_id=q.company_id AND qs.quotation_id=q.quotation_id)) quotations,
  (SELECT COUNT(*) FROM sales_orders WHERE company_id=:c2 AND status='submitted' AND deleted_at IS NULL) submitted_orders,
  (SELECT COUNT(*) FROM sales_orders WHERE company_id=:c3 AND status='approved' AND deleted_at IS NULL) approved_orders,
  (SELECT COUNT(*) FROM sales_orders WHERE company_id=:c5 AND status='draft' AND created_by=:actor AND deleted_at IS NULL) draft_orders,
@@ -311,7 +509,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'procurement'=>['requisitions'=>0,'orders'=>0,'receipts'=>0,'bills'=>0,'payments'=>0,'returns'=>0,'total'=>0],
             'inventory'=>['stock'=>0,'movements'=>0,'receipts'=>0,'warehouses'=>0,'locations'=>0,'total'=>0],
             'assets'=>['register'=>0,'direct'=>0,'categories'=>0,'capitalization'=>0,'total'=>0],
-            'sales'=>['orders'=>0,'quotations'=>0,'customers'=>0,'products'=>0,'pricelists'=>0,'teams'=>0,'deliveries'=>0,'settlements'=>0,'total'=>0],
+            'sales'=>['quick_sale'=>0,'orders'=>0,'quotations'=>0,'customers'=>0,'products'=>0,'pricelists'=>0,'teams'=>0,'deliveries'=>0,'settlements'=>0,'total'=>0],
             'analytics'=>['total'=>0],
             'attendance'=>['total'=>0],
             'administration'=>['integration_events'=>0,'total'=>0],
@@ -348,8 +546,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
     /** @param list<array<string, int|string>> $items */
     private function addReceiptItems(array &$items, callable $add, array $parameters, callable $can): void
     {
-        if ($can('inventory.receipts.approve')) $add("SELECT r.goods_receipt_id id,CONCAT(r.receipt_number,' — ',w.name,' / ',COALESCE(l.name,'Legacy / not recorded')) reference FROM inventory_goods_receipts r INNER JOIN inventory_warehouses w ON w.company_id=r.company_id AND w.warehouse_id=r.warehouse_id LEFT JOIN inventory_warehouse_locations l ON l.company_id=r.company_id AND l.warehouse_id=r.warehouse_id AND l.location_id=r.destination_location_id WHERE r.company_id=:company_id AND r.status IN('draft','submitted') AND r.created_by<>:user_id", $parameters, 'goods_receipt', 'Approve receipt', 'approve_receipt', '/inventory/receipts/{id}');
-        if ($can('inventory.receipts.post')) $add("SELECT r.goods_receipt_id id,CONCAT(r.receipt_number,' — ',w.name,' / ',COALESCE(l.name,'Legacy / not recorded')) reference FROM inventory_goods_receipts r INNER JOIN inventory_warehouses w ON w.company_id=r.company_id AND w.warehouse_id=r.warehouse_id LEFT JOIN inventory_warehouse_locations l ON l.company_id=r.company_id AND l.warehouse_id=r.warehouse_id AND l.location_id=r.destination_location_id WHERE r.company_id=:company_id AND r.status='approved'", $parameters, 'goods_receipt', 'Post receipt', 'post_receipt', '/inventory/receipts/{id}');
+        if ($can('inventory.receipts.approve')) $add("SELECT r.goods_receipt_id id,CONCAT(r.receipt_number,' ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ',w.name,' / ',COALESCE(l.name,'Legacy / not recorded')) reference FROM inventory_goods_receipts r INNER JOIN inventory_warehouses w ON w.company_id=r.company_id AND w.warehouse_id=r.warehouse_id LEFT JOIN inventory_warehouse_locations l ON l.company_id=r.company_id AND l.warehouse_id=r.warehouse_id AND l.location_id=r.destination_location_id WHERE r.company_id=:company_id AND r.status IN('draft','submitted') AND r.created_by<>:user_id", $parameters, 'goods_receipt', 'Approve receipt', 'approve_receipt', '/inventory/receipts/{id}');
+        if ($can('inventory.receipts.post')) $add("SELECT r.goods_receipt_id id,CONCAT(r.receipt_number,' ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ',w.name,' / ',COALESCE(l.name,'Legacy / not recorded')) reference FROM inventory_goods_receipts r INNER JOIN inventory_warehouses w ON w.company_id=r.company_id AND w.warehouse_id=r.warehouse_id LEFT JOIN inventory_warehouse_locations l ON l.company_id=r.company_id AND l.warehouse_id=r.warehouse_id AND l.location_id=r.destination_location_id WHERE r.company_id=:company_id AND r.status='approved'", $parameters, 'goods_receipt', 'Post receipt', 'post_receipt', '/inventory/receipts/{id}');
         if ($can('procurement.receipts.create')) $add("SELECT po.purchase_order_id id,po.po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status IN('confirmed','partially_received') AND EXISTS(SELECT 1 FROM purchase_order_lines l WHERE l.company_id=po.company_id AND l.purchase_order_id=po.purchase_order_id AND l.received_quantity<l.ordered_quantity)", $parameters, 'purchase_order', 'Create goods receipt', 'create_receipt', '/procurement/{id}');
     }
 
@@ -371,6 +569,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
     private function targetTemplate(string $actionKey): string
     {
         return match ($actionKey) {
+            'manage_quick_sale', 'review_quick_sale' => '/sales/quick-sale/{id}',
             'advance_quotation', 'confirm_quotation' => '/sales/quotations/{id}',
             'submit_order', 'approve_order', 'confirm_order', 'prepare_delivery', 'create_invoice', 'record_payment' => '/sales/orders/{id}',
             'validate_delivery' => '/sales/deliveries/{id}',

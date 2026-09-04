@@ -117,5 +117,20 @@ interface SalesRepository
     public function createQuotation(int $companyId, array $quotation, array $lines, int $actorId): int;
     public function updateQuotation(int $companyId, int $quotationId, array $quotation, array $lines, int $actorId): void;
     /** @param array<string,int>|null $fulfilment */
+    /**
+     * Update pricing for a Quick Sale that is waiting for its
+     * assigned Shop Manager. Normal quotation editing remains
+     * draft-only.
+     *
+     * @param array<string,mixed> $quotation
+     * @param list<array<string,mixed>> $lines
+     */
+    public function updateQuickSaleQuotation(
+        int $companyId,
+        int $quotationId,
+        array $quotation,
+        array $lines,
+        int $actorId
+    ): void;
     public function transitionQuotation(int $companyId, int $quotationId, string $action, int $actorId, ?array $fulfilment = null): array;
 }

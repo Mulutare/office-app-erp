@@ -166,7 +166,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
 
     public function team(int $companyId,int $teamId): ?array
     {
-        $s=$this->connection()->prepare('SELECT t.*,a.name leader_name,tr.name territory_name FROM sales_teams t LEFT JOIN sales_agents a ON a.agent_id=t.leader_agent_id LEFT JOIN sales_territories tr ON tr.territory_id=t.territory_id WHERE t.company_id=:company_id AND t.team_id=:id');$s->execute(['company_id'=>$companyId,'id'=>$teamId]);$t=$s->fetch(PDO::FETCH_ASSOC);if(!is_array($t))return null;$m=$this->connection()->prepare('SELECT a.agent_id,a.agent_code,a.name FROM sales_team_members tm INNER JOIN sales_agents a ON a.company_id=tm.company_id AND a.agent_id=tm.agent_id WHERE tm.company_id=:company_id AND tm.team_id=:id ORDER BY a.name');$m->execute(['company_id'=>$companyId,'id'=>$teamId]);$t['members']=$m->fetchAll(PDO::FETCH_ASSOC);return $t;
+        $s=$this->connection()->prepare('SELECT t.*,a.name leader_name,tr.name territory_name FROM sales_teams t LEFT JOIN sales_agents a ON a.agent_id=t.leader_agent_id LEFT JOIN sales_territories tr ON tr.territory_id=t.territory_id WHERE t.company_id=:company_id AND t.team_id=:id');$s->execute(['company_id'=>$companyId,'id'=>$teamId]);$t=$s->fetch(PDO::FETCH_ASSOC);if(!is_array($t))return null;$m=$this->connection()->prepare('SELECT a.agent_id,a.agent_code,a.name,a.agent_type,a.employee_id,e.user_id FROM sales_team_members tm INNER JOIN sales_agents a ON a.company_id=tm.company_id AND a.agent_id=tm.agent_id LEFT JOIN hr_employees e ON e.company_id=a.company_id AND e.employee_id=a.employee_id AND e.deleted_at IS NULL WHERE tm.company_id=:company_id AND tm.team_id=:id ORDER BY a.name');$m->execute(['company_id'=>$companyId,'id'=>$teamId]);$t['members']=$m->fetchAll(PDO::FETCH_ASSOC);return $t;
     }
 
     public function quotations(int $companyId): array
@@ -354,6 +354,151 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         }
     }
 
+    public function updateQuickSaleQuotation(
+        int $companyId,
+        int $quotationId,
+        array $quotation,
+        array $lines,
+        int $actorId
+    ): void {
+        $connection = $this->connection();
+        $ownsTransaction = !$connection->inTransaction();
+
+        if ($ownsTransaction) {
+            $connection->beginTransaction();
+        }
+
+        try {
+            $lock = $connection->prepare(
+                "SELECT q.status
+                 FROM sales_quotations q
+                 INNER JOIN sales_quick_sales qs
+                   ON qs.company_id = q.company_id
+                  AND qs.quotation_id = q.quotation_id
+                 WHERE q.company_id = :company_id
+                   AND q.quotation_id = :quotation_id
+                   AND qs.status = 'submitted'
+                   AND qs.manager_user_id = :manager_user_id
+                 FOR UPDATE"
+            );
+
+            $lock->execute([
+                'company_id' => $companyId,
+                'quotation_id' => $quotationId,
+                'manager_user_id' => $actorId,
+            ]);
+
+            $status = $lock->fetchColumn();
+
+            if ($status === false) {
+                throw new RuntimeException(
+                    'Quick Sale is not awaiting confirmation from this manager.'
+                );
+            }
+
+            if (!in_array((string) $status, ['draft', 'sent'], true)) {
+                throw new RuntimeException(
+                    'Quick Sale quotation can no longer be adjusted.'
+                );
+            }
+
+            $update = $connection->prepare(
+                'UPDATE sales_quotations
+                 SET customer_id = :customer_id,
+                     agent_id = :agent_id,
+                     team_id = :team_id,
+                     pricelist_id = :pricelist_id,
+                     quotation_date = :quotation_date,
+                     expiration_date = :expiration_date,
+                     payment_terms_days = :payment_terms_days,
+                     currency = :currency,
+                     billing_address = :billing_address,
+                     delivery_address = :delivery_address,
+                     notes = :notes,
+                     untaxed_amount = :untaxed_amount,
+                     tax_amount = :tax_amount,
+                     total_amount = :total_amount,
+                     updated_by = :actor
+                 WHERE company_id = :company_id
+                   AND quotation_id = :quotation_id'
+            );
+
+            $update->execute(
+                $quotation + [
+                    'actor' => $actorId,
+                    'company_id' => $companyId,
+                    'quotation_id' => $quotationId,
+                ]
+            );
+
+            $delete = $connection->prepare(
+                'DELETE FROM sales_quotation_lines
+                 WHERE company_id = :company_id
+                   AND quotation_id = :quotation_id'
+            );
+
+            $delete->execute([
+                'company_id' => $companyId,
+                'quotation_id' => $quotationId,
+            ]);
+
+            $insert = $connection->prepare(
+                'INSERT INTO sales_quotation_lines
+                    (
+                        company_id,
+                        quotation_id,
+                        sequence,
+                        product_id,
+                        description,
+                        quantity,
+                        unit_of_measure,
+                        unit_price,
+                        discount_amount,
+                        tax_rate,
+                        untaxed_amount,
+                        tax_amount,
+                        line_total
+                    )
+                 VALUES
+                    (
+                        :company_id,
+                        :quotation_id,
+                        :sequence,
+                        :product_id,
+                        :description,
+                        :quantity,
+                        :unit_of_measure,
+                        :unit_price,
+                        :discount_amount,
+                        :tax_rate,
+                        :untaxed_amount,
+                        :tax_amount,
+                        :line_total
+                    )'
+            );
+
+            foreach ($lines as $line) {
+                $insert->execute(
+                    $line + [
+                        'company_id' => $companyId,
+                        'quotation_id' => $quotationId,
+                    ]
+                );
+            }
+
+            if ($ownsTransaction) {
+                $connection->commit();
+            }
+        } catch (Throwable $exception) {
+            if ($ownsTransaction) {
+                if ($connection->inTransaction()) {
+                    $connection->rollBack();
+                }
+            }
+
+            throw $exception;
+        }
+    }
     public function transitionQuotation(int $companyId,int $quotationId,string $action,int $actorId,?array $fulfilment=null): array
     {
         $c=$this->connection();$c->beginTransaction();try{$s=$c->prepare('SELECT * FROM sales_quotations WHERE company_id=:company_id AND quotation_id=:id FOR UPDATE');$s->execute(['company_id'=>$companyId,'id'=>$quotationId]);$q=$s->fetch(PDO::FETCH_ASSOC);if(!is_array($q))throw new RuntimeException('Quotation was not found.');if($action==='confirm'&&$q['status']==='confirmed'){$c->commit();return ['orderId'=>(int)$q['sales_order_id'],'replayed'=>true];}$allowed=['send'=>['draft'],'confirm'=>['draft','sent'],'cancel'=>['draft','sent']];if(!in_array($q['status'],$allowed[$action]??[],true))throw new RuntimeException('Quotation transition is not allowed from '.$q['status'].'.');if($action==='confirm'&&$q['expiration_date']!==null&&$q['expiration_date']<date('Y-m-d'))throw new RuntimeException('Expired quotation cannot be confirmed.');$status=$action==='send'?'sent':($action==='cancel'?'cancelled':'confirmed');$orderId=null;if($action==='confirm'){$lines=$c->prepare('SELECT * FROM sales_quotation_lines WHERE company_id=:company_id AND quotation_id=:id ORDER BY sequence');$lines->execute(['company_id'=>$companyId,'id'=>$quotationId]);$order=['branch_id'=>null,'customer_id'=>$q['customer_id'],'territory_id'=>null,'agent_id'=>$q['agent_id'],'order_number'=>$this->reserveDocumentNumber($companyId,null,'order'),'external_reference'=>$q['quotation_number'],'order_date'=>date('Y-m-d'),'due_date'=>date('Y-m-d',strtotime('+'.(int)$q['payment_terms_days'].' days')),'status'=>'submitted','currency'=>$q['currency'],'subtotal'=>$q['untaxed_amount'],'discount_amount'=>0,'tax_amount'=>$q['tax_amount'],'total_amount'=>$q['total_amount'],'notes'=>$q['notes'],'confirmed_at'=>null,'commission_amount'=>0];$orderLines=[];foreach($lines->fetchAll(PDO::FETCH_ASSOC) as $l)$orderLines[]=['product_id'=>$l['product_id'],'description'=>$l['description'],'quantity'=>$l['quantity'],'unit_price'=>$l['unit_price'],'discount_amount'=>$l['discount_amount'],'tax_rate'=>$l['tax_rate'],'line_total'=>$l['line_total'],'commission_rate'=>0];$orderId=$this->createOrder($companyId,$order,$orderLines,$actorId);}$u=$c->prepare('UPDATE sales_quotations SET status=:status,sales_order_id=:order_id,sent_at=CASE WHEN :sent=1 THEN NOW() ELSE sent_at END,confirmed_at=CASE WHEN :confirmed=1 THEN NOW() ELSE confirmed_at END,cancelled_at=CASE WHEN :cancelled=1 THEN NOW() ELSE cancelled_at END,updated_by=:actor WHERE company_id=:company_id AND quotation_id=:id');$u->execute(['status'=>$status,'order_id'=>$orderId,'sent'=>$action==='send'?1:0,'confirmed'=>$action==='confirm'?1:0,'cancelled'=>$action==='cancel'?1:0,'actor'=>$actorId,'company_id'=>$companyId,'id'=>$quotationId]);$c->commit();return ['orderId'=>$orderId,'replayed'=>false];}catch(Throwable $e){if($c->inTransaction())$c->rollBack();throw $e;}

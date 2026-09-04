@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Services\AuthorizationService;
 use App\Services\SalesService;
+use App\Services\SalesQuickSaleService;
 use App\Services\SalesWorkflowTraceService;
 use App\Services\TenantContext;
 
@@ -13,11 +14,13 @@ final class SalesController
 {
     private AuthorizationService $authorization;
     private SalesService $sales;
+    private SalesQuickSaleService $quickSales;
 
     public function __construct()
     {
         $this->authorization = new AuthorizationService();
         $this->sales = new SalesService();
+        $this->quickSales = new SalesQuickSaleService();
     }
 
     public function index(): void
@@ -30,11 +33,366 @@ final class SalesController
     public function showCustomer(string $id): void{$this->authorize('sales.view');$this->renderMaster('customer',(int)$id);}
     public function showProduct(string $id): void{$this->authorize('sales.view');$this->renderMaster('product',(int)$id);}
     private function renderMaster(string $type,int $id): void
-    {$record=$type==='customer'?$this->sales->customer($id):$this->sales->product($id);if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='customer'?'Customer commercial master.':'Shared Sales and Inventory product master.','contentView'=>'sales.master','masterType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
+    {
+        $this->redirectSimpleSalesUser();$record=$type==='customer'?$this->sales->customer($id):$this->sales->product($id);if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='customer'?'Customer commercial master.':'Shared Sales and Inventory product master.','contentView'=>'sales.master','masterType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
     public function quotations(): void { $this->renderWorkspace('quotations'); }
     public function orders(): void { $this->renderWorkspace('orders'); }
+    public function quickSale(): void
+    {
+        $this->authorize('sales.view');
+
+        $quickSale = $this->quickSales->workspace(
+            $this->actorId()
+        );
+
+        if (empty($quickSale['eligible'])) {
+            http_response_code(403);
+        }
+
+        $managerMode =
+            ($quickSale['mode'] ?? '') === 'manager';
+
+        \view('layouts.app', [
+            'applicationName' =>
+                \config('name', 'OfficeApp ERP'),
+            'environment' =>
+                \config('environment', 'unknown'),
+            'pageTitle' =>
+                $managerMode
+                    ? 'Quick Sales'
+                    : 'Quick Sale',
+            'pageDescription' =>
+                $managerMode
+                    ? 'Review DSA/DSP Quick Sales awaiting allocation.'
+                    : 'Simple DSA/DSP Sales entry.',
+            'contentView' =>
+                $managerMode
+                    ? 'sales.quick-sale-manager'
+                    : 'sales.quick-sale',
+            'quickSale' => $quickSale,
+            'simpleSalesUser' =>
+                ($quickSale['mode'] ?? '') === 'dsa',
+            'moduleContext' => [
+                'module' => 'sales',
+                'section' => 'quick_sale',
+            ],
+            'user' => $_SESSION['auth'],
+            'notice' => \getFlash('sales_notice'),
+            'errors' => \getFlash('sales_errors', []),
+            'old' => \getFlash('sales_old', []),
+        ]);
+    }
+
+public function showQuickSale(string $id): void
+    {
+        $privilegedReviewer =
+            $this->can('sales.settlements.review')
+            || $this->can('finance.settlements.view')
+            || $this->can('finance.settlements.reconcile')
+            || $this->can('finance.settlements.approve');
+
+        if (!$privilegedReviewer) {
+            $this->authorize('sales.view');
+        }
+
+        $detail = $this->quickSales->detail(
+            (int) $id,
+            $this->actorId(),
+            $privilegedReviewer
+        );
+
+        if (!empty($detail['notFound'])) {
+            http_response_code(404);
+            \view('errors.404', [
+                'applicationName' =>
+                    \config('name', 'OfficeApp ERP'),
+            ]);
+            return;
+        }
+
+        if (empty($detail['successful'])) {
+            http_response_code(403);
+        }
+
+        \view('layouts.app', [
+            'applicationName' =>
+                \config('name', 'OfficeApp ERP'),
+            'environment' =>
+                \config('environment', 'unknown'),
+            'pageTitle' =>
+                (string) (
+                    $detail['quickSale']['quotation_number']
+                    ?? 'Quick Sale'
+                ),
+            'pageDescription' =>
+                'Simple DSA/DSP sale and Shop Manager allocation.',
+            'contentView' =>
+                'sales.quick-sale-detail',
+            'quickSaleDetail' => $detail,
+            'simpleSalesUser' =>
+                $this->quickSales->isSimpleSalesUser(
+                    $this->actorId()
+                ),
+            'moduleContext' => [
+                'module' => 'sales',
+                'section' => 'quick_sale',
+            ],
+            'user' => $_SESSION['auth'],
+            'notice' => \getFlash('sales_notice'),
+            'errors' => \getFlash('sales_errors', []),
+        ]);
+    }
+
+    public function quickSaleEvidence(
+        string $id,
+        string $reportId
+    ): void {
+        $privilegedReviewer =
+            $this->can('sales.settlements.review')
+            || $this->can('finance.settlements.view')
+            || $this->can('finance.settlements.reconcile')
+            || $this->can('finance.settlements.approve');
+
+        if (!$privilegedReviewer) {
+            $this->authorize('sales.view');
+        }
+
+        $evidence = $this->quickSales->reportEvidence(
+            (int) $id,
+            (int) $reportId,
+            $this->actorId(),
+            $privilegedReviewer
+        );
+
+        if ($evidence === null) {
+            http_response_code(404);
+            return;
+        }
+
+        $path = (string) ($evidence['evidence_path'] ?? '');
+
+        if ($path === '' || !is_file($path)) {
+            http_response_code(404);
+            return;
+        }
+
+        $mime = (string) (
+            $evidence['evidence_mime']
+            ?? 'application/octet-stream'
+        );
+
+        $allowedMime = [
+            'application/pdf',
+            'image/png',
+            'image/jpeg',
+        ];
+
+        if (!in_array($mime, $allowedMime, true)) {
+            http_response_code(404);
+            return;
+        }
+
+        $filename = (string) (
+            $evidence['evidence_original_name']
+            ?? 'quick-sale-evidence'
+        );
+
+        header('Content-Type: ' . $mime);
+        header('Content-Length: ' . (string) filesize($path));
+        header(
+            'Content-Disposition: inline; filename="'
+            . rawurlencode($filename)
+            . '"'
+        );
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, no-store, max-age=0');
+
+        readfile($path);
+        exit;
+    }
+
+    public function confirmQuickSale(string $id): void
+    {
+        $this->authorize('sales.view');
+        $this->requireCsrf('quick_sale_confirm');
+
+        $result = $this->quickSales->confirm(
+            (int) $id,
+            $this->actorId(),
+            [
+                'source_location_id' =>
+                    $this->scalar(
+                        $_POST['source_location_id']
+                        ?? ''
+                    ),
+                'discount_amount' =>
+                    is_array($_POST['discount_amount'] ?? null)
+                        ? $_POST['discount_amount']
+                        : [],
+                'tax_rate' =>
+                    is_array($_POST['tax_rate'] ?? null)
+                        ? $_POST['tax_rate']
+                        : [],
+            ]
+        );
+
+        $this->finishTo(
+            $result,
+            'quick_sale_confirm',
+            'Quick Sale confirmed and stock allocated.',
+            [],
+            '/sales/quick-sale/' . (int) $id,
+            '/sales/quick-sale/' . (int) $id
+        );
+    }
+
+    public function confirmQuickSaleReport(
+        string $id,
+        string $reportId
+    ): void {
+        $this->authorize('sales.view');
+        $this->requireCsrf('quick_sale_report_confirm');
+
+        $result = $this->quickSales->confirmReport(
+            (int) $id,
+            (int) $reportId,
+            $this->actorId()
+        );
+
+        $this->finishTo(
+            $result,
+            'quick_sale_report_confirm',
+            'Sales report confirmed. Quick Sale closed.',
+            [],
+            '/sales/quick-sale',
+            '/sales/quick-sale/' . (int) $id
+        );
+    }
+
+    public function returnQuickSaleReportForCorrection(
+        string $id,
+        string $reportId
+    ): void {
+        $this->authorize('sales.view');
+        $this->requireCsrf('quick_sale_report_correction');
+
+        $result = $this->quickSales->requestReportCorrection(
+            (int) $id,
+            (int) $reportId,
+            $this->actorId(),
+            \postString('review_note')
+        );
+
+        $this->finishTo(
+            $result,
+            'quick_sale_report_correction',
+            'Sales report returned to the DSA/DSP for correction.',
+            [],
+            '/sales/quick-sale/' . (int) $id,
+            '/sales/quick-sale/' . (int) $id
+        );
+    }
+
+    public function reportQuickSale(string $id): void
+    {
+        $this->authorize('sales.view');
+        $this->requireCsrf('quick_sale_report');
+
+        $lines = [];
+
+        foreach ((array) ($_POST['report_lines'] ?? []) as $lineId => $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            /*
+             * DSA/DSP may submit only outcome quantities.
+             * Product, allocation, warehouse, picking and order
+             * identities are resolved again by the server.
+             */
+            $lines[(int) $lineId] = [
+                'sold_quantity' =>
+                    $this->scalar(
+                        $line['sold_quantity'] ?? ''
+                    ),
+                'returned_quantity' =>
+                    $this->scalar(
+                        $line['returned_quantity'] ?? ''
+                    ),
+            ];
+        }
+
+        $result = $this->quickSales->submitReport(
+            (int) $id,
+            $this->actorId(),
+            [
+                'invoice_reference' =>
+                    \postString('invoice_reference'),
+                'payment_method' =>
+                    \postString('payment_method'),
+                'payment_reference' =>
+                    \postString('payment_reference'),
+                'report_note' =>
+                    \postString('report_note'),
+                'lines' => $lines,
+            ],
+            is_array($_FILES['invoice_attachment'] ?? null)
+                ? $_FILES['invoice_attachment']
+                : []
+        );
+
+        $this->finishTo(
+            $result,
+            'quick_sale_report',
+            'Sales report sent to your Shop Manager for confirmation.',
+            [],
+            '/sales/quick-sale/' . (int) $id,
+            '/sales/quick-sale/' . (int) $id
+        );
+    }
+
+    public function storeQuickSale(): void
+    {
+        $this->authorize('sales.view');
+        $this->requireCsrf('quick_sale');
+
+        $lines = [];
+
+        foreach ((array) ($_POST['lines'] ?? []) as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            /*
+             * Intentionally accept ONLY product and quantity.
+             * Agent/team/customer/pricelist/warehouse/tax/discount
+             * are never trusted from the DSA/DSP request.
+             */
+            $lines[] = [
+                'product_id' =>
+                    $this->scalar($line['product_id'] ?? ''),
+                'quantity' =>
+                    $this->scalar($line['quantity'] ?? ''),
+            ];
+        }
+
+        $result = $this->quickSales->create(
+            $lines,
+            $this->actorId()
+        );
+
+        $this->finishTo(
+            $result,
+            'quick_sale',
+            'Quick Sale sent to your Shop Manager.',
+            ['lines' => $lines],
+            '/sales/quick-sale',
+            '/sales/quick-sale'
+        );
+    }
     public function showOrder(string $id): void
     {
+        $this->redirectSimpleSalesUser();
         $this->authorize('sales.view');
         $order=$this->sales->orderDetail((int)$id);
         if($order===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
@@ -43,18 +401,22 @@ final class SalesController
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'fulfilmentWarehouses'=>$fulfilment['warehouses'],'fulfilmentLocations'=>$fulfilment['locations'],'fulfilmentAvailability'=>$availability,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage'),'canConfirm'=>$this->can('sales.orders.confirm'),'workflowTrace'=>$this->workflowTrace('order',(int)$order['order_id'])]);
     }
     public function createInvoice(string $id): void
-    {$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+    {
+        $this->redirectSimpleSalesUser();$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
     public function createCreditNote(string $id): void
-    {$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createCreditNote((int)$id,$this->actorId());$this->finishTo($result,'sales_invoice','Customer credit note created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+    {
+        $this->redirectSimpleSalesUser();$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createCreditNote((int)$id,$this->actorId());$this->finishTo($result,'sales_invoice','Customer credit note created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
     public function pricelists(): void { $this->renderWorkspace('pricelists'); }
     public function teams(): void { $this->renderWorkspace('teams'); }
     public function deliveries(): void
     {
+        $this->redirectSimpleSalesUser();
         $this->authorize('sales.view');
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Deliveries','pageDescription'=>'Authoritative Inventory pickings created from Sales Orders.','contentView'=>'sales.deliveries','deliveries'=>$this->sales->deliveries(),'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[])]);
     }
     public function showDelivery(string $id): void
     {
+        $this->redirectSimpleSalesUser();
         $this->authorize('sales.view');$delivery=$this->sales->delivery((int)$id);
         if($delivery===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.deliveries.validate'),'canReturn'=>$this->can('inventory.deliveries.validate'),'workflowTrace'=>$this->workflowTrace('delivery',(int)$delivery['picking_id'])]);
@@ -74,7 +436,8 @@ final class SalesController
     public function showPricelist(string $id): void{$this->authorize('sales.view');$this->renderCommercial('pricelist',(int)$id);}
     public function showTeam(string $id): void{$this->authorize('sales.view');$this->renderCommercial('team',(int)$id);}
     private function renderCommercial(string $type,int $id): void
-    {$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id);if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
+    {
+        $this->redirectSimpleSalesUser();$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
 
     public function createQuotation(): void
     {
@@ -96,6 +459,12 @@ final class SalesController
 
     private function renderQuotationPage(string $mode, ?int $quotationId = null): void
     {
+        $this->redirectSimpleSalesUser();
+
+        if ($quotationId !== null) {
+            $this->guardQuickSaleQuotation($quotationId);
+        }
+
         $workspace = $this->sales->workspace();
         $quotation = $quotationId === null ? null : $this->sales->quotation($quotationId);
         if ($quotationId !== null && $quotation === null) {
@@ -133,6 +502,7 @@ final class SalesController
 
     private function renderWorkspace(string $section): void
     {
+        $this->redirectSimpleSalesUser();
         $this->authorize('sales.view');
         $workspace = $this->sales->workspace();
 
@@ -257,7 +627,9 @@ final class SalesController
     }
     public function updateQuotation(string $id): void
     {
-        $this->authorize('sales.orders.create');$this->requireCsrf('quotation');$input=$this->quotationInput();$result=$this->sales->updateQuotation((int)$id,$input,$this->actorId());$this->finishTo($result,'quotation','Quotation saved successfully.',$input,'/sales/quotations/'.(int)$id.'/edit','/sales/quotations/'.(int)$id);
+        $quotationId = (int) $id;
+        $this->guardQuickSaleQuotation($quotationId);
+        $this->authorize('sales.orders.create');$this->requireCsrf('quotation');$input=$this->quotationInput();$result=$this->sales->updateQuotation($quotationId,$input,$this->actorId());$this->finishTo($result,'quotation','Quotation saved successfully.',$input,'/sales/quotations/'.$quotationId.'/edit','/sales/quotations/'.$quotationId);
     }
     public function confirmQuotation(string $id): void
     {
@@ -273,11 +645,36 @@ final class SalesController
     }
     private function quotationTransition(int $id,string $action): void
     {
+        $this->guardQuickSaleQuotation($id);
         $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$result=$this->sales->transitionQuotation($id,$action,$this->actorId(),['warehouse_id'=>\postString('warehouse_id'),'source_location_id'=>\postString('source_location_id')]);$this->finishTo($result,'quotation_action','Quotation updated successfully.',['quotation_id'=>$id,'action'=>$action],'/sales/quotations/'.$id,'/sales/quotations/'.$id);
     }
     public function transitionQuotation(): void
     {
-        $this->authorize('sales.orders.submit');$this->requireCsrf('quotation_action');$input=$this->input(['quotation_id','action','warehouse_id','source_location_id']);$this->finish($this->sales->transitionQuotation((int)$input['quotation_id'],$input['action'],$this->actorId(),$input),'quotation_action','Quotation updated successfully.',$input);
+        $this->authorize('sales.orders.submit');
+        $this->requireCsrf('quotation_action');
+
+        $input = $this->input([
+            'quotation_id',
+            'action',
+            'warehouse_id',
+            'source_location_id',
+        ]);
+
+        $quotationId = (int) $input['quotation_id'];
+
+        $this->guardQuickSaleQuotation($quotationId);
+
+        $this->finish(
+            $this->sales->transitionQuotation(
+                $quotationId,
+                $input['action'],
+                $this->actorId(),
+                $input
+            ),
+            'quotation_action',
+            'Quotation updated successfully.',
+            $input
+        );
     }
     public function storePricelist(): void
     {
@@ -381,13 +778,58 @@ final class SalesController
         exit;
     }
 
+    private function redirectSimpleSalesUser(): void
+    {
+        if (
+            $this->quickSales->isSimpleSalesUser(
+                $this->actorId()
+            )
+        ) {
+            \redirect('/sales/quick-sale');
+        }
+    }
+    private function guardQuickSaleQuotation(
+        int $quotationId
+    ): void {
+        $quickSaleId =
+            $this->quickSales->quickSaleIdForQuotation(
+                $quotationId
+            );
+
+        if ($quickSaleId === null) {
+            return;
+        }
+
+        \flash('sales_notice', [
+            'message' =>
+                'This quotation belongs to Quick Sale. '
+                . 'Use the Quick Sale workflow.',
+        ]);
+
+        \redirect(
+            '/sales/quick-sale/' . $quickSaleId
+        );
+    }
     private function authorize(string $permission): void
     {
-        $this->authorization->requireModulePermission('sales', $permission);
+        if (
+            $permission !== 'sales.view'
+            && $this->quickSales->isSimpleSalesUser(
+                $this->actorId()
+            )
+        ) {
+            \redirect('/sales/quick-sale');
+        }
+
+        $this->authorization->requireModulePermission(
+            'sales',
+            $permission
+        );
     }
 
     private function authorizeInventoryDelivery(): void
     {
+        $this->redirectSimpleSalesUser();
         $this->authorization->requireModule('sales');
         $this->authorization->requireModulePermission(
             'inventory',

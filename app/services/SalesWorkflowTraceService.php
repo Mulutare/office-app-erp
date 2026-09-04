@@ -159,7 +159,7 @@ final class SalesWorkflowTraceService
             'records' => [],
         ];
 
-        $next = $this->nextPending($stages);
+        $next = $this->nextPending($stages, $knownType);
 
         return [
             'chain_reference' => $this->chainReference(
@@ -501,13 +501,29 @@ final class SalesWorkflowTraceService
         return $rows !== [];
     }
 
-    private function nextPending(array $stages): ?array
-    {
+    private function nextPending(
+        array $stages,
+        string $currentStage
+    ): ?array {
+        $atCurrentStage = false;
+
         foreach ($stages as $stage) {
-            if ($stage['code'] !== 'complete' && $stage['status'] !== 'completed') {
+            if ((string) $stage['code'] === $currentStage) {
+                $atCurrentStage = true;
+            }
+
+            if (
+                !$atCurrentStage
+                || (string) $stage['code'] === 'complete'
+            ) {
+                continue;
+            }
+
+            if ((string) $stage['status'] !== 'completed') {
                 return $stage;
             }
         }
+
         return null;
     }
 

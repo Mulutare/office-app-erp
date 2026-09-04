@@ -382,6 +382,23 @@ $router->get('/sales/products', [$salesController, 'products']);
 $router->get('/sales/customers/{id}', [$salesController, 'showCustomer']);
 $router->get('/sales/products/{id}', [$salesController, 'showProduct']);
 $router->get('/sales/quotations', [$salesController, 'quotations']);
+$router->get('/sales/quick-sale', [$salesController, 'quickSale']);
+$router->post('/sales/quick-sale', [$salesController, 'storeQuickSale']);
+$router->post(
+    '/sales/quick-sale/{id}/reports/{reportId}/confirm',
+    [$salesController, 'confirmQuickSaleReport']
+);
+$router->post(
+    '/sales/quick-sale/{id}/reports/{reportId}/correction',
+    [$salesController, 'returnQuickSaleReportForCorrection']
+);
+$router->get(
+    '/sales/quick-sale/{id}/reports/{reportId}/evidence',
+    [$salesController, 'quickSaleEvidence']
+);
+$router->get('/sales/quick-sale/{id}', [$salesController, 'showQuickSale']);
+$router->post('/sales/quick-sale/{id}/confirm', [$salesController, 'confirmQuickSale']);
+$router->post('/sales/quick-sale/{id}/report', [$salesController, 'reportQuickSale']);
 $router->get('/sales/quotations/create', [$salesController, 'createQuotation']);
 $router->get('/sales/quotations/{id}/edit', [$salesController, 'editQuotation']);
 $router->get('/sales/quotations/{id}', [$salesController, 'showQuotation']);

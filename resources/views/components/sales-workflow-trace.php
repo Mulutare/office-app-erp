@@ -11,10 +11,10 @@ if ($trace === null) {
 }
 
 $icons = [
-    'completed' => '✓',
-    'in_progress' => '●',
-    'partial' => '◐',
-    'not_started' => '○',
+    'completed' => 'OK',
+    'in_progress' => '>',
+    'partial' => '~',
+    'not_started' => 'o',
     'blocked' => '!',
 ];
 ?>
@@ -43,7 +43,7 @@ $icons = [
                     <?php else: ?>
                         <span class="sales-workflow-stage-link">
                     <?php endif; ?>
-                        <span class="sales-workflow-icon" aria-hidden="true"><?= e($icons[$status] ?? '○') ?></span>
+                        <span class="sales-workflow-icon" aria-hidden="true"><?= e($icons[$status] ?? 'o') ?></span>
                         <span class="sales-workflow-label"><?= e($stage['label'] ?? '') ?></span>
                         <?php if ($current): ?><span class="sales-workflow-current">Current</span><?php endif; ?>
                         <small><?= e($stage['reference'] ?? '') ?></small>
@@ -80,9 +80,9 @@ $icons = [
             <strong>Related records</strong>
             <?php foreach ((array) $trace['related_records'] as $record): ?>
                 <?php if (!empty($record['clickable']) && is_string($record['url'] ?? null)): ?>
-                    <a href="<?= e($record['url']) ?>">↳ <?= e($record['reference'] ?? '') ?></a>
+                    <a href="<?= e($record['url']) ?>">-&gt; <?= e($record['reference'] ?? '') ?></a>
                 <?php else: ?>
-                    <span>↳ <?= e($record['reference'] ?? '') ?></span>
+                    <span>-&gt; <?= e($record['reference'] ?? '') ?></span>
                 <?php endif; ?>
             <?php endforeach; ?>
         </div>
