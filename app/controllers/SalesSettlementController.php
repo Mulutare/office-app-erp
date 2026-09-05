@@ -29,8 +29,7 @@ final class SalesSettlementController
     private function permit(string $module,string $permission): void
     {
         if (
-            $module === 'sales'
-            && $this->quickSales->isSimpleSalesUser(
+            $this->quickSales->isSimpleSalesUser(
                 $this->actor()
             )
         ) {

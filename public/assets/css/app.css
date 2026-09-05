@@ -11015,3 +11015,14 @@ form[action$="/procurement/requisitions"] > .btn {
         padding-right: 2.25rem !important;
     }
 }
+/* Quick Sale routing and Finance handoff */
+.qs-routing { min-width:0; overflow-wrap:anywhere; }
+.qs-routing form { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+.qs-routing label { flex:1 1 220px; min-width:0; }
+.qs-routing input { width:100%; max-width:100%; box-sizing:border-box; }
+.qs-routing .btn { max-width:100%; white-space:normal; }
+.qs-routing ul { padding-left:20px; }
+
+.qs-finance-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:16px; min-width:0; }
+.qs-finance-card { min-width:0; overflow-wrap:anywhere; border:1px solid #dce2e8; padding:16px; border-radius:8px; }
+.qs-finance-card .btn { max-width:100%; white-space:normal; }

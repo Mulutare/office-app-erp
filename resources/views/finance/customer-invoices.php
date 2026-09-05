@@ -10,14 +10,15 @@ $money = static fn (mixed $amount, string $currency): string =>
     $currency . ' ' . number_format((float) $amount, 2);
 ?>
 <div class="module-stack">
-    <div class="page-actions"><a class="btn btn-secondary" href="/office_app/public/data-exchange/invoices/export?<?=e($exportQuery)?>">Export Excel</a></div>
-    <form method="get" action="/office_app/public/finance/customer-invoices" class="finance-filter-form" aria-label="Customer invoice filters">
+    <?php require __DIR__ . '/quick-sale-queue.php'; ?>
+    <div class="page-actions"><a class="btn btn-secondary" href="<?= e(appBasePath()) ?>/data-exchange/invoices/export?<?=e($exportQuery)?>">Export Excel</a></div>
+    <form method="get" action="<?= e(appBasePath()) ?>/finance/customer-invoices" class="finance-filter-form" aria-label="Customer invoice filters">
         <label>Search<input type="search" name="search" value="<?=e((string)($filters['search']??''))?>" placeholder="Invoice, customer or order"></label>
         <label>Payment<select name="payment"><option value="">All payment states</option><?php foreach(['not_paid'=>'Outstanding','partial'=>'Partial','paid'=>'Paid','credit'=>'Credit'] as $value=>$label):?><option value="<?=e($value)?>" <?=($filters['payment']??'')===$value?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label>
         <label>Date from<input type="date" name="date_from" value="<?=e((string)($filters['date_from']??''))?>"></label>
         <label>Date to<input type="date" name="date_to" value="<?=e((string)($filters['date_to']??''))?>"></label>
         <label>Customer<select name="customer"><option value="">All customers</option><?php foreach($customers as $customer):?><option value="<?=e((string)$customer)?>" <?=($filters['customer']??'')===(string)$customer?'selected':''?>><?=e((string)$customer)?></option><?php endforeach;?></select></label>
-        <div class="filter-actions"><button class="btn btn-primary" type="submit">Apply filters</button><a class="btn btn-secondary" href="/office_app/public/finance/customer-invoices">Clear</a></div>
+        <div class="filter-actions"><button class="btn btn-primary" type="submit">Apply filters</button><a class="btn btn-secondary" href="<?= e(appBasePath()) ?>/finance/customer-invoices">Clear</a></div>
     </form>
     <section class="card table-card">
         <h2>Customer invoices</h2>
@@ -30,7 +31,7 @@ $money = static fn (mixed $amount, string $currency): string =>
             <?php endif; ?>
             <?php foreach ($invoices as $invoice): ?>
                 <tr>
-                    <td><strong><a href="/office_app/public/finance/customer-invoices/<?= e((string) $invoice['invoice_id']) ?>"><?= e((string) $invoice['invoice_number']) ?></a></strong></td>
+                    <td><strong><a href="<?= e(appBasePath()) ?>/finance/customer-invoices/<?= e((string) $invoice['invoice_id']) ?>"><?= e((string) $invoice['invoice_number']) ?></a></strong></td>
                     <td><?= e((string) $invoice['customer_name']) ?></td>
                     <td><?= e((string) ($invoice['order_number'] ?? '—')) ?></td>
                     <td><?= e((string) $invoice['invoice_date']) ?></td>

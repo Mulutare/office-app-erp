@@ -1036,6 +1036,15 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
                 $warehouse['allow_negative_stock']
             );
 
+            // Quick Sales must be backed by available stock even at warehouses
+            // that permit negative stock for other workflows. Candidate balances
+            // below are locked FOR UPDATE before availability is consumed.
+            $quickSale = $connection->prepare('SELECT COUNT(*) FROM sales_quick_sales qs
+                INNER JOIN sales_quotations q ON q.company_id=qs.company_id AND q.quotation_id=qs.quotation_id
+                WHERE qs.company_id=? AND q.sales_order_id=?');
+            $quickSale->execute([$companyId, $orderId]);
+            if ((int) $quickSale->fetchColumn() > 0) $allowNegative = false;
+
             $commitmentInsert = $connection->prepare(
                 "INSERT INTO inventory_sales_commitments (
                     company_id,

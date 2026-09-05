@@ -58,7 +58,7 @@ $notice = is_array($data['notice'] ?? null)
 
                 <a
                     class="quick-sale-manager-item"
-                    href="/office_app/public/sales/quick-sale/<?= e(
+                    href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                         $sale['quick_sale_id']
                     ) ?>"
                 >
@@ -69,7 +69,7 @@ $notice = is_array($data['notice'] ?? null)
 
                         <span>
                             <?= e($sale['team_name']) ?>
-                            Ãƒâ€š-
+                            --
                             <?= e($sale['warehouse_name']) ?>
                         </span>
                     </div>
@@ -124,7 +124,7 @@ $notice = is_array($data['notice'] ?? null)
 
                     <a
                         class="quick-sale-manager-item"
-                        href="/office_app/public/sales/quick-sale/<?= e(
+                        href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                             $sale['quick_sale_id']
                         ) ?>"
                     >
@@ -132,7 +132,7 @@ $notice = is_array($data['notice'] ?? null)
                             <strong>
                                 <a
                                     class="quick-sale-history-detail-link"
-                                    href="/office_app/public/sales/quick-sale/<?= e(
+                                    href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                                         $sale['quick_sale_id']
                                     ) ?>"
                                 >
@@ -217,7 +217,7 @@ $notice = is_array($data['notice'] ?? null)
                             <strong>
                                 <a
                                     class="quick-sale-history-detail-link"
-                                    href="/office_app/public/sales/quick-sale/<?= e(
+                                    href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                                         $sale['quick_sale_id']
                                     ) ?>"
                                 >
@@ -255,7 +255,7 @@ $notice = is_array($data['notice'] ?? null)
                             <strong>
                                 <?= e(
                                     $sale['invoice_reference']
-                                    ?? '-'
+                                    ?? '-'
                                 ) ?>
                             </strong>
                         </div>
@@ -286,11 +286,11 @@ $notice = is_array($data['notice'] ?? null)
                         <div class="quick-sale-history-actions">
                             <?php if (
                                 !empty($sale['report_id'])
-                                && !empty($sale['invoice_reference'])
+                                && !empty($sale['has_evidence'])
                             ): ?>
                                 <a
                                     class="btn btn-secondary quick-sale-history-receipt-link"
-                                    href="/office_app/public/sales/quick-sale/<?= e(
+                                    href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                                         $sale['quick_sale_id']
                                     ) ?>/reports/<?= e(
                                         $sale['report_id']
@@ -313,4 +313,19 @@ $notice = is_array($data['notice'] ?? null)
 
         <?php endif; ?>
     </section>
+    <?php if (!empty($quick['hierarchySales'])): ?>
+    <section class="card qs-routing">
+        <h2>My reporting tree</h2>
+        <p>Recent requests from your reporting tree. Only the current responsible manager can act.</p>
+        <div class="qs-finance-grid">
+        <?php foreach ($quick['hierarchySales'] as $record): ?>
+            <article class="qs-finance-card">
+                <a href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e($record['quick_sale_id']) ?>"><?= e($record['quotation_number']) ?></a>
+                <p><?= e($record['agent_name']) ?> / <?= e($record['status']) ?></p>
+                <p>Responsible manager: <?= e($record['manager_name']) ?></p>
+            </article>
+        <?php endforeach; ?>
+        </div>
+    </section>
+    <?php endif; ?>
 </div>

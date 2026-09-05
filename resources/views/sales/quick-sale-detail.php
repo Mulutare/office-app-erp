@@ -94,7 +94,7 @@ $statusLabel = match ($status) {
     <div class="page-actions">
         <a
             class="btn btn-secondary"
-            href="/office_app/public/sales/quick-sale"
+            href="<?= e(appBasePath()) ?>/sales/quick-sale"
         >
             Back
         </a>
@@ -128,7 +128,7 @@ $statusLabel = match ($status) {
 
             <p>
                 <?= e($sale['agent_name'] ?? '') ?>
-                ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·
+                -
                 <?= e($sale['team_name'] ?? '') ?>
             </p>
         </div>
@@ -166,13 +166,34 @@ $statusLabel = match ($status) {
                 <?= e($sale['manager_name'] ?? '') ?>
             </strong>
         </div>
+
+        <div class="quick-sale-context-item">
+            <span>Quick Sale</span>
+            <strong>
+                <?= e(($sale['quotation_number'] ?? 'Quick Sale') . ' / ID ' . ($sale['quick_sale_id'] ?? '-')) ?>
+            </strong>
+        </div>
+
+        <div class="quick-sale-context-item">
+            <span>Sales Order</span>
+            <strong>
+                <?= e(($sale['order_number'] ?? 'Not created') . (!empty($sale['sales_order_id']) ? ' / ID ' . $sale['sales_order_id'] : '')) ?>
+            </strong>
+        </div>
+
+        <div class="quick-sale-context-item">
+            <span>Sales Report</span>
+            <strong>
+                <?= e(!empty($managerReport['report_id']) ? 'Report #' . $managerReport['report_id'] : 'Not submitted') ?>
+            </strong>
+        </div>
     </section>
 
     <?php if ($canConfirm): ?>
 
         <form
             method="post"
-            action="/office_app/public/sales/quick-sale/<?= e(
+            action="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                 $sale['quick_sale_id']
             ) ?>/confirm"
         >
@@ -200,7 +221,7 @@ $statusLabel = match ($status) {
                             <span>
                                 Qty:
                                 <?= e($line['quantity']) ?>
-                                ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·
+                                -
                                 Unit:
                                 <?= e(
                                     $quotation['currency']
@@ -436,7 +457,7 @@ $statusLabel = match ($status) {
                                 class="btn btn-secondary"
                                 target="_blank"
                                 rel="noopener"
-                                href="/office_app/public/sales/quick-sale/<?= e(
+                                href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                                     $sale['quick_sale_id']
                                 ) ?>/reports/<?= e(
                                     $managerReport['report_id']
@@ -458,7 +479,7 @@ $statusLabel = match ($status) {
             <form
                 method="post"
                 enctype="multipart/form-data"
-                action="/office_app/public/sales/quick-sale/<?= e(
+                action="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                     $sale['quick_sale_id']
                 ) ?>/report"
                 class="quick-sale-report-form"
@@ -1014,7 +1035,7 @@ $statusLabel = match ($status) {
                                     class="btn btn-secondary"
                                     target="_blank"
                                     rel="noopener"
-                                    href="/office_app/public/sales/quick-sale/<?= e(
+                                    href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                                         $sale['quick_sale_id']
                                     ) ?>/reports/<?= e(
                                         $managerReport['report_id']
@@ -1083,7 +1104,7 @@ $statusLabel = match ($status) {
 
                     <form
                         method="post"
-                        action="/office_app/public/sales/quick-sale/<?= e(
+                        action="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                             $sale['quick_sale_id']
                         ) ?>/reports/<?= e(
                             $managerReport['report_id']
@@ -1115,7 +1136,7 @@ $statusLabel = match ($status) {
 
                     <form
                         method="post"
-                        action="/office_app/public/sales/quick-sale/<?= e(
+                        action="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                             $sale['quick_sale_id']
                         ) ?>/reports/<?= e(
                             $managerReport['report_id']
@@ -1193,7 +1214,7 @@ $statusLabel = match ($status) {
                                     class="btn btn-secondary"
                                     target="_blank"
                                     rel="noopener"
-                                    href="/office_app/public/sales/quick-sale/<?= e(
+                                    href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                                         $sale['quick_sale_id']
                                     ) ?>/reports/<?= e(
                                         $managerReport['report_id']
@@ -1210,4 +1231,5 @@ $statusLabel = match ($status) {
         <?php endif; ?>
 
     <?php endif; ?>
+<?php require __DIR__ . '/quick-sale-routing.php'; ?>
 </div>

@@ -222,7 +222,7 @@ $productOptions = static function (
                             </strong>
 
                             <a
-                                href="/office_app/public/sales/quick-sale/<?= e(
+                                href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e(
                                     $task['quick_sale_id']
                                 ) ?>"
                             >
@@ -238,7 +238,7 @@ $productOptions = static function (
 
         <form
             method="post"
-            action="/office_app/public/sales/quick-sale"
+            action="<?= e(appBasePath()) ?>/sales/quick-sale"
             class="quick-sale-form"
             data-quick-sale-form
         >
@@ -374,7 +374,7 @@ $productOptions = static function (
         </form>
 
         <script
-            src="/office_app/public/assets/js/quick-sale.js"
+            src="<?= e(appBasePath()) ?>/assets/js/quick-sale.js"
             defer
         ></script>
 
@@ -405,18 +405,14 @@ $productOptions = static function (
                 <div class="quick-sale-history-list">
                     <?php foreach ($history as $sale): ?>
 
-                        <a
-                            class="quick-sale-history-row"
-                            href="/office_app/public/sales/quick-sale/<?= e(
-                                $sale['quick_sale_id']
-                            ) ?>"
-                        >
+                        <div class="quick-sale-history-row">
                             <div>
                                 <strong>
+                                    <a href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e($sale['quick_sale_id']) ?>">
                                     <?= e(
                                         $sale['quotation_number']
                                         ?? 'Quick Sale'
-                                    ) ?>
+                                    ) ?></a>
                                 </strong>
 
                                 <span>
@@ -435,6 +431,7 @@ $productOptions = static function (
                             <div class="quick-sale-history-stat">
                                 <span>Sold</span>
                                 <strong>
+
                                     <?= e(number_format(
                                         (float) (
                                             $sale['sold_quantity']
@@ -449,7 +446,11 @@ $productOptions = static function (
 
                             <div class="quick-sale-history-stat">
                                 <span>Receipt</span>
+<?php if (!empty($sale['has_evidence']) && !empty($sale['report_id'])): ?>
+<a href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e($sale['quick_sale_id']) ?>/reports/<?= e($sale['report_id']) ?>/evidence" target="_blank" rel="noopener">View Receipt</a>
+<?php endif; ?>
                                 <strong>
+
                                     <?= e(
                                         $sale['invoice_reference']
                                         ?? '—'
@@ -460,6 +461,7 @@ $productOptions = static function (
                             <div class="quick-sale-history-stat">
                                 <span>Closed</span>
                                 <strong>
+
                                     <?= e(
                                         !empty($sale['reviewed_at'])
                                             ? date(
@@ -483,7 +485,7 @@ $productOptions = static function (
                             <span class="badge badge-success">
                                 Closed
                             </span>
-                        </a>
+                        </div>
 
                     <?php endforeach; ?>
                 </div>

@@ -86,7 +86,8 @@ final class SalesController
 public function showQuickSale(string $id): void
     {
         $privilegedReviewer =
-            $this->can('sales.settlements.review')
+            $this->can('finance.records.view')
+            || $this->can('sales.settlements.review')
             || $this->can('finance.settlements.view')
             || $this->can('finance.settlements.reconcile')
             || $this->can('finance.settlements.approve');
@@ -244,6 +245,27 @@ public function showQuickSale(string $id): void
             '/sales/quick-sale/' . (int) $id,
             '/sales/quick-sale/' . (int) $id
         );
+    }
+
+    public function escalateQuickSale(string $id): void
+    {
+        $this->authorize('sales.orders.confirm');
+        $this->requireCsrf('quick_sale_escalate');
+        $result = $this->quickSales->escalate((int) $id, $this->actorId(), \postString('reason'));
+        $message = !empty($result['unresolved'])
+            ? 'Stock unavailable at the highest manager. Request remains open.'
+            : 'Request escalated to your direct parent manager.';
+        $this->finishTo($result, 'quick_sale_escalate', $message, [],
+            '/sales/quick-sale/' . (int) $id, '/sales/quick-sale');
+    }
+
+    public function handoffQuickSale(string $id, string $reportId): void
+    {
+        $this->authorize('sales.orders.confirm');
+        $this->requireCsrf('quick_sale_handoff');
+        $result = $this->quickSales->handoffToFinance((int) $id, (int) $reportId, $this->actorId());
+        $this->finishTo($result, 'quick_sale_handoff', 'Confirmed sale sent to Finance.', [],
+            '/sales/quick-sale/' . (int) $id, '/sales/quick-sale/' . (int) $id);
     }
 
     public function confirmQuickSaleReport(

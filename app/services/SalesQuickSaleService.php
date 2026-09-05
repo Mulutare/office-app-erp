@@ -12,6 +12,7 @@ use Throwable;
 
 final class SalesQuickSaleService
 {
+    use QuickSaleRouting;
     private SalesRepository $sales;
     private ManagerTeamRepository $managerTeams;
     private TenantContext $tenant;
@@ -108,10 +109,11 @@ final class SalesQuickSaleService
                 trim((string) ($context['job_title'] ?? ''))
             );
 
-            if ($jobTitle === 'shop manager') {
+            if ((new SalesHierarchyScope())->canManage($companyId, $actorId)) {
                 return [
                     'eligible' => true,
                     'mode' => 'manager',
+                    'hierarchySales' => $this->hierarchySales($companyId, $actorId),
                     'actor' => $context,
                     'queue' => $this->managerQueue(
                         $companyId,
@@ -445,7 +447,8 @@ final class SalesQuickSaleService
                 )
                 : '';
 
-            if (!in_array($jobTitle, ['dsa', 'dsp'], true)) {
+            if (!in_array($jobTitle, ['dsa', 'dsp'], true)
+                || !(new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view')) {
                 throw new RuntimeException(
                     'Only the assigned DSA/DSP can submit this sales report.'
                 );
@@ -927,6 +930,7 @@ final class SalesQuickSaleService
                 }
             }
 
+            $this->routingAudit($companyId, $quickSaleId, $actorId, 'report_submitted', ['report_id' => $reportId]);
             $connection->commit();
 
             return [
@@ -993,7 +997,7 @@ final class SalesQuickSaleService
                 )
                 : '';
 
-            if ($jobTitle !== 'shop manager') {
+            if (!(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
                 throw new RuntimeException(
                     'Only the assigned Shop Manager may confirm this sales report.'
                 );
@@ -1628,6 +1632,7 @@ final class SalesQuickSaleService
                 );
             }
 
+            $this->routingAudit($companyId, $quickSaleId, $actorId, 'confirmed', ['report_id' => $reportId, 'finance_invoice_id' => $invoiceId]);
             $connection->commit();
 
             return [
@@ -1714,7 +1719,7 @@ final class SalesQuickSaleService
                 )
                 : '';
 
-            if ($jobTitle !== 'shop manager') {
+            if (!(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
                 throw new RuntimeException(
                     'Only the assigned Shop Manager may return this report.'
                 );
@@ -1822,6 +1827,7 @@ final class SalesQuickSaleService
                 );
             }
 
+            $this->routingAudit($companyId, $quickSaleId, $actorId, 'correction_required', ['report_id' => $reportId, 'reason' => $reason]);
             $connection->commit();
 
             return [
@@ -1864,7 +1870,18 @@ final class SalesQuickSaleService
             $privilegedReviewer
         );
 
-        if (empty($detail['successful'])) {
+        $companyId = $this->tenant->companyId();
+        $financeEvidence = false;
+        if ($this->financeReader($companyId, $actorId)) {
+            $statement = \db()->prepare("SELECT COUNT(*) FROM sales_quick_sale_reports r
+                INNER JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id
+                INNER JOIN finance_invoices i ON i.company_id=r.company_id AND i.invoice_id=r.finance_invoice_id
+                WHERE r.company_id=? AND r.quick_sale_id=? AND r.report_id=?
+                  AND qs.status='closed' AND r.status='confirmed' AND r.finance_handoff_at IS NOT NULL");
+            $statement->execute([$companyId, $quickSaleId, $reportId]);
+            $financeEvidence = (int) $statement->fetchColumn() === 1;
+        }
+        if (empty($detail['successful']) && !$financeEvidence) {
             return null;
         }
 
@@ -1872,6 +1889,7 @@ final class SalesQuickSaleService
             empty($detail['isOwner'])
             && empty($detail['isManager'])
             && empty($detail['isAuthorizedReviewer'])
+            && !$financeEvidence
         ) {
             return null;
         }
@@ -1954,12 +1972,15 @@ final class SalesQuickSaleService
 
             $isOwner =
                 (int) $row['user_id'] === $actorId
-                && in_array($jobTitle, ['dsa', 'dsp'], true);
+                && in_array($jobTitle, ['dsa', 'dsp'], true)
+                && (new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view');
 
             $isManager =
                 (int) $row['manager_user_id'] === $actorId
-                && $jobTitle === 'shop manager';
+                && (new SalesHierarchyScope())->canManage($companyId, $actorId);
 
+            $scope = new SalesHierarchyScope();
+            $privilegedReviewer = $scope->canReadOwner($companyId, $actorId, (int) $row['user_id']);
             if (
                 !$isOwner
                 && !$isManager
@@ -2099,7 +2120,7 @@ final class SalesQuickSaleService
                     || $isManager
                     || $privilegedReviewer
                 )
-                && (string) $row['status'] === 'reported'
+                && in_array((string) $row['status'], ['reported', 'closed'], true)
             ) {
                 $managerReportStatement = \db()->prepare(
                     "SELECT
@@ -2202,6 +2223,9 @@ final class SalesQuickSaleService
                 'managerReport' => $managerReport,
                 'managerReportLines' => $managerReportLines,
                 'locations' => $locations,
+                'routingHistory' => $this->routingHistory($companyId, $quickSaleId),
+                'stockCheck' => $isManager && $row['status'] === 'submitted'
+                    ? $this->stockCheck($companyId, $actorId, (int) $row['warehouse_id'], $quotation['lines']) : null,
                 'availability' => $availability,
             ];
         } catch (Throwable $exception) {
@@ -2218,7 +2242,12 @@ final class SalesQuickSaleService
      * @param array<string,mixed> $input
      * @return array<string,mixed>
      */
-    public function confirm(
+    public function confirm(int $quickSaleId, int $actorId, array $input): array
+    {
+        return $this->routingLock($this->tenant->companyId(), $quickSaleId,
+            fn(): array => $this->confirmAllocated($quickSaleId, $actorId, $input));
+    }
+    private function confirmAllocated(
         int $quickSaleId,
         int $actorId,
         array $input
@@ -2259,7 +2288,7 @@ final class SalesQuickSaleService
                 trim((string) ($context['job_title'] ?? ''))
             );
 
-            if ($jobTitle !== 'shop manager') {
+            if (!(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
                 return [
                     'successful' => false,
                     'errors' => [
@@ -2343,6 +2372,12 @@ final class SalesQuickSaleService
                 $sourceLocationId
             );
 
+            if (empty($row['sales_order_id'])) {
+                $stock = $this->stockCheck($companyId, $actorId, $warehouseId, $quotation['lines']);
+                if (!in_array($sourceLocationId, $stock['sufficient_locations'], true)) {
+                    throw new RuntimeException('Insufficient available stock at this source. Escalate the same request if no assigned source can satisfy it.');
+                }
+            }
             $quotationStatus =
                 (string) ($quotation['status'] ?? '');
 
@@ -2553,6 +2588,7 @@ final class SalesQuickSaleService
                 $quickSaleId,
                 'allocated'
             );
+            $this->routingAudit($companyId, $quickSaleId, $actorId, 'allocated', ['sales_order_id' => $orderId, 'warehouse_id' => $warehouseId, 'location_id' => $sourceLocationId]);
 
             return [
                 'successful' => true,
@@ -2730,6 +2766,7 @@ final class SalesQuickSaleService
                 r.invoice_reference,
                 r.reviewed_at,
                 r.finance_invoice_id,
+                (r.evidence_path IS NOT NULL AND r.evidence_path <> '') AS has_evidence,
                 COALESCE(
                     SUM(rl.sold_quantity),
                     0
@@ -2776,7 +2813,8 @@ final class SalesQuickSaleService
                 r.report_id,
                 r.invoice_reference,
                 r.reviewed_at,
-                r.finance_invoice_id
+                r.finance_invoice_id,
+                r.evidence_path
              ORDER BY
                 COALESCE(r.reviewed_at, qs.updated_at) DESC,
                 qs.quick_sale_id DESC
@@ -2937,6 +2975,7 @@ final class SalesQuickSaleService
                 qs.*,
                 q.quotation_number,
                 q.sales_order_id,
+                o.order_number,
                 q.currency,
                 q.total_amount,
                 a.name AS agent_name,
@@ -2951,6 +2990,10 @@ final class SalesQuickSaleService
              INNER JOIN sales_quotations q
                ON q.company_id = qs.company_id
               AND q.quotation_id = qs.quotation_id
+             LEFT JOIN sales_orders o
+               ON o.company_id = q.company_id
+              AND o.order_id = q.sales_order_id
+              AND o.deleted_at IS NULL
              INNER JOIN sales_agents a
                ON a.company_id = qs.company_id
               AND a.agent_id = qs.agent_id
@@ -3015,7 +3058,8 @@ final class SalesQuickSaleService
             trim((string) ($context['job_title'] ?? ''))
         );
 
-        if (!in_array($jobTitle, ['dsa', 'dsp'], true)) {
+        if (!in_array($jobTitle, ['dsa', 'dsp'], true)
+            || !(new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view')) {
             throw new RuntimeException(
                 'Quick Sale is available only to DSA/DSP users.'
             );
@@ -3571,6 +3615,7 @@ final class SalesQuickSaleService
             'manager_user_id' => $managerUserId,
             'warehouse_id' => $warehouseId,
         ]);
+        $this->routingAudit($companyId, (int) \db()->lastInsertId(), $userId, 'created', ['initial_manager_id' => $managerUserId, 'warehouse_id' => $warehouseId]);
     }
 
     private function setQuickSaleStatus(

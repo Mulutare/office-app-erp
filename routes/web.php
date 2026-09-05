@@ -399,6 +399,8 @@ $router->get(
 $router->get('/sales/quick-sale/{id}', [$salesController, 'showQuickSale']);
 $router->post('/sales/quick-sale/{id}/confirm', [$salesController, 'confirmQuickSale']);
 $router->post('/sales/quick-sale/{id}/report', [$salesController, 'reportQuickSale']);
+$router->post('/sales/quick-sale/{id}/escalate', [$salesController, 'escalateQuickSale']);
+$router->post('/sales/quick-sale/{id}/reports/{reportId}/handoff', [$salesController, 'handoffQuickSale']);
 $router->get('/sales/quotations/create', [$salesController, 'createQuotation']);
 $router->get('/sales/quotations/{id}/edit', [$salesController, 'editQuotation']);
 $router->get('/sales/quotations/{id}', [$salesController, 'showQuotation']);

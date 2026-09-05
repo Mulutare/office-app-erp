@@ -39,6 +39,20 @@ final class FinanceController
             'customer' => $this->queryString('customer'),
         ];
         $allInvoices = $this->operations->customerInvoices();
+        $quickSaleEvidence = null;
+        foreach (
+            (new \App\Services\SalesQuickSaleService())->financeQueue($this->actor())
+            as $task
+        ) {
+            if (
+                (int) ($task['invoice_id'] ?? 0)
+                === (int) $invoice['invoice_id']
+            ) {
+                $quickSaleEvidence = $task;
+                break;
+            }
+        }
+
         \view('layouts.app', [
             'applicationName' => \config('name', 'OfficeApp ERP'),
             'environment' => \config('environment', 'unknown'),
@@ -46,6 +60,7 @@ final class FinanceController
             'pageDescription' => 'Posted customer invoices, residuals and payment states.',
             'contentView' => 'finance.customer-invoices',
             'invoices' => $this->operations->customerInvoices($filters),
+            'quickSaleQueue' => (new \App\Services\SalesQuickSaleService())->financeQueue($this->actor()),
             'invoiceFilters' => $filters,
             'invoiceCustomers' => array_values(array_unique(array_filter(array_column($allInvoices, 'customer_name')))),
             'user' => $_SESSION['auth'],
@@ -61,6 +76,20 @@ final class FinanceController
             \view('errors.404', ['applicationName' => \config('name', 'OfficeApp ERP')]);
             return;
         }
+        $quickSaleEvidence = null;
+        foreach (
+            (new \App\Services\SalesQuickSaleService())->financeQueue($this->actor())
+            as $task
+        ) {
+            if (
+                (int) ($task['invoice_id'] ?? 0)
+                === (int) $invoice['invoice_id']
+            ) {
+                $quickSaleEvidence = $task;
+                break;
+            }
+        }
+
         \view('layouts.app', [
             'applicationName' => \config('name', 'OfficeApp ERP'),
             'environment' => \config('environment', 'unknown'),
@@ -68,6 +97,7 @@ final class FinanceController
             'pageDescription' => 'Authoritative customer invoice and payment allocation history.',
             'contentView' => 'finance.customer-invoice',
             'invoice' => $invoice,
+            'quickSaleEvidence' => $quickSaleEvidence,
             'paymentJournals' => $this->operations->paymentJournals(),
             'notice' => \getFlash('finance_invoice_notice'),
             'errors' => \getFlash('finance_invoice_errors', []),

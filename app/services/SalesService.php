@@ -51,17 +51,22 @@ final class SalesService
         $commissions=array_values(array_filter($this->sales->commissions($companyId),static fn(array $row):bool=>isset($allowedOrderIds[(int)($row['order_id']??0)])));
         $summary['commissionTotal']=array_sum(array_map(static fn(array $row):float=>in_array((string)($row['status']??''),['accrued','approved'],true)?(float)($row['commission_amount']??0):0.0,$commissions));
 
+        $employeeIds = $this->salesTeamScopeEmployeeIds($companyId, $actorId);
+        $agents = array_values(array_filter($this->sales->agents($companyId),
+            static fn(array $agent): bool => $employeeIds === null
+                || in_array((int) ($agent['employee_id'] ?? 0), $employeeIds, true)));
+        $agentIds = array_map('intval', array_column($agents, 'agent_id'));
         return [
             'summary' => $summary,
             'orders' => $orders,
             'customers' => $this->sales->customers($companyId),
             'products' => $products,
-            'agents' => $this->sales->agents($companyId),
+            'agents' => $agents,
             'territories' => $this->sales->territories($companyId),
-            'targets' => $this->sales->targets($companyId),
+            'targets' => array_values(array_filter($this->sales->targets($companyId), static fn(array $row): bool => $employeeIds === null || in_array((int) ($row['agent_id'] ?? 0), $agentIds, true))),
             'commissions' => $commissions,
             'serialNumbers' => $this->sales->serialNumbers($companyId),
-            'quotations' => $this->sales->quotations($companyId),
+            'quotations' => array_values(array_filter($this->sales->quotations($companyId), fn(array $row): bool => (new SalesHierarchyScope())->canReadSalesRow($companyId, $actorId, $row))),
             'pricelists' => $this->sales->pricelists($companyId),
             'salesTeams' => $this->visibleSalesTeams($companyId, $actorId),
             'fulfilmentWarehouses' => $warehouses,
@@ -107,6 +112,11 @@ final class SalesService
             return null;
         }
 
+        $employeeIds = $this->salesTeamScopeEmployeeIds($companyId, $actorId);
+        if ($employeeIds !== null) {
+            $team['members'] = array_values(array_filter((array) ($team['members'] ?? []),
+                static fn(array $member): bool => in_array((int) ($member['employee_id'] ?? 0), $employeeIds, true)));
+        }
         return $this->decorateSalesTeamManager(
             $team,
             $team,
@@ -136,7 +146,9 @@ final class SalesService
 
     public function quotation(int $id): ?array
     {
-        return $this->sales->quotation($this->tenant->companyId(), $id);
+        $companyId = $this->tenant->companyId();
+        $row = $this->sales->quotation($companyId, $id);
+        return $row && (new SalesHierarchyScope())->canReadSalesRow($companyId, (int) ($_SESSION['auth']['user_id'] ?? 0), $row) ? $row : null;
     }
 
     public function orderDetail(int $id): ?array
@@ -145,10 +157,10 @@ final class SalesService
         return is_array($order)&&$this->canAccessOrderRow($order,(int)($_SESSION['auth']['user_id']??0))?$order:null;
     }
 
-    public function deliveries(): array{$company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);return array_values(array_filter($this->inventory->deliveryPickings($company),fn(array $row):bool=>$this->operationalAccess->canAccessRecord($company,$actor,$row)));}
+    public function deliveries(): array{$company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);return array_values(array_filter($this->inventory->deliveryPickings($company),fn(array $row):bool=>$this->canAccessDeliveryRow($company,$actor,$row)));}
     public function fulfilmentOptions(int $actorId,array $productIds=[]): array{$companyId=$this->tenant->companyId();$locations=$this->operationalAccess->locationsForUser($companyId,$actorId);$matrix=[];foreach($locations as $location){foreach($this->operationalAccess->availability($companyId,$actorId,(int)$location['warehouse_id'],(int)$location['location_id'],$productIds) as $row)$matrix[]=$row+['warehouse_id'=>(int)$location['warehouse_id'],'location_id'=>(int)$location['location_id']];}return ['warehouses'=>$this->operationalAccess->warehousesForUser($companyId,$actorId),'locations'=>$locations,'availability'=>$matrix];}
     public function exactAvailability(int $actorId,int $warehouseId,int $locationId,array $productIds): array{return $this->operationalAccess->availability($this->tenant->companyId(),$actorId,$warehouseId,$locationId,$productIds);}
-    public function delivery(int $id): ?array{$company=$this->tenant->companyId();$row=$this->inventory->deliveryPicking($company,$id);return is_array($row)&&$this->operationalAccess->canAccessRecord($company,(int)($_SESSION['auth']['user_id']??0),$row)?$row:null;}
+    public function delivery(int $id): ?array{$company=$this->tenant->companyId();$row=$this->inventory->deliveryPicking($company,$id);return is_array($row)&&$this->canAccessDeliveryRow($company,(int)($_SESSION['auth']['user_id']??0),$row)?$row:null;}
     public function completeDelivery(int $id,array $input,int $actorId): array
     {
         if($this->delivery($id)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];
@@ -234,6 +246,7 @@ final class SalesService
     }
     public function updateQuotation(int $id, array $input, int $actorId): array
     {
+        if (!(($row = $this->sales->quotation($this->tenant->companyId(), $id)) && (new SalesHierarchyScope())->canReadSalesRow($this->tenant->companyId(), $actorId, $row))) return ['successful' => false, 'errors' => ['form' => 'Quotation was not found.']];
         $companyId = $this->tenant->companyId();
         $prepared = $this->prepareQuotation($input, $companyId);
         if (isset($prepared['errors'])) {
@@ -262,6 +275,14 @@ final class SalesService
         int $actorId
     ): array {
         $companyId = $this->tenant->companyId();
+
+        $scope = new SalesHierarchyScope();
+        $statement = \db()->prepare("SELECT COUNT(*) FROM sales_quick_sales
+            WHERE company_id=? AND quotation_id=? AND manager_user_id=? AND status='submitted'");
+        $statement->execute([$companyId, $id, $actorId]);
+        if (!$scope->canManage($companyId, $actorId) || (int) $statement->fetchColumn() !== 1) {
+            return ['successful' => false, 'errors' => ['form' => 'Only the current responsible manager may update this Quick Sale.']];
+        }
 
         $prepared = $this->prepareQuotation(
             $input,
@@ -300,6 +321,9 @@ final class SalesService
     public function transitionQuotation(int $id,string $action,int $actorId,array $input=[]): array
     {
         try {
+            $this->assertQuickSaleManager($actorId, $id, null, $action);
+            $row = $this->sales->quotation($this->tenant->companyId(), $id);
+            if (!$row || !(new SalesHierarchyScope())->canReadSalesRow($this->tenant->companyId(), $actorId, $row)) throw new \RuntimeException('Quotation was not found.');
             $warehouseId=(int)($input['warehouse_id']??0);$sourceLocationId=(int)($input['source_location_id']??0);
             if($action==='confirm')$this->operationalAccess->assertAuthorizedSource($this->tenant->companyId(),$actorId,$warehouseId,$sourceLocationId);
             $result = $this->sales->transitionQuotation(
@@ -749,6 +773,7 @@ final class SalesService
         $companyId = $this->tenant->companyId();
         try {
             $order=$this->sales->orderDetail($companyId,$orderId);
+            $this->assertQuickSaleManager($actorId, null, $orderId);
             if(!is_array($order)||!$this->canAccessOrderRow($order,$actorId))throw new \RuntimeException('Sales order was not found.');
             if ($action === 'fulfill') {
                 $action = 'confirm';
@@ -794,7 +819,7 @@ final class SalesService
     {
         $companyId = $this->tenant->companyId();
         try {
-            $scope=\db()->prepare('SELECT o.warehouse_id,o.source_location_id FROM sales_commissions c INNER JOIN sales_orders o ON o.company_id=c.company_id AND o.order_id=c.order_id WHERE c.company_id=:company AND c.commission_id=:id');$scope->execute(['company'=>$companyId,'id'=>$commissionId]);$order=$scope->fetch(\PDO::FETCH_ASSOC);if(!is_array($order)||!$this->canAccessOrderRow($order,$actorId))throw new \RuntimeException('Commission was not found.');
+            $scope=\db()->prepare('SELECT o.* FROM sales_commissions c INNER JOIN sales_orders o ON o.company_id=c.company_id AND o.order_id=c.order_id WHERE c.company_id=:company AND c.commission_id=:id');$scope->execute(['company'=>$companyId,'id'=>$commissionId]);$order=$scope->fetch(\PDO::FETCH_ASSOC);if(!is_array($order)||!$this->canAccessOrderRow($order,$actorId))throw new \RuntimeException('Commission was not found.');
             $this->sales->transitionCommission($companyId, $commissionId, $action, $actorId);
             $this->audit->record($actorId, 'TRANSITION_SALES_COMMISSION', 'sales', 'sales_commissions', (string) $commissionId, null, [
                 'action' => $action,
@@ -1122,6 +1147,10 @@ final class SalesService
                 continue;
             }
 
+            if ($scopeEmployeeIds !== null) {
+                $detail['members'] = array_values(array_filter((array) ($detail['members'] ?? []),
+                    static fn(array $member): bool => in_array((int) ($member['employee_id'] ?? 0), $scopeEmployeeIds, true)));
+            }
             $team = $this->decorateSalesTeamManager(
                 $team,
                 $detail,
@@ -1161,115 +1190,16 @@ final class SalesService
         int $companyId,
         int $actorId
     ): ?array {
-        $context = $this->managerTeams
-            ->reportingContext($companyId, $actorId);
-
-        if (!is_array($context)) {
-            return [];
-        }
-
-        $jobTitle = strtolower(
-            trim((string) ($context['job_title'] ?? ''))
-        );
-
-        $employeeId =
-            (int) ($context['employee_id'] ?? 0);
-
-        if (in_array($jobTitle, ['dsa', 'dsp'], true)) {
-            return $employeeId > 0
-                ? [$employeeId]
-                : [];
-        }
-
-        if (
-            in_array(
-                $jobTitle,
-                [
-                    'shop manager',
-                    'district manager',
-                    'regional manager',
-                ],
-                true
-            )
-        ) {
-            $employeeIds = [];
-            $queue = [$actorId];
-            $visited = [];
-
-            while ($queue !== []) {
-                $managerUserId =
-                    (int) array_shift($queue);
-
-                if (
-                    $managerUserId <= 0
-                    || isset($visited[$managerUserId])
-                ) {
-                    continue;
-                }
-
-                $visited[$managerUserId] = true;
-
-                $reports = $this->managerTeams
-                    ->directReports(
-                        $companyId,
-                        $managerUserId,
-                        date('Y-m-d')
-                    );
-
-                foreach ($reports as $report) {
-                    $reportTitle = strtolower(
-                        trim((string) ($report['job_title'] ?? ''))
-                    );
-
-                    $reportEmployeeId =
-                        (int) ($report['employee_id'] ?? 0);
-
-                    $reportUserId =
-                        (int) ($report['user_id'] ?? 0);
-
-                    if (
-                        in_array(
-                            $reportTitle,
-                            ['dsa', 'dsp'],
-                            true
-                        )
-                        && $reportEmployeeId > 0
-                    ) {
-                        $employeeIds[$reportEmployeeId] =
-                            $reportEmployeeId;
-                    }
-
-                    if (
-                        in_array(
-                            $reportTitle,
-                            [
-                                'shop manager',
-                                'district manager',
-                                'regional manager',
-                            ],
-                            true
-                        )
-                        && $reportUserId > 0
-                    ) {
-                        $queue[] = $reportUserId;
-                    }
-                }
-            }
-
-            return array_values($employeeIds);
-        }
-
-        if (
-            in_array(
-                'sales.catalogue.manage',
-                $_SESSION['auth']['permissions'] ?? [],
-                true
-            )
-        ) {
-            return null;
-        }
-
-        return [];
+        $scope = new SalesHierarchyScope();
+        if (!$scope->hasPermission($companyId, $actorId, 'sales.view')) return [];
+        if ($scope->hasCompanyWideAccess($companyId, $actorId)) return null;
+        $ids = $scope->userIds($companyId, $actorId);
+        if ($ids === []) return [];
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $statement = \db()->prepare("SELECT employee_id FROM hr_employees
+            WHERE company_id=? AND deleted_at IS NULL AND user_id IN ($placeholders)");
+        $statement->execute(array_merge([$companyId], $ids));
+        return array_map('intval', $statement->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     /** @param list<int> $employeeIds */
@@ -1374,6 +1304,34 @@ final class SalesService
     /** @param array<string,mixed> $order */
     private function canAccessOrderRow(array $order,int $actorId): bool
     {
-        return $this->operationalAccess->canAccessRecord($this->tenant->companyId(),$actorId,$order);
+        return (new SalesHierarchyScope())->canReadSalesRow($this->tenant->companyId(), $actorId, $order);
+    }
+
+    private function canAccessDeliveryRow(int $company, int $actor, array $row): bool
+    {
+        $order = $this->sales->orderDetail($company, (int) ($row['sales_order_id'] ?? 0));
+        return $order !== null && $this->canAccessOrderRow($order, $actor)
+            && $this->operationalAccess->canAccessRecord($company, $actor, $row);
+    }
+
+    private function assertQuickSaleManager(int $actorId, ?int $quotationId, ?int $orderId, ?string $action = null): void
+    {
+        $companyId = $this->tenant->companyId();
+        $statement = \db()->prepare('SELECT qs.manager_user_id,qs.user_id,qs.status,q.status AS quotation_status,q.sales_order_id FROM sales_quick_sales qs
+            INNER JOIN sales_quotations q ON q.company_id=qs.company_id AND q.quotation_id=qs.quotation_id
+            WHERE qs.company_id=? AND ' . ($quotationId !== null ? 'qs.quotation_id=?' : 'q.sales_order_id=?'));
+        $statement->execute([$companyId, $quotationId ?? $orderId]);
+        $sale = $statement->fetch(\PDO::FETCH_ASSOC);
+        if (!$sale) return;
+        // The owner sends the newly created draft, or compensates a failed creation.
+        if ($quotationId !== null && (int) $sale['user_id'] === $actorId
+            && $sale['quotation_status'] === 'draft' && empty($sale['sales_order_id'])
+            && (($action === 'send' && $sale['status'] === 'submitted')
+                || ($action === 'cancel' && $sale['status'] === 'cancelled'))
+            && (new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view')) return;
+        if ((int) $sale['manager_user_id'] !== $actorId
+            || !(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
+            throw new \RuntimeException('Only the current responsible manager may progress this Quick Sale.');
+        }
     }
 }
