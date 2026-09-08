@@ -28,6 +28,7 @@ final class ActionRequiredCountService
         string $module,
         string $section
     ): array {
+        if (isset(ModuleRoleService::OWNERS[$module]) && !(new ModuleRoleService())->entitled($companyId,$userId,$module)) return [];
         $permissions = array_values(array_unique(array_filter($permissions, 'is_string')));
         sort($permissions);
         $cacheKey = implode(':', [$companyId, $userId, $module, $section, hash('sha256', implode("\n", $permissions))]);
@@ -40,11 +41,12 @@ final class ActionRequiredCountService
 
         $can = static fn (string $permission): bool => in_array($permission, $permissions, true);
         $items = [];
-        $add = function (string $sql, array $parameters, string $entity, string $action, string $key, string $declaredUrl) use (&$items): void {
+        $add = function (string $sql, array $parameters, string $entity, string $action, string $key, string $declaredUrl) use (&$items, $companyId, $userId, $module): void {
             if ($declaredUrl !== $this->targetTemplate($key)) {
                 throw new \LogicException('Action-required target does not match its registered workflow.');
             }
             foreach ($this->rows(\db(), $sql, $parameters) as $row) {
+                if (!$this->visibleAction($companyId,$userId,$module,$entity,(int)$row['id'],$key)) continue;
                 $items[] = [
                     'id' => (int) $row['id'],
                     'entity' => $entity,
@@ -491,6 +493,13 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             );
         }
 
+        foreach (['sales'=>['quick_sale','orders','quotations','deliveries','settlements'], 'inventory'=>['receipts','transfers']] as $moduleCode=>$sections) {
+            foreach ($sections as $section) $counts[$moduleCode][$section]=count($this->itemsFor($companyId,$userId,$permissions,$moduleCode,$section));
+        }
+        foreach ($counts as $moduleCode=>&$moduleCounts) {
+            if (isset(ModuleRoleService::OWNERS[$moduleCode]) && !(new ModuleRoleService())->entitled($companyId,$userId,$moduleCode)) $moduleCounts=array_fill_keys(array_keys($moduleCounts),0);
+        }
+        unset($moduleCounts);
         foreach ($counts as &$module) {
             $module['total'] = array_sum($module);
         }
@@ -500,6 +509,24 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
     }
 
     /** @return array<string, array<string, int>> */
+    private function visibleAction(int $company,int $actor,string $module,string $entity,int $id,string $action): bool
+    {
+        $map=['quotation'=>['sales_quotations','quotation_id'],'sales_order'=>['sales_orders','order_id'], 'quick_sale'=>['sales_quick_sales','quick_sale_id'], 'goods_receipt'=>['inventory_goods_receipts','goods_receipt_id'], 'transfer'=>['inventory_transfers','transfer_id'], 'delivery'=>['inventory_pickings','picking_id'], 'settlement'=>['sales_settlements','settlement_id']];
+        if (!isset($map[$entity])) return true;
+        [$table,$key]=$map[$entity];
+        $s=\db()->prepare("SELECT * FROM $table WHERE company_id=? AND $key=?");
+        $s->execute([$company,$id]);$row=$s->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return false;
+        $scope=new SalesHierarchyScope();$access=new InventoryOperationalAccessService();
+        if (in_array($entity,['quotation','sales_order'],true)) return $scope->canReadSalesRow($company,$actor,$row);
+        if ($entity==='quick_sale') return (int)$row['manager_user_id']===$actor || $scope->canReadOwner($company,$actor,(int)$row['user_id']);
+        if ($entity==='goods_receipt') return $access->canAccessRecord($company,$actor,$row,'warehouse_id','destination_location_id');
+        if ($entity==='transfer') return $access->canAccessWarehouse($company,$actor,(int)$row[$action==='receive_transfer'?'destination_warehouse_id':'source_warehouse_id']);
+        if ($entity==='delivery') return $access->canAccessWarehouse($company,$actor,(int)$row['warehouse_id']);
+        if ($entity==='settlement' && $module==='sales') return $scope->hasCompanyWideAccess($company,$actor)||in_array((int)($row['created_by']??0),$scope->userIds($company,$actor),true);
+        return true;
+    }
+
     private function emptyCounts(): array
     {
         return [
@@ -520,14 +547,18 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
     private function addProcurementItems(array &$items, callable $add, array $parameters, string $section, callable $can): void
     {
         if ($section === 'requisitions') {
-            if ($can('procurement.requisitions.create')) $add("SELECT requisition_id id,requisition_number reference FROM purchase_requisitions WHERE company_id=:company_id AND status='draft' AND requester_user_id=:user_id", $parameters, 'requisition', 'Submit requisition', 'submit_requisition', '/procurement?section=requisitions');
+            if ($can('procurement.requisitions.create')) {
+                $scope = "(r.requester_user_id=:user_id OR EXISTS(SELECT 1 FROM inventory_central_procurement_links cp WHERE cp.company_id=r.company_id AND cp.requisition_id=r.requisition_id))";
+                $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='draft' AND ".$scope." AND EXISTS(SELECT 1 FROM purchase_requisition_lines l WHERE l.company_id=r.company_id AND l.requisition_id=r.requisition_id AND l.estimated_unit_price<=0)", $parameters, 'requisition', 'Enter estimated unit price', 'submit_requisition', '/procurement?section=requisitions');
+                $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='draft' AND ".$scope." AND NOT EXISTS(SELECT 1 FROM purchase_requisition_lines l WHERE l.company_id=r.company_id AND l.requisition_id=r.requisition_id AND l.estimated_unit_price<=0)", $parameters, 'requisition', 'Submit requisition', 'submit_requisition', '/procurement?section=requisitions');
+            }
             if ($can('procurement.requisitions.approve')) $add("SELECT requisition_id id,requisition_number reference FROM purchase_requisitions WHERE company_id=:company_id AND status='submitted' AND requester_user_id<>:user_id", $parameters, 'requisition', 'Approve requisition', 'approve_requisition', '/procurement?section=requisitions');
             return;
         }
         if ($section === 'orders') {
             if ($can('procurement.orders.create')) {
                 $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders WHERE company_id=:company_id AND status='draft' AND created_by=:user_id", $parameters, 'purchase_order', 'Submit purchase order', 'submit_purchase_order', '/procurement/{id}');
-                $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='approved' AND NOT EXISTS(SELECT 1 FROM purchase_orders po WHERE po.company_id=r.company_id AND po.requisition_id=r.requisition_id)", $parameters, 'requisition', 'Create purchase order', 'create_purchase_order', '/procurement?section=orders');
+                $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='approved' AND NOT EXISTS(SELECT 1 FROM purchase_orders po WHERE po.company_id=r.company_id AND po.requisition_id=r.requisition_id) AND NOT EXISTS(SELECT 1 FROM purchase_requisition_lines l WHERE l.company_id=r.company_id AND l.requisition_id=r.requisition_id AND l.estimated_unit_price<=0)", $parameters, 'requisition', 'Create purchase order', 'create_purchase_order', '/procurement?section=orders');
                 $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders WHERE company_id=:company_id AND status='billed'", $parameters, 'purchase_order', 'Close PO', 'close_purchase_order', '/procurement/{id}');
             }
             if ($can('procurement.orders.approve')) $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status='submitted' AND (COALESCE((SELECT p.maker_checker_enabled FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1),FALSE)=FALSE OR (po.created_by<>:approval_actor AND EXISTS(SELECT 1 FROM company_user_roles ur INNER JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id INNER JOIN permissions pm ON pm.permission_id=rp.permission_id AND pm.active=TRUE WHERE ur.company_id=po.company_id AND ur.user_id=:approval_user AND pm.code=(SELECT p.required_permission FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1))))", $parameters + ['approval_actor'=>$parameters['user_id'],'approval_user'=>$parameters['user_id']], 'purchase_order', 'Approve purchase order', 'approve_purchase_order', '/procurement/{id}');
@@ -578,6 +609,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'submit_requisition', 'approve_requisition' => '/procurement?section=requisitions',
             'create_purchase_order' => '/procurement?section=orders',
             'submit_purchase_order', 'approve_purchase_order', 'confirm_purchase_order', 'close_purchase_order', 'create_supplier_bill', 'create_receipt' => '/procurement/{id}',
+            'approve_transfer', 'dispatch_transfer', 'receive_transfer' => '/inventory/transfers/{id}',
             'approve_receipt', 'post_receipt' => '/inventory/receipts/{id}',
             'post_supplier_bill' => '/procurement?section=bills',
             'post_supplier_payment' => '/procurement?section=payments',

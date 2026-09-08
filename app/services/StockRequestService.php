@@ -49,7 +49,7 @@ final class StockRequestService
 
         $where = ['r.company_id=:company_id'];
         $parameters = ['company_id' => $companyId];
-        if (!$manageAuthorities) {
+        if (!(new InventoryReadScope())->isAdministrator($companyId, $actorId)) {
             $scope = $visibleRequesterIds;
             if ($scope === []) $scope = [$actorId];
             $placeholders = [];
@@ -85,7 +85,7 @@ final class StockRequestService
                        COALESCE((SELECT SUM(a.quantity) FROM inventory_stock_request_allocations a
                                  WHERE a.company_id=r.company_id AND a.request_id=r.request_id AND a.status<>'released'),0) allocated_quantity,
                        COALESCE((SELECT SUM(a.quantity) FROM inventory_stock_request_allocations a
-                                 WHERE a.company_id=r.company_id AND a.request_id=r.request_id AND a.status='shop_reserved'),0) ready_quantity
+                                 WHERE a.company_id=r.company_id AND a.request_id=r.request_id AND a.status IN('shop_reserved','issued')),0) ready_quantity
                 FROM inventory_stock_requests r
                 INNER JOIN users u ON u.user_id=r.requester_user_id
                 LEFT JOIN hr_employees e ON e.company_id=r.company_id AND e.employee_id=r.requester_employee_id
@@ -112,14 +112,14 @@ final class StockRequestService
 
         $authority = $this->authorityForUser($companyId, $actorId);
         $role = $this->roleFromTitle((string) ($actor['job_title'] ?? ''));
-        $canCreate = in_array($role, ['dsa', 'dsp'], true);
+        $canCreate = in_array($role, ['dsa', 'dsp'], true) || (is_array($authority) && in_array($role, ['shop','district','regional'], true));
         $canProcess = is_array($authority) && in_array($role, ['shop', 'district', 'regional'], true);
         $canManageReorder = is_array($authority)
             && $role === 'regional'
             && ($authority['authority_level'] ?? '') === 'regional';
 
         return [
-            'stockRequests' => $requestId === null ? $requests : $this->listVisibleRequests($companyId, $actorId, $manageAuthorities, $visibleRequesterIds),
+            'stockRequests' => $requestId === null ? $requests : $this->listVisibleRequests($companyId, $actorId, (new InventoryReadScope())->isAdministrator($companyId, $actorId), $visibleRequesterIds),
             'stockRequest' => $request,
             'stockRequestProducts' => $this->stockableProducts($companyId),
             'stockRequestActor' => $actor,
@@ -141,23 +141,43 @@ final class StockRequestService
         $companyId = $this->tenant->companyId();
         $actor = $this->employeeContext($companyId, $actorId);
         $role = $this->roleFromTitle((string) ($actor['job_title'] ?? ''));
-        if (!in_array($role, ['dsa', 'dsp'], true)) {
-            throw new RuntimeException('Only employees whose current HR Job Title is DSA or DSP can create a stock request.');
-        }
-        $managerId = (int) ($actor['manager_user_id'] ?? 0);
-        if ($managerId < 1) {
-            throw new RuntimeException('Your direct reporting manager is not configured.');
-        }
-        $servingAuthority = $this->authorityForUser($companyId, $managerId);
-        if (!is_array($servingAuthority) || ($servingAuthority['authority_level'] ?? '') !== 'shop') {
-            throw new RuntimeException('Your direct Shop Manager does not have an active represented stock location.');
-        }
         $lines = $this->normalizeRequestLines($input);
-        if ($lines === []) {
-            throw new RuntimeException('Add at least one product with a positive requested quantity.');
-        }
+        if ($lines === []) throw new RuntimeException('Add at least one product with a positive requested quantity.');
         $this->assertStockableProducts($companyId, array_keys($lines));
         $notes = trim((string) ($input['notes'] ?? '')) ?: null;
+
+        $requestKind = 'employee_issue';
+        $servingAuthority = null;
+        $handlerId = 0;
+        $managerRequest = in_array($role, ['shop','district','regional'], true);
+
+        if (in_array($role, ['dsa','dsp'], true)) {
+            $managerId = (int) ($actor['manager_user_id'] ?? 0);
+            if ($managerId < 1) throw new RuntimeException('Your direct reporting manager is not configured.');
+            $servingAuthority = $this->authorityForUser($companyId, $managerId);
+            if (!is_array($servingAuthority) || ($servingAuthority['authority_level'] ?? '') !== 'shop') {
+                throw new RuntimeException('Your direct Shop Manager does not have an active represented stock location.');
+            }
+            $handlerId = $managerId;
+        } elseif ($managerRequest) {
+            $requestKind = 'manager_replenishment';
+            $servingAuthority = $this->authorityForUser($companyId, $actorId);
+            if (!is_array($servingAuthority) || (string) ($servingAuthority['authority_level'] ?? '') !== $role) {
+                throw new RuntimeException('Your represented manager warehouse is not configured for this replenishment request.');
+            }
+            $this->assertAuthorityMatchesJobTitle($companyId, $actorId, $role);
+            if ($role === 'regional') {
+                // Regional proactive requests are fulfilled from PT-CENTRAL. Existing
+                // Regional stock is deliberately not deducted from the requested amount.
+                $handlerId = $actorId;
+            } else {
+                $parent = $this->nextManagerAuthority($companyId, $actorId, $role);
+                if (!is_array($parent)) throw new RuntimeException('The next stock authority above you is not configured.');
+                $handlerId = (int) $parent['user_id'];
+            }
+        } else {
+            throw new RuntimeException('Only DSA/DSP employees and Shop, District or Regional Managers can create stock requests.');
+        }
 
         $connection = \db();
         $connection->beginTransaction();
@@ -166,10 +186,10 @@ final class StockRequestService
             $insert = $connection->prepare(
                 "INSERT INTO inventory_stock_requests(
                     company_id,request_number,requester_user_id,requester_employee_id,
-                    requester_role_snapshot,serving_authority_id,current_handler_user_id,status,notes,requested_at
+                    requester_role_snapshot,serving_authority_id,current_handler_user_id,status,notes,requested_at,request_kind
                  ) VALUES(
                     :company_id,:request_number,:requester_user_id,:requester_employee_id,
-                    :requester_role_snapshot,:serving_authority_id,:current_handler_user_id,'pending_review',:notes,NOW()
+                    :requester_role_snapshot,:serving_authority_id,:current_handler_user_id,'pending_review',:notes,NOW(),:request_kind
                  )"
             );
             $insert->execute([
@@ -179,8 +199,9 @@ final class StockRequestService
                 'requester_employee_id' => (int) $actor['employee_id'],
                 'requester_role_snapshot' => (string) $actor['job_title'],
                 'serving_authority_id' => (int) $servingAuthority['authority_id'],
-                'current_handler_user_id' => $managerId,
+                'current_handler_user_id' => $handlerId,
                 'notes' => $notes,
+                'request_kind' => $requestKind,
             ]);
             $requestId = (int) $connection->lastInsertId();
             $lineInsert = $connection->prepare(
@@ -197,10 +218,18 @@ final class StockRequestService
                     'notes' => null,
                 ]);
             }
+
+            if ($requestKind === 'manager_replenishment' && $role === 'regional') {
+                $remaining = [];
+                foreach ($lines as $productId => $quantity) $remaining[] = ['product_id'=>$productId,'remaining_quantity'=>$quantity];
+                (new CentralStockReplenishmentService())->requestLocked($companyId, $requestId, $servingAuthority, $remaining, $actorId);
+            }
+
             $connection->commit();
-            $this->audit($actorId, 'stock_request.created', 'inventory_stock_requests', $requestId, [
+            $this->audit($actorId, $requestKind === 'manager_replenishment' ? 'stock_replenishment.requested' : 'stock_request.created', 'inventory_stock_requests', $requestId, [
                 'request_number' => $number,
-                'handler_user_id' => $managerId,
+                'handler_user_id' => $handlerId,
+                'request_kind' => $requestKind,
             ]);
             return $requestId;
         } catch (Throwable $e) {
@@ -218,7 +247,7 @@ final class StockRequestService
         try {
             $request = $this->requestForUpdate($connection, $companyId, $requestId);
             $requestStatus = (string) $request['status'];
-            if (!in_array($requestStatus, ['pending_review','awaiting_procurement'], true)) {
+            if (!in_array($requestStatus, ['pending_review','awaiting_procurement','awaiting_transfer'], true)) {
                 throw new RuntimeException('Only a stock request waiting for manager review or procurement replenishment can be processed.');
             }
             if ((int) $request['current_handler_user_id'] !== $actorId) {
@@ -233,37 +262,44 @@ final class StockRequestService
                 throw new RuntimeException('Only the Regional Manager can recheck a stock request that is waiting for company procurement.');
             }
             $serving = $this->authorityById($companyId, (int) $request['serving_authority_id'], true);
-            if (!is_array($serving)) throw new RuntimeException('The serving Shop stock authority is no longer active.');
+            if (!is_array($serving)) throw new RuntimeException('The serving stock authority is no longer active.');
 
-            $allocated = $this->allocateRemainingLocked($connection, $request, $authority, $serving, $actorId);
-            if ($allocated !== []) {
-                $this->createTransferForAllocationsLocked($connection, $request, $authority, $serving, $allocated, $actorId);
+            if ((string)($request['request_kind'] ?? 'employee_issue') === 'manager_replenishment'
+                && (string)$authority['authority_level'] === 'regional'
+                && (int)$authority['authority_id'] === (int)$serving['authority_id']) {
+                // Regional proactive replenishment is additional incoming stock from
+                // PT-CENTRAL. Never satisfy it by consuming the Regional warehouse's
+                // pre-existing stock.
+                $remaining = [];
+                foreach ($this->requestLines($companyId,$requestId,true) as $line) {
+                    $remaining[] = ['product_id'=>(int)$line['product_id'],'remaining_quantity'=>(float)$line['requested_quantity']];
+                }
+                $result = (new CentralStockReplenishmentService())->requestLocked($companyId,$requestId,$authority,$remaining,$actorId);
+                $connection->commit();
+                return $result;
             }
+
+            (new InventoryOperationalAccessService())->assertAuthorizedSource($companyId,$actorId,(int)$authority['warehouse_id'],(int)$authority['location_id']);
+            $allocated = $this->allocateRemainingLocked($connection, $request, $authority, $serving, $actorId);
+            // Forward both newly allocated and previously received/reserved quantities from
+            // the current authority. This enables Regional -> District -> Shop multi-hop flow.
+            $this->createTransferForAllocationsLocked(
+                $connection,
+                $request,
+                $authority,
+                $serving,
+                $allocated,
+                $actorId
+            );
             $remaining = $this->remainingLinesLocked($connection, $companyId, $requestId);
 
             if ($remaining !== []) {
                 if ((string) $authority['authority_level'] === 'regional') {
-                    $requisitionId = $this->ensureShortageRequisitionLocked(
-                        $connection,
-                        $request,
-                        $authority,
-                        $remaining,
-                        $actorId
+                    $result = (new CentralStockReplenishmentService())->requestLocked(
+                        $companyId, $requestId, $authority, $remaining, $actorId
                     );
-                    $connection->prepare(
-                        "UPDATE inventory_stock_requests
-                         SET status='awaiting_procurement',current_handler_user_id=:handler
-                         WHERE company_id=:company_id AND request_id=:request_id"
-                    )->execute([
-                        'handler' => $actorId,
-                        'company_id' => $companyId,
-                        'request_id' => $requestId,
-                    ]);
                     $connection->commit();
-                    $this->audit($actorId, 'stock_request.procurement_requested', 'inventory_stock_requests', $requestId, [
-                        'requisition_id' => $requisitionId,
-                    ]);
-                    return ['status' => 'awaiting_procurement', 'requisition_id' => $requisitionId];
+                    return $result;
                 }
 
                 $nextManager = $this->nextManagerAuthority($companyId, $actorId, (string) $authority['authority_level']);
@@ -305,6 +341,7 @@ final class StockRequestService
         $connection->beginTransaction();
         try {
             $request = $this->requestForUpdate($connection, $companyId, $requestId);
+            if ((string) ($request['request_kind'] ?? 'employee_issue') !== 'employee_issue') { throw new RuntimeException('Manager replenishment is received into the requester warehouse through Inventory transfer receipt; it is not issued to an employee.'); }
             if ((string) $request['status'] !== 'ready_to_issue') {
                 throw new RuntimeException('The request is not fully assembled at the Shop stock location yet.');
             }
@@ -433,7 +470,7 @@ final class StockRequestService
         $row = $location->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) throw new RuntimeException('Select an active internal stock location.');
         if ($level === 'regional' && empty($row['receiving_allowed'])) {
-            throw new RuntimeException('The Regional / Passion Technologies company stock location must also allow Procurement receiving.');
+            throw new RuntimeException('The Regional stock location must be an active receiving-capable location.');
         }
 
         $connection = \db();
@@ -585,41 +622,125 @@ final class StockRequestService
     {
         $connection = \db();
         $allocations = $connection->prepare(
-            "SELECT a.*,l.product_id
+            "SELECT a.*,l.product_id,r.serving_authority_id,r.request_kind,r.requester_user_id,
+                    tl.destination_warehouse_id actual_destination_warehouse_id,
+                    tl.destination_location_id actual_destination_location_id
              FROM inventory_stock_request_allocations a
              INNER JOIN inventory_stock_request_lines l
-               ON l.company_id=a.company_id AND l.request_id=a.request_id AND l.request_line_id=a.request_line_id
-             WHERE a.company_id=:company_id AND a.transfer_id=:transfer_id AND a.status='in_transit'
+               ON l.company_id=a.company_id AND l.request_id=a.request_id
+              AND l.request_line_id=a.request_line_id
+             INNER JOIN inventory_stock_requests r
+               ON r.company_id=a.company_id AND r.request_id=a.request_id
+             INNER JOIN inventory_transfer_lines tl
+               ON tl.company_id=a.company_id AND tl.transfer_line_id=a.transfer_line_id
+              AND tl.transfer_id=a.transfer_id
+             WHERE a.company_id=:company_id AND a.transfer_id=:transfer_id
+               AND a.status='in_transit'
              FOR UPDATE"
         );
-        $allocations->execute(['company_id' => $companyId, 'transfer_id' => $transferId]);
-        $requestIds = [];
+        $allocations->execute([
+            'company_id' => $companyId,
+            'transfer_id' => $transferId,
+        ]);
+
+        $finalRequestIds = [];
         foreach ($allocations->fetchAll(PDO::FETCH_ASSOC) as $allocation) {
+            $destinationWarehouse = (int) $allocation['actual_destination_warehouse_id'];
+            $destinationLocation = (int) $allocation['actual_destination_location_id'];
+
+            $isManagerReplenishment = (string) ($allocation['request_kind'] ?? 'employee_issue') === 'manager_replenishment';
+
+            $destinationAuthority = $connection->prepare(
+                "SELECT authority_id,user_id,authority_level
+                 FROM inventory_stock_authorities
+                 WHERE company_id=:company_id AND warehouse_id=:warehouse_id
+                   AND location_id=:location_id AND active=TRUE
+                 FOR UPDATE"
+            );
+            $destinationAuthority->execute([
+                'company_id' => $companyId,
+                'warehouse_id' => $destinationWarehouse,
+                'location_id' => $destinationLocation,
+            ]);
+            $authorities = $destinationAuthority->fetchAll(PDO::FETCH_ASSOC);
+            if (count($authorities) !== 1) {
+                throw new RuntimeException(
+                    'The transfer destination must have exactly one active stock authority.'
+                );
+            }
+            $next = $authorities[0];
+
+            if ((int) $next['authority_id'] === (int) $allocation['serving_authority_id']) {
+                if (!$isManagerReplenishment) {
+                    $reserve = $connection->prepare(
+                        "UPDATE inventory_stock_balances
+                         SET quantity_reserved=quantity_reserved+:quantity,version_number=version_number+1
+                         WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND location_id=:location_id
+                           AND product_id=:product_id AND quantity_available>=:required"
+                    );
+                    $reserve->execute([
+                        'quantity'=>(float)$allocation['quantity'],'company_id'=>$companyId,
+                        'warehouse_id'=>$destinationWarehouse,'location_id'=>$destinationLocation,
+                        'product_id'=>(int)$allocation['product_id'],'required'=>(float)$allocation['quantity'],
+                    ]);
+                    if ($reserve->rowCount() !== 1) throw new RuntimeException('Received stock could not be reserved for the originating stock request.');
+                }
+                $connection->prepare(
+                    "UPDATE inventory_stock_request_allocations
+                     SET destination_warehouse_id=:warehouse_id,destination_location_id=:location_id,
+                         status=:final_status,received_at=NOW(),issued_at=IF(:final_status_two='issued',NOW(),issued_at)
+                     WHERE company_id=:company_id AND allocation_id=:allocation_id AND status='in_transit'"
+                )->execute([
+                    'warehouse_id'=>$destinationWarehouse,'location_id'=>$destinationLocation,
+                    'final_status'=>$isManagerReplenishment?'issued':'shop_reserved',
+                    'final_status_two'=>$isManagerReplenishment?'issued':'shop_reserved',
+                    'company_id'=>$companyId,'allocation_id'=>(int)$allocation['allocation_id'],
+                ]);
+                $finalRequestIds[(int) $allocation['request_id']] = true;
+                continue;
+            }
+
+            // Intermediate receipt: reserve only stock that must continue to the next level.
             $reserve = $connection->prepare(
-                "UPDATE inventory_stock_balances
-                 SET quantity_reserved=quantity_reserved+:quantity,version_number=version_number+1
+                "UPDATE inventory_stock_balances SET quantity_reserved=quantity_reserved+:quantity,version_number=version_number+1
                  WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND location_id=:location_id
                    AND product_id=:product_id AND quantity_available>=:required"
             );
-            $reserve->execute([
-                'quantity' => (float) $allocation['quantity'],
-                'company_id' => $companyId,
-                'warehouse_id' => (int) $allocation['destination_warehouse_id'],
-                'location_id' => (int) $allocation['destination_location_id'],
-                'product_id' => (int) $allocation['product_id'],
-                'required' => (float) $allocation['quantity'],
-            ]);
-            if ($reserve->rowCount() !== 1) {
-                throw new RuntimeException('Received stock could not be reserved for the originating stock request.');
-            }
+            $reserve->execute(['quantity'=>(float)$allocation['quantity'],'company_id'=>$companyId,'warehouse_id'=>$destinationWarehouse,'location_id'=>$destinationLocation,'product_id'=>(int)$allocation['product_id'],'required'=>(float)$allocation['quantity']]);
+            if ($reserve->rowCount() !== 1) throw new RuntimeException('Received stock could not be reserved for onward replenishment transfer.');
+
+            // Intermediate receipt: ownership of the reserved quantity moves to the
+            // next manager warehouse. The same allocation is reused for the next hop.
             $connection->prepare(
                 "UPDATE inventory_stock_request_allocations
-                 SET status='shop_reserved',received_at=NOW()
-                 WHERE company_id=:company_id AND allocation_id=:allocation_id AND status='in_transit'"
-            )->execute(['company_id' => $companyId, 'allocation_id' => (int) $allocation['allocation_id']]);
-            $requestIds[(int) $allocation['request_id']] = true;
+                 SET authority_id=:authority_id,
+                     source_warehouse_id=:warehouse_id,
+                     source_location_id=:location_id,
+                     status='source_reserved',
+                     transfer_id=NULL,transfer_line_id=NULL,
+                     reserved_at=NOW(),dispatched_at=NULL,received_at=NULL
+                 WHERE company_id=:company_id AND allocation_id=:allocation_id
+                   AND status='in_transit'"
+            )->execute([
+                'authority_id' => (int) $next['authority_id'],
+                'warehouse_id' => $destinationWarehouse,
+                'location_id' => $destinationLocation,
+                'company_id' => $companyId,
+                'allocation_id' => (int) $allocation['allocation_id'],
+            ]);
+            $connection->prepare(
+                "UPDATE inventory_stock_requests
+                 SET status='pending_review',current_handler_user_id=:handler
+                 WHERE company_id=:company_id AND request_id=:request_id
+                   AND status IN('pending_review','awaiting_transfer','awaiting_procurement')"
+            )->execute([
+                'handler' => (int) $next['user_id'],
+                'company_id' => $companyId,
+                'request_id' => (int) $allocation['request_id'],
+            ]);
         }
-        foreach (array_keys($requestIds) as $requestId) {
+
+        foreach (array_keys($finalRequestIds) as $requestId) {
             $this->refreshRequestStatusLocked($connection, $companyId, (int) $requestId);
         }
     }
@@ -675,71 +796,12 @@ final class StockRequestService
     }
 
     /**
-     * Resume a reactive SR after a linked PO receipt is posted into the Regional/company stock.
+     * Resume a reactive SR after a linked PO receipt is posted into the PT-CENTRAL stock.
      * Receipt posting remains authoritative even if no linked SR exists.
      */
     public function resumeFromGoodsReceipt(int $companyId, int $goodsReceiptId, int $actorId): void
     {
-        $connection = \db();
-        $link = $connection->prepare(
-            "SELECT srp.request_id
-             FROM inventory_goods_receipts gr
-             INNER JOIN purchase_orders po ON po.company_id=gr.company_id AND po.purchase_order_id=gr.purchase_order_id
-             INNER JOIN inventory_stock_request_procurements srp
-               ON srp.company_id=po.company_id AND srp.requisition_id=po.requisition_id
-             WHERE gr.company_id=:company_id AND gr.goods_receipt_id=:receipt_id
-             LIMIT 1"
-        );
-        $link->execute(['company_id' => $companyId, 'receipt_id' => $goodsReceiptId]);
-        $requestId = (int) $link->fetchColumn();
-        if ($requestId < 1) return;
-
-        $connection->beginTransaction();
-        try {
-            $request = $this->requestForUpdate($connection, $companyId, $requestId);
-            if (!in_array((string) $request['status'], ['awaiting_procurement','pending_review'], true)) {
-                $connection->commit();
-                return;
-            }
-            $regional = $this->regionalAuthority($companyId, true);
-            if (!is_array($regional)) throw new RuntimeException('The active Regional company-stock authority is not configured.');
-            $serving = $this->authorityById($companyId, (int) $request['serving_authority_id'], true);
-            if (!is_array($serving)) throw new RuntimeException('The serving Shop stock authority is no longer active.');
-            $allocated = $this->allocateRemainingLocked(
-                $connection,
-                $request,
-                $regional,
-                $serving,
-                (int) $regional['user_id']
-            );
-            if ($allocated !== []) {
-                $this->createTransferForAllocationsLocked(
-                    $connection,
-                    $request,
-                    $regional,
-                    $serving,
-                    $allocated,
-                    (int) $regional['user_id']
-                );
-            }
-            $remaining = $this->remainingLinesLocked($connection, $companyId, $requestId);
-            if ($remaining === []) {
-                $this->refreshRequestStatusLocked($connection, $companyId, $requestId);
-            } else {
-                $connection->prepare(
-                    "UPDATE inventory_stock_requests
-                     SET status='awaiting_procurement',current_handler_user_id=:regional
-                     WHERE company_id=:company_id AND request_id=:request_id"
-                )->execute(['regional' => (int) $regional['user_id'], 'company_id' => $companyId, 'request_id' => $requestId]);
-            }
-            $connection->commit();
-            $this->audit($actorId, 'stock_request.procurement_receipt_resumed', 'inventory_stock_requests', $requestId, [
-                'goods_receipt_id' => $goodsReceiptId,
-            ]);
-        } catch (Throwable $e) {
-            if ($connection->inTransaction()) $connection->rollBack();
-            throw $e;
-        }
+        (new CentralStockReplenishmentService())->resumeFromGoodsReceipt($companyId, $goodsReceiptId, $actorId);
     }
 
     /** @return array<int,float> keyed by request line id */
@@ -821,32 +883,82 @@ final class StockRequestService
         array $allocated,
         int $actorId
     ): void {
-        if ($allocated === [] || (int) $authority['authority_id'] === (int) $serving['authority_id']) return;
-        $companyId = (int) $request['company_id'];
+        unset($allocated);
+        if ((int) $authority['authority_id'] === (int) $serving['authority_id']) {
+            return;
+        }
+
+        $lines = $connection->prepare(
+            "SELECT l.request_line_id,l.product_id,a.allocation_id,a.quantity,b.average_unit_cost
+             FROM inventory_stock_request_lines l
+             INNER JOIN inventory_stock_request_allocations a
+               ON a.company_id=l.company_id AND a.request_id=l.request_id
+              AND a.request_line_id=l.request_line_id
+             LEFT JOIN inventory_stock_balances b
+               ON b.company_id=a.company_id AND b.warehouse_id=a.source_warehouse_id
+              AND b.location_id=a.source_location_id AND b.product_id=l.product_id
+             WHERE l.company_id=:company_id AND l.request_id=:request_id
+               AND a.authority_id=:authority_id AND a.status='source_reserved'
+               AND a.transfer_id IS NULL
+             ORDER BY l.request_line_id"
+        );
+        $lines->execute([
+            'company_id' => (int) $request['company_id'],
+            'request_id' => (int) $request['request_id'],
+            'authority_id' => (int) $authority['authority_id'],
+        ]);
+        $rows = $lines->fetchAll(PDO::FETCH_ASSOC);
+        if ($rows === []) {
+            return;
+        }
+
+        $destination = $this->nextDownstreamAuthority(
+            (int) $request['company_id'],
+            (int) $authority['user_id'],
+            (int) $serving['user_id'],
+            (string) $authority['authority_level']
+        );
+        if (!is_array($destination)) {
+            throw new RuntimeException(
+                'The next downstream stock authority toward the serving Shop is not configured.'
+            );
+        }
+
         $operation = $connection->prepare(
             "SELECT operation_type_id FROM inventory_operation_types
              WHERE company_id=:company_id AND warehouse_id=:warehouse_id
-               AND operation_kind='internal_transfer' AND active=TRUE AND is_default=TRUE LIMIT 1"
+               AND operation_kind='internal_transfer' AND active=TRUE
+               AND is_default=TRUE LIMIT 1"
         );
-        $operation->execute(['company_id' => $companyId, 'warehouse_id' => (int) $authority['warehouse_id']]);
+        $operation->execute([
+            'company_id' => (int) $request['company_id'],
+            'warehouse_id' => (int) $authority['warehouse_id'],
+        ]);
         $operationId = (int) $operation->fetchColumn();
-        if ($operationId < 1) throw new RuntimeException('The source authority warehouse has no default internal-transfer operation.');
+        if ($operationId < 1) {
+            throw new RuntimeException(
+                'The source authority warehouse has no default internal-transfer operation.'
+            );
+        }
 
-        $transferNumber = 'TRF-SR-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+        $transferNumber = 'TRF-SR-' . date('Ymd') . '-'
+            . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
         $reason = 'Stock request ' . (string) $request['request_number'];
         $header = $connection->prepare(
             "INSERT INTO inventory_transfers(
                 company_id,source_warehouse_id,destination_warehouse_id,operation_type_id,
-                transfer_number,transfer_date,status,notes,reason,created_by,submitted_by,submitted_at,approved_by,approved_at
+                transfer_number,transfer_date,status,notes,reason,created_by,
+                submitted_by,submitted_at,approved_by,approved_at
              ) VALUES(
                 :company_id,:source_warehouse_id,:destination_warehouse_id,:operation_type_id,
-                :transfer_number,CURRENT_DATE,'approved',:notes,:reason,:created_by,:submitted_by,NOW(),:approved_by,NOW()
+                :transfer_number,CURRENT_DATE,'approved',:notes,:reason,:created_by,
+                :submitted_by,NOW(),:approved_by,NOW()
              )"
         );
         $header->execute([
-            'company_id' => $companyId,
+            'company_id' => (int) $request['company_id'],
             'source_warehouse_id' => (int) $authority['warehouse_id'],
-            'destination_warehouse_id' => (int) $serving['warehouse_id'],
+            'destination_warehouse_id' => (int) $destination['warehouse_id'],
             'operation_type_id' => $operationId,
             'transfer_number' => $transferNumber,
             'notes' => $reason,
@@ -857,42 +969,26 @@ final class StockRequestService
         ]);
         $transferId = (int) $connection->lastInsertId();
 
-        $lines = $connection->prepare(
-            "SELECT l.request_line_id,l.product_id,a.allocation_id,a.quantity,b.average_unit_cost
-             FROM inventory_stock_request_lines l
-             INNER JOIN inventory_stock_request_allocations a
-               ON a.company_id=l.company_id AND a.request_id=l.request_id AND a.request_line_id=l.request_line_id
-             LEFT JOIN inventory_stock_balances b
-               ON b.company_id=a.company_id AND b.warehouse_id=a.source_warehouse_id
-              AND b.location_id=a.source_location_id AND b.product_id=l.product_id
-             WHERE l.company_id=:company_id AND l.request_id=:request_id
-               AND a.authority_id=:authority_id AND a.status='source_reserved'
-               AND a.transfer_id IS NULL
-             ORDER BY l.request_line_id"
-        );
-        $lines->execute([
-            'company_id' => $companyId,
-            'request_id' => (int) $request['request_id'],
-            'authority_id' => (int) $authority['authority_id'],
-        ]);
         $insertLine = $connection->prepare(
             "INSERT INTO inventory_transfer_lines(
                 company_id,transfer_id,source_warehouse_id,source_location_id,
-                destination_warehouse_id,destination_location_id,product_id,quantity,unit_cost,notes
+                destination_warehouse_id,destination_location_id,product_id,
+                quantity,unit_cost,notes
              ) VALUES(
                 :company_id,:transfer_id,:source_warehouse_id,:source_location_id,
-                :destination_warehouse_id,:destination_location_id,:product_id,:quantity,:unit_cost,:notes
+                :destination_warehouse_id,:destination_location_id,:product_id,
+                :quantity,:unit_cost,:notes
              )"
         );
-        foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $line) {
-            if (!array_key_exists((int) $line['request_line_id'], $allocated)) continue;
+
+        foreach ($rows as $line) {
             $insertLine->execute([
-                'company_id' => $companyId,
+                'company_id' => (int) $request['company_id'],
                 'transfer_id' => $transferId,
                 'source_warehouse_id' => (int) $authority['warehouse_id'],
                 'source_location_id' => (int) $authority['location_id'],
-                'destination_warehouse_id' => (int) $serving['warehouse_id'],
-                'destination_location_id' => (int) $serving['location_id'],
+                'destination_warehouse_id' => (int) $destination['warehouse_id'],
+                'destination_location_id' => (int) $destination['location_id'],
                 'product_id' => (int) $line['product_id'],
                 'quantity' => (float) $line['quantity'],
                 'unit_cost' => (float) ($line['average_unit_cost'] ?? 0),
@@ -902,11 +998,12 @@ final class StockRequestService
             $connection->prepare(
                 "UPDATE inventory_stock_request_allocations
                  SET transfer_id=:transfer_id,transfer_line_id=:transfer_line_id
-                 WHERE company_id=:company_id AND allocation_id=:allocation_id AND transfer_id IS NULL"
+                 WHERE company_id=:company_id AND allocation_id=:allocation_id
+                   AND transfer_id IS NULL AND status='source_reserved'"
             )->execute([
                 'transfer_id' => $transferId,
                 'transfer_line_id' => $transferLineId,
-                'company_id' => $companyId,
+                'company_id' => (int) $request['company_id'],
                 'allocation_id' => (int) $line['allocation_id'],
             ]);
         }
@@ -932,102 +1029,6 @@ final class StockRequestService
         return is_array($rows) ? $rows : [];
     }
 
-    private function ensureShortageRequisitionLocked(
-        PDO $connection,
-        array $request,
-        array $regional,
-        array $remaining,
-        int $actorId
-    ): int {
-        $companyId = (int) $request['company_id'];
-        $existing = $connection->prepare(
-            "SELECT p.requisition_id
-             FROM inventory_stock_request_procurements p
-             INNER JOIN purchase_requisitions r ON r.company_id=p.company_id AND r.requisition_id=p.requisition_id
-             WHERE p.company_id=:company_id AND p.request_id=:request_id
-               AND r.status IN('draft','submitted','approved','converted')
-             ORDER BY p.link_id DESC LIMIT 1 FOR UPDATE"
-        );
-        $existing->execute(['company_id' => $companyId, 'request_id' => (int) $request['request_id']]);
-        $existingId = (int) $existing->fetchColumn();
-        if ($existingId > 0) return $existingId;
-
-        $employee = $this->employeeContext($companyId, $actorId);
-        $departmentId = (int) ($employee['department_id'] ?? 0);
-        if ($departmentId < 1) {
-            throw new RuntimeException('Regional Manager must have an active HR department before a company purchase requisition can be created.');
-        }
-        $number = 'PR-SR-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
-        $header = $connection->prepare(
-            "INSERT INTO purchase_requisitions(
-                company_id,requisition_number,requester_user_id,department_id,requested_date,
-                justification,status
-             ) VALUES(:company_id,:number,:requester,:department,CURRENT_DATE,:justification,'submitted')"
-        );
-        $header->execute([
-            'company_id' => $companyId,
-            'number' => $number,
-            'requester' => $actorId,
-            'department' => $departmentId,
-            'justification' => 'Company stock shortage for ' . (string) $request['request_number'] . '. Replenish Passion Technologies company stock and resume the same SR.',
-        ]);
-        $requisitionId = (int) $connection->lastInsertId();
-        $line = $connection->prepare(
-            "INSERT INTO purchase_requisition_lines(
-                company_id,requisition_id,product_id,description,quantity,estimated_unit_price,preferred_supplier_id,warehouse_id
-             ) VALUES(:company_id,:requisition_id,:product_id,:description,:quantity,:estimated_unit_price,NULL,:warehouse_id)"
-        );
-        $price = $connection->prepare(
-            "SELECT COALESCE(
-                 (SELECT pol.unit_price
-                    FROM purchase_order_lines pol
-                    INNER JOIN purchase_orders po ON po.company_id=pol.company_id AND po.purchase_order_id=pol.purchase_order_id
-                   WHERE pol.company_id=:po_company AND pol.product_id=:po_product
-                     AND po.status NOT IN('rejected','cancelled')
-                   ORDER BY po.order_date DESC,pol.purchase_order_line_id DESC LIMIT 1),
-                 (SELECT b.average_unit_cost FROM inventory_stock_balances b
-                   WHERE b.company_id=:stock_company AND b.warehouse_id=:stock_warehouse
-                     AND b.location_id=:stock_location AND b.product_id=:stock_product LIMIT 1),
-                 0
-             )"
-        );
-        foreach ($remaining as $item) {
-            $price->execute([
-                'po_company' => $companyId,
-                'po_product' => (int) $item['product_id'],
-                'stock_company' => $companyId,
-                'stock_warehouse' => (int) $regional['warehouse_id'],
-                'stock_location' => (int) $regional['location_id'],
-                'stock_product' => (int) $item['product_id'],
-            ]);
-            $estimatedUnitPrice = max(0.0, (float) $price->fetchColumn());
-            $line->execute([
-                'company_id' => $companyId,
-                'requisition_id' => $requisitionId,
-                'product_id' => (int) $item['product_id'],
-                'description' => 'Stock shortage for ' . (string) $request['request_number'] . ' — ' . (string) $item['name'],
-                'quantity' => round((float) $item['remaining_quantity'], 3),
-                'warehouse_id' => (int) $regional['warehouse_id'],
-                'estimated_unit_price' => $estimatedUnitPrice,
-            ]);
-        }
-        $connection->prepare(
-            "INSERT INTO inventory_stock_request_procurements(
-                company_id,request_id,requisition_id,receiving_warehouse_id,receiving_location_id,created_by
-             ) VALUES(
-                :company_id,:request_id,:requisition_id,:receiving_warehouse_id,:receiving_location_id,:actor
-             )"
-        )->execute([
-            'company_id' => $companyId,
-            'request_id' => (int) $request['request_id'],
-            'requisition_id' => $requisitionId,
-            'receiving_warehouse_id' => (int) $regional['warehouse_id'],
-            'receiving_location_id' => (int) $regional['location_id'],
-            'actor' => $actorId,
-        ]);
-        return $requisitionId;
-    }
-
     private function refreshRequestStatusLocked(PDO $connection, int $companyId, int $requestId): string
     {
         $request = $this->requestForUpdate($connection, $companyId, $requestId);
@@ -1044,7 +1045,10 @@ final class StockRequestService
                    AND status IN('source_reserved','in_transit')"
             );
             $pendingTransfer->execute(['company_id' => $companyId, 'request_id' => $requestId]);
-            $status = (int) $pendingTransfer->fetchColumn() > 0 ? 'awaiting_transfer' : 'ready_to_issue';
+            $hasPendingTransfer = (int) $pendingTransfer->fetchColumn() > 0;
+            if ($hasPendingTransfer) $status = 'awaiting_transfer';
+            elseif ((string) ($request['request_kind'] ?? 'employee_issue') === 'manager_replenishment') $status = 'closed';
+            else $status = 'ready_to_issue';
         }
         $connection->prepare(
             "UPDATE inventory_stock_requests SET status=:status
@@ -1184,13 +1188,65 @@ final class StockRequestService
         return $authority;
     }
 
+    /** @return array<string,mixed>|null */
+    private function nextDownstreamAuthority(
+        int $companyId,
+        int $currentUserId,
+        int $servingUserId,
+        string $currentLevel
+    ): ?array {
+        $expected = [
+            'regional' => 'district',
+            'district' => 'shop',
+        ][$currentLevel] ?? null;
+        if ($expected === null) {
+            return null;
+        }
+
+        $parentsStatement = \db()->prepare(
+            'SELECT user_id,manager_user_id FROM company_users
+             WHERE company_id=:company_id AND active=TRUE'
+        );
+        $parentsStatement->execute(['company_id' => $companyId]);
+        $parents = array_column(
+            $parentsStatement->fetchAll(PDO::FETCH_ASSOC),
+            'manager_user_id',
+            'user_id'
+        );
+
+        $cursor = $servingUserId;
+        $child = 0;
+        $seen = [];
+        while ($cursor > 0 && $cursor !== $currentUserId) {
+            if (isset($seen[$cursor]) || !array_key_exists($cursor, $parents)) {
+                throw new RuntimeException(
+                    'The stock reporting hierarchy contains a cycle or an inactive manager.'
+                );
+            }
+            $seen[$cursor] = true;
+            $child = $cursor;
+            $cursor = (int) $parents[$cursor];
+        }
+
+        if ($cursor !== $currentUserId || $child < 1) {
+            return null;
+        }
+
+        $authority = $this->authorityForUser($companyId, $child);
+        if (!is_array($authority) || (string) $authority['authority_level'] !== $expected) {
+            return null;
+        }
+        $this->assertAuthorityMatchesJobTitle($companyId, $child, $expected);
+        return $authority;
+    }
+
     /** @return list<array<string,mixed>> */
     private function requestLines(int $companyId, int $requestId, bool $forUpdate = false): array
     {
         $statement = \db()->prepare(
             "SELECT l.*,p.sku,p.name,p.unit_of_measure,
                     COALESCE(SUM(CASE WHEN a.status<>'released' THEN a.quantity ELSE 0 END),0) allocated_quantity,
-                    COALESCE(SUM(CASE WHEN a.status='shop_reserved' THEN a.quantity ELSE 0 END),0) ready_quantity
+                    COALESCE(SUM(CASE WHEN a.status IN('shop_reserved','issued') THEN a.quantity ELSE 0 END),0) ready_quantity
              FROM inventory_stock_request_lines l
              INNER JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id
              LEFT JOIN inventory_stock_request_allocations a
@@ -1250,29 +1306,9 @@ final class StockRequestService
     /** @return list<int> */
     private function visibleRequesterIds(int $companyId, int $actorId): array
     {
-        $statement = \db()->prepare(
-            'SELECT user_id,manager_user_id FROM company_users WHERE company_id=:company_id AND active=TRUE'
-        );
-        $statement->execute(['company_id' => $companyId]);
-        $children = [];
-        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $manager = (int) ($row['manager_user_id'] ?? 0);
-            if ($manager > 0) $children[$manager][] = (int) $row['user_id'];
-        }
-        $visible = [$actorId => true];
-        $queue = [$actorId];
-        while ($queue !== []) {
-            $manager = array_shift($queue);
-            foreach ($children[$manager] ?? [] as $child) {
-                if (isset($visible[$child])) continue;
-                $visible[$child] = true;
-                $queue[] = $child;
-            }
-        }
-        return array_map('intval', array_keys($visible));
+        return (new SalesHierarchyScope())->userIds($companyId, $actorId);
     }
 
-    /** @return list<array<string,mixed>> */
     private function listVisibleRequests(int $companyId, int $actorId, bool $all, array $visibleRequesterIds): array
     {
         $where = ['r.company_id=:company_id'];

@@ -1,10 +1,4 @@
 <?php
-// Controller/view payload is supplied through $data by the ERP view helper.
-// Expose it locally for this template while preserving existing variables.
-if (is_array($data ?? null)) {
-    extract($data, EXTR_SKIP);
-}
-
 $permissions=$permissions??($_SESSION['auth']['permissions']??[]);
 $can=static fn(string $p):bool=>in_array($p,$permissions,true);
 $actorId=(int)($_SESSION['auth']['user_id']??0);
@@ -31,17 +25,17 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
     <span class="<?=e($statusClass((string)$request['status']))?>"><?=e(str_replace('_',' ',(string)$request['status']))?></span>
   </div>
   <div class="detail-grid">
-    <div><strong>Serving stock</strong><br><?=e($request['serving_warehouse_name'].' / '.$request['serving_location_name'])?></div>
+    <div><strong><?=($request['request_kind']??'employee_issue')==='manager_replenishment'?'Receiving stock':'Serving stock'?></strong><br><?=e($request['serving_warehouse_name'].' / '.$request['serving_location_name'])?></div>
     <div><strong>Current handler</strong><br><?=e($request['current_handler_name']??'—')?></div>
     <div><strong>Requested</strong><br><?=e($request['requested_quantity'])?></div>
     <div><strong>Allocated</strong><br><?=e($request['allocated_quantity'])?></div>
-    <div><strong>Ready at Shop</strong><br><?=e($request['ready_quantity'])?></div>
+    <div><strong><?=($request['request_kind']??'employee_issue')==='manager_replenishment'?'Received / fulfilled':'Ready at Shop'?></strong><br><?=e($request['ready_quantity'])?></div>
     <div><strong>Requested at</strong><br><?=e($request['requested_at'])?></div>
   </div>
   <?php if(!empty($request['notes'])):?><p><strong>Notes:</strong> <?=e($request['notes'])?></p><?php endif;?>
 </section>
 
-<section class="card"><h3>Request lines</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Product</th><th>Requested</th><th>Allocated</th><th>Ready at Shop</th></tr></thead><tbody>
+<section class="card"><h3>Request lines</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Product</th><th>Requested</th><th>Allocated</th><th><?=($request['request_kind']??'employee_issue')==='manager_replenishment'?'Received':'Ready at Shop'?></th></tr></thead><tbody>
 <?php foreach($request['lines']??[] as $line):?><tr><td><?=e($line['sku'].' — '.$line['name'])?></td><td><?=e($line['requested_quantity'].' '.$line['unit_of_measure'])?></td><td><?=e($line['allocated_quantity'])?></td><td><?=e($line['ready_quantity'])?></td></tr><?php endforeach;?>
 </tbody></table></div></section>
 
@@ -55,7 +49,7 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
 
 <section class="card"><h3>Available action</h3><div class="page-actions">
 <?php if((int)($request['current_handler_user_id']??0)===$actorId && in_array($request['status'],['pending_review','awaiting_procurement'],true) && $can('inventory.stock_requests.process')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=$request['request_id']?>/process"><?=csrfField()?><button class="btn btn-primary">Check my represented stock & route remaining</button></form><?php endif;?>
-<?php if($request['status']==='ready_to_issue' && (int)($stockRequestAuthority['authority_id']??0)===(int)$request['serving_authority_id'] && $can('inventory.stock_requests.issue')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=$request['request_id']?>/issue"><?=csrfField()?><button class="btn btn-primary">Issue full request to DSA/DSP</button></form><?php endif;?>
+<?php if(($request['request_kind']??'employee_issue')==='employee_issue' && $request['status']==='ready_to_issue' && (int)($stockRequestAuthority['authority_id']??0)===(int)$request['serving_authority_id'] && $can('inventory.stock_requests.issue')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=$request['request_id']?>/issue"><?=csrfField()?><button class="btn btn-primary">Issue full request to DSA/DSP</button></form><?php endif;?>
 <?php if($request['status']==='issued' && (int)$request['requester_user_id']===$actorId && $can('inventory.stock_requests.receive')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=$request['request_id']?>/receive"><?=csrfField()?><button class="btn btn-primary">Confirm I received the stock</button></form><?php endif;?>
 <a class="btn btn-secondary" href="<?=e(appBasePath())?>/inventory/stock-requests">Back to requests</a>
 </div></section>
@@ -80,9 +74,9 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
 
 <?php else:?>
 <div class="grid-2">
-<?php if(!empty($canCreateStockRequest)):?><section class="card"><h2>New stock request</h2><p>Your HR Job Title is <?=e($stockRequestActor['job_title']??'')?>. The request will go to your direct Shop Manager and keep one SR number through all escalation.</p><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests"><?=csrfField()?>
+<?php if(!empty($canCreateStockRequest)):?><section class="card"><h2><?=in_array($stockRequestActorRole??'', ['shop','district','regional'],true)?'Request stock from above':'New stock request'?></h2><p><?php if(in_array($stockRequestActorRole??'', ['shop','district','regional'],true)):?>Request any product and positive quantity for future replenishment. Your existing stock stays available; reservation begins only when an upper source actually allocates stock.<?php else:?>Your HR Job Title is <?=e($stockRequestActor['job_title']??'')?>. The request goes through Shop → District → Regional while keeping one SR number.<?php endif;?></p><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests"><?=csrfField()?>
 <div id="sr-lines"><div class="proc-line sr-line"><label>Product<select name="product_id[]" required><option value="">Select product</option><?php foreach($products as $p):?><option value="<?=$p['product_id']?>"><?=e($p['sku'].' — '.$p['name'])?></option><?php endforeach;?></select></label><label>Quantity<input name="quantity[]" type="number" min="0.001" step="0.001" required></label></div></div>
-<div class="page-actions"><button class="btn btn-secondary" type="button" id="add-sr-line">Add another item</button></div><label>Notes<textarea name="notes" maxlength="1000"></textarea></label><button class="btn btn-primary">Submit stock request</button></form></section><?php endif;?>
+<div class="page-actions"><button class="btn btn-secondary" type="button" id="add-sr-line">Add another item</button></div><label>Notes<textarea name="notes" maxlength="1000"></textarea></label><button class="btn btn-primary"><?=in_array($stockRequestActorRole??'', ['shop','district','regional'],true)?'Request replenishment':'Submit stock request'?></button></form></section><?php endif;?>
 <section class="card"><h2>Stock requests</h2><?php if(!$requests):?><div class="proc-empty">No stock requests in your reporting scope.</div><?php else:?><div class="table-responsive"><table class="data-table"><thead><tr><th>SR</th><th>Requester</th><th>Requested</th><th>Allocated</th><th>Handler</th><th>Status</th></tr></thead><tbody><?php foreach($requests as $r):?><tr><td><a href="<?=e(appBasePath())?>/inventory/stock-requests/<?=$r['request_id']?>"><?=e($r['request_number'])?></a></td><td><?=e($r['requester_name'])?></td><td><?=e($r['requested_quantity'])?></td><td><?=e($r['allocated_quantity'])?></td><td><?=e($r['current_handler_name']??'—')?></td><td><span class="<?=e($statusClass((string)$r['status']))?>"><?=e(str_replace('_',' ',$r['status']))?></span></td></tr><?php endforeach;?></tbody></table></div><?php endif;?></section>
 </div>
 <?php endif;?>

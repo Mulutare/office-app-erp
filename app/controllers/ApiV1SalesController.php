@@ -173,7 +173,7 @@ final class ApiV1SalesController
     private function scopedOrders(array $client): array
     {
         $company=(int)$client['company_id'];$user=(int)$client['service_user_id'];$access=new \App\Services\InventoryOperationalAccessService();
-        return array_values(array_filter(RepositoryFactory::sales()->orders($company,200),static fn(array $row):bool=>$access->canAccessRecord($company,$user,$row)));
+        return array_values(array_filter(RepositoryFactory::sales()->orders($company,200),static fn(array $row):bool=>(new \App\Services\SalesHierarchyScope())->canReadSalesRow($company,$user,$row)));
     }
 
     private function transition(string $id, string $action, string $scope): void

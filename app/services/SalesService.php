@@ -165,10 +165,10 @@ final class SalesService
     {
         if($this->delivery($id)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];
         $quantities=[];foreach((array)($input['completed_quantity']??[]) as $lineId=>$quantity){$quantities[(int)$lineId]=max(0,(float)$quantity);}
-        try{$result=$this->inventory->completePicking($this->tenant->companyId(),$id,$quantities,!empty($input['create_backorder']),trim((string)($input['idempotency_key']??''))?:bin2hex(random_bytes(16)),$actorId,date('Y-m-d H:i:s'));return ['successful'=>true]+$result;}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
+        try{$this->assertDeliverySource($id,$actorId);$result=$this->inventory->completePicking($this->tenant->companyId(),$id,$quantities,!empty($input['create_backorder']),trim((string)($input['idempotency_key']??''))?:bin2hex(random_bytes(16)),$actorId,date('Y-m-d H:i:s'));return ['successful'=>true]+$result;}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
     }
     public function reserveDelivery(int $id,int $actorId): array
-    {if($this->delivery($id)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];try{return['successful'=>true]+$this->inventory->reserveDeliveryPicking($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    {if($this->delivery($id)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];try{$this->assertDeliverySource($id,$actorId);return['successful'=>true]+$this->inventory->reserveDeliveryPicking($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
 
     public function createReturn(int $deliveryId,array $input,int $actorId): array
     {
@@ -1307,11 +1307,19 @@ final class SalesService
         return (new SalesHierarchyScope())->canReadSalesRow($this->tenant->companyId(), $actorId, $order);
     }
 
+    private function assertDeliverySource(int $id, int $actor): void
+    {
+        $company=$this->tenant->companyId();
+        $row=$this->inventory->deliveryPicking($company,$id);
+        if (!$row) throw new \RuntimeException('Delivery was not found.');
+        foreach ($row['lines'] ?? [] as $line) $this->operationalAccess->assertAuthorizedSource($company,$actor,(int)$row['warehouse_id'],(int)$line['source_location_id']);
+    }
+
     private function canAccessDeliveryRow(int $company, int $actor, array $row): bool
     {
         $order = $this->sales->orderDetail($company, (int) ($row['sales_order_id'] ?? 0));
         return $order !== null && $this->canAccessOrderRow($order, $actor)
-            && $this->operationalAccess->canAccessRecord($company, $actor, $row);
+            && ((new InventoryReadScope())->warehouse($company, $actor, (int) ($row['warehouse_id'] ?? 0)) || (new SalesHierarchyScope())->isAgent($company, $actor));
     }
 
     private function assertQuickSaleManager(int $actorId, ?int $quotationId, ?int $orderId, ?string $action = null): void

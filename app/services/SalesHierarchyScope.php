@@ -11,16 +11,7 @@ final class SalesHierarchyScope
 {
     public function hasPermission(int $companyId, int $actorId, string $permission): bool
     {
-        $statement = \db()->prepare(
-            'SELECT COUNT(*) FROM company_users cu
-             INNER JOIN users u ON u.user_id=cu.user_id AND u.active=TRUE AND u.deleted_at IS NULL
-             INNER JOIN company_user_roles ur ON ur.company_id=cu.company_id AND ur.user_id=cu.user_id
-             INNER JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id
-             INNER JOIN permissions p ON p.permission_id=rp.permission_id AND p.active=TRUE
-             WHERE cu.company_id=? AND cu.user_id=? AND cu.active=TRUE AND p.code=?'
-        );
-        $statement->execute([$companyId, $actorId, $permission]);
-        return (int) $statement->fetchColumn() > 0;
+        return (new ModuleRoleService())->permissionAllowed($companyId,$actorId,$permission);
     }
 
     public function isAgent(int $companyId, int $actorId): bool
@@ -41,11 +32,22 @@ final class SalesHierarchyScope
         $parents = array_column($statement->fetchAll(\PDO::FETCH_ASSOC), 'manager_user_id', 'user_id');
         if (!array_key_exists($actorId, $parents)) return [];
         if ($this->isAgent($companyId, $actorId)) return [$actorId];
+        $manager = \db()->prepare("SELECT 1 FROM inventory_stock_authorities WHERE company_id=? AND user_id=? AND active=TRUE UNION ALL SELECT 1 FROM inventory_warehouses WHERE company_id=? AND manager_user_id=? AND active=TRUE AND deleted_at IS NULL LIMIT 1");
+        $manager->execute([$companyId,$actorId,$companyId,$actorId]);
+        if (!$manager->fetchColumn() && !$this->hasCompanyWideAccess($companyId,$actorId)) return [$actorId];
+        $this->parentId($companyId, $actorId);
         $visible = [$actorId => true];
         $queue = [$actorId];
         for ($i = 0; $i < count($queue); $i++) {
             foreach ($parents as $userId => $managerId) {
                 if ((int) $managerId === $queue[$i] && !isset($visible[$userId])) {
+                    $seen = [];
+                    $current = (int) $userId;
+                    while ($current > 0) {
+                        if (isset($seen[$current]) || !array_key_exists($current, $parents)) throw new \RuntimeException('The reporting hierarchy contains a cycle or an inactive/out-of-company manager.');
+                        $seen[$current] = true;
+                        $current = (int) $parents[$current];
+                    }
                     $visible[$userId] = true;
                     $queue[] = (int) $userId;
                 }

@@ -2187,7 +2187,8 @@ final class SalesQuickSaleService
                 'isAuthorizedReviewer' => $privilegedReviewer,
                 'canConfirm' =>
                     $isManager
-                    && $row['status'] === 'submitted',
+                    && $row['status'] === 'submitted'
+                    && (string) ($row['fulfilment_state'] ?? 'at_origin') !== 'awaiting_transfer',
                 'canReport' =>
                     $isOwner
                     && $reportLines !== []
@@ -2224,6 +2225,8 @@ final class SalesQuickSaleService
                 'managerReportLines' => $managerReportLines,
                 'locations' => $locations,
                 'routingHistory' => $this->routingHistory($companyId, $quickSaleId),
+                'replenishment' => (new CentralStockReplenishmentService())->quickSaleLinks($companyId, $quickSaleId),
+                'isRegional' => $isManager && (new InventoryOperationalAccessService())->authorityLevel($companyId, $actorId) === 'regional',
                 'stockCheck' => $isManager && $row['status'] === 'submitted'
                     ? $this->stockCheck($companyId, $actorId, (int) $row['warehouse_id'], $quotation['lines']) : null,
                 'availability' => $availability,
@@ -2376,6 +2379,21 @@ final class SalesQuickSaleService
                 $stock = $this->stockCheck($companyId, $actorId, $warehouseId, $quotation['lines']);
                 if (!in_array($sourceLocationId, $stock['sufficient_locations'], true)) {
                     throw new RuntimeException('Insufficient available stock at this source. Escalate the same request if no assigned source can satisfy it.');
+                }
+                $staged = (new QuickSaleFulfilmentService())->stageIfAncestor(
+                    $companyId,
+                    $quickSaleId,
+                    $actorId,
+                    $sourceLocationId
+                );
+                if (is_array($staged) && !empty($staged['staged'])) {
+                    return [
+                        'successful' => true,
+                        'id' => $quickSaleId,
+                        'quotationId' => (int) $row['quotation_id'],
+                        'orderId' => 0,
+                        'stagedTransfer' => true,
+                    ] + $staged;
                 }
             }
             $quotationStatus =
@@ -3163,6 +3181,11 @@ final class SalesQuickSaleService
         int $companyId,
         int $actorId
     ): array {
+        $authority = \db()->prepare("SELECT w.warehouse_id,w.code,w.name,w.address,w.phone,w.email FROM inventory_stock_authorities a JOIN inventory_warehouses w ON w.company_id=a.company_id AND w.warehouse_id=a.warehouse_id WHERE a.company_id=? AND a.user_id=? AND a.active=TRUE AND w.active=TRUE AND w.deleted_at IS NULL");
+        $authority->execute([$companyId,$actorId]);
+        $represented = $authority->fetchAll(\PDO::FETCH_ASSOC);
+        if (count($represented) === 1) return $represented[0];
+        if (count($represented) > 1) throw new RuntimeException('Configure exactly one represented stock authority for this manager.');
         $statement = \db()->prepare(
             'SELECT DISTINCT
                 w.warehouse_id,
@@ -3590,8 +3613,11 @@ final class SalesQuickSaleService
                     agent_id,
                     team_id,
                     manager_user_id,
+                    origin_manager_user_id,
                     warehouse_id,
-                    status
+                    origin_warehouse_id,
+                    status,
+                    fulfilment_state
                 )
              VALUES
                 (
@@ -3601,8 +3627,11 @@ final class SalesQuickSaleService
                     :agent_id,
                     :team_id,
                     :manager_user_id,
+                    :origin_manager_user_id,
                     :warehouse_id,
-                    \'submitted\'
+                    :origin_warehouse_id,
+                    \'submitted\',
+                    \'at_origin\'
                 )'
         );
 
@@ -3613,7 +3642,9 @@ final class SalesQuickSaleService
             'agent_id' => $agentId,
             'team_id' => $teamId,
             'manager_user_id' => $managerUserId,
+            'origin_manager_user_id' => $managerUserId,
             'warehouse_id' => $warehouseId,
+            'origin_warehouse_id' => $warehouseId,
         ]);
         $this->routingAudit($companyId, (int) \db()->lastInsertId(), $userId, 'created', ['initial_manager_id' => $managerUserId, 'warehouse_id' => $warehouseId]);
     }

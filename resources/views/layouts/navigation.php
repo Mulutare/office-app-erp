@@ -19,6 +19,14 @@ $enabledModules = is_array(
     ? $user['modules']
     : [];
 
+$companyId = (int) ($user['company']['company_id'] ?? 0);
+$userId = (int) ($user['user_id'] ?? 0);
+
+$simpleSalesUser =
+    $companyId > 0
+    && $userId > 0
+    && (new \App\Services\SalesHierarchyScope())
+        ->isAgent($companyId, $userId);
 $navigation = [
     [
         'label' => 'Dashboard',

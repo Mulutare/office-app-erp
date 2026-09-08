@@ -164,28 +164,8 @@ final class ApiSecurityService
 
     private function assertServiceUserPermission(int $companyId, int $userId, string $permission): void
     {
-        $statement = \db()->prepare(
-            'SELECT COUNT(*) FROM company_user_roles assignments
-             INNER JOIN roles ON roles.role_id = assignments.role_id AND roles.active = TRUE
-             INNER JOIN company_role_permissions grants
-                ON grants.company_id = assignments.company_id AND grants.role_id = assignments.role_id
-             INNER JOIN permissions ON permissions.permission_id = grants.permission_id AND permissions.active = TRUE
-             INNER JOIN company_users membership
-                ON membership.company_id = assignments.company_id AND membership.user_id = assignments.user_id
-               AND membership.active = TRUE
-             INNER JOIN users ON users.user_id = assignments.user_id
-               AND users.active = TRUE AND users.deleted_at IS NULL
-             WHERE assignments.company_id = :company_id AND assignments.user_id = :user_id
-               AND permissions.code = :permission'
-        );
-        $statement->execute([
-            'company_id' => $companyId,
-            'user_id' => $userId,
-            'permission' => $permission,
-        ]);
-        if ((int) $statement->fetchColumn() < 1) {
-            throw new ApiException(403, 'permission_denied', 'The service account is not authorized for this operation.');
-        }
+        if (!(new ModuleRoleService())->entitled($companyId,$userId,'sales')) throw new ApiException(403,'module_entitlement_required','An explicitly assigned Sales role is required.');
+        if (!(new ModuleRoleService())->permissionAllowed($companyId,$userId,$permission)) throw new ApiException(403,'permission_denied','The service account is not authorized for this operation.');
     }
 
     /** @param array<string,mixed> $client */

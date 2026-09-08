@@ -257,6 +257,8 @@ final class AuthService
                         $currentCompanyId
                     );
 
+        $_SESSION['auth']['modules'] = $this->entitledModules($_SESSION['auth']['modules'], $_SESSION['auth']['roles']);
+
         if (!$this->authenticatedSessions->touchOrRegister(
             $currentCompanyId,
             $userId
@@ -376,6 +378,10 @@ public function hasRole(string $roleCode): bool
  */
 public function can(string $permissionCode): bool
 {
+    $module = explode('.', $permissionCode, 2)[0];
+    if (isset(ModuleRoleService::OWNERS[$module])
+        && (!ModuleRoleService::rolesOwn((array) ($_SESSION['auth']['roles'] ?? []), $module)
+            || !$this->companyModules->isEnabled($module))) return false;
     $permissions =
         $_SESSION['auth']['permissions'] ?? [];
 
@@ -630,6 +636,7 @@ private function completeLogin(array $user): array
                 ->enabledNavigationModules(
                     $companyId
                 );
+        $modules = $this->entitledModules($modules, $roles);
 
         $this->auditLogs->record(
             $userId,
@@ -821,6 +828,12 @@ private function completeLogin(array $user): array
                     ->enabledNavigationModules(
                         $companyId
                     );
+        $_SESSION['auth']['modules'] = $this->entitledModules($_SESSION['auth']['modules'], $_SESSION['auth']['roles']);
+    }
+
+    private function entitledModules(array $modules, array $roles): array
+    {
+        return array_values(array_filter($modules, static fn(array $module): bool => ModuleRoleService::rolesOwn($roles, (string) $module['code'])));
     }
 
     private function invalidateLocalSession(): void

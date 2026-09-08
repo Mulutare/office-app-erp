@@ -105,6 +105,9 @@ trait QuickSaleRouting
             if ($sale['status'] !== 'submitted' || !empty($sale['sales_order_id'])) {
                 throw new RuntimeException('An allocated or already converted request cannot be escalated.');
             }
+            if ((string) ($sale['fulfilment_state'] ?? 'at_origin') === 'awaiting_transfer') {
+                throw new RuntimeException('This Quick Sale is already waiting for a downstream stock transfer.');
+            }
             $reason = trim($reason);
             if ($reason === '' || mb_strlen($reason) > 2000) throw new RuntimeException('Enter a stock insufficiency reason (up to 2000 characters).');
             $quotation = $this->sales->quotation($company, (int) $sale['quotation_id']);
@@ -112,15 +115,14 @@ trait QuickSaleRouting
             $stock = $this->stockCheck($company, $actor, (int) $sale['warehouse_id'], $quotation['lines']);
             if ($stock['sufficient_locations'] !== []) throw new RuntimeException('Available stock can satisfy this request. Allocate it at this level.');
             $parent = $scope->parentId($company, $actor);
-            if ($parent === null) {
-                $history = $this->routingHistory($company, $saleId);
-                if (($history[count($history) - 1]['action'] ?? '') !== 'quick_sale.stock_unavailable') {
-                    $this->routingAudit($company, $saleId, $actor, 'stock_unavailable', $stock + [
-                        'from_manager_id' => $actor, 'to_manager_id' => null,
-                        'warehouse_id' => (int) $sale['warehouse_id'], 'reason' => $reason]);
-                }
-                return ['successful' => true, 'id' => $saleId, 'unresolved' => true];
+            $authority = \db()->prepare("SELECT authority_level FROM inventory_stock_authorities WHERE company_id=? AND user_id=? AND active=TRUE");
+            $authority->execute([$company, $actor]);
+            if ($authority->fetchColumn() === 'regional') {
+                $result = (new CentralStockReplenishmentService())->quickSale($company, $saleId, $actor);
+                $this->routingAudit($company, $saleId, $actor, 'central_replenishment', ['reason' => $reason, 'state' => $result['status']]);
+                return ['successful' => true, 'id' => $saleId, 'unresolved' => true] + $result;
             }
+            if ($parent === null) throw new RuntimeException('Configure the Regional stock authority before requesting company replenishment.');
             if (!$scope->canManage($company, $parent)) throw new RuntimeException('The direct parent manager needs the Sales confirmation permission before escalation.');
             $warehouse = $this->resolveShopWarehouse($company, $parent);
             // A reconfigured hierarchy must not send a request back to a previous processor.

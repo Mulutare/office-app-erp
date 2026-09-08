@@ -84,9 +84,9 @@ function assetUrl(string $path): string
         return $url;
     }
 
-    $modifiedAt = filemtime($filePath);
+    $hash = hash_file('sha256', $filePath);
 
-    return $modifiedAt === false
+    return $hash === false
         ? $url
-        : $url . '?v=' . $modifiedAt;
+        : $url . '?v=' . substr($hash, 0, 16);
 }

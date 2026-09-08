@@ -46,7 +46,7 @@ final class InventoryService
         }
 
         try {
-            if($this->receiptForActor($goodsReceiptId,$actorId)===null)throw new RuntimeException('Goods receipt was not found.');
+            if(!$this->canMutateReceipt($goodsReceiptId,$actorId))throw new RuntimeException('Goods receipt was not found.');
             $companyId = $this->tenant->companyId();
             $result = $this->inventory->postGoodsReceipt(
                 $companyId,
@@ -63,8 +63,8 @@ final class InventoryService
                     $actorId
                 );
             } catch (\Throwable $resumeException) {
-                error_log('Stock request resume after goods receipt failed: ' . $resumeException->getMessage());
-                $resumeWarning = 'Receipt posted, but the linked stock request could not be resumed automatically. Regional can recheck the request manually.';
+                error_log('Central replenishment resume after goods receipt failed: ' . $resumeException->getMessage());
+                $resumeWarning = 'Receipt posted, but linked company replenishment needs attention. Correct the configuration and retry posting this same receipt to resume safely.';
             }
 
             return [
@@ -89,53 +89,43 @@ final class InventoryService
     public function createGoodsReceipt(array $input,int $actorId): array
     {$warehouse=(int)($input['warehouse_id']??0);$destination=(int)($input['destination_location_id']??0);$supplier=trim((string)($input['supplier_name']??''));$date=trim((string)($input['receipt_date']??''));$currency=strtoupper(trim((string)($input['currency']??'ETB')));$productIds=(array)($input['product_id']??[]);$quantities=(array)($input['quantity']??[]);$costs=(array)($input['unit_cost']??[]);$lines=[];foreach($productIds as $i=>$productId){$pid=(int)$productId;$qty=(float)($quantities[$i]??0);$cost=(float)($costs[$i]??0);if($pid>0&&$qty>0)$lines[]=['product_id'=>$pid,'quantity'=>$qty,'unit_cost'=>$cost,'notes'=>null];}if($warehouse<1||$destination<1||$supplier===''||preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)!==1||preg_match('/^[A-Z]{3}$/',$currency)!==1||$lines===[])return['successful'=>false,'errors'=>['form'=>'Warehouse, receiving location, supplier, receipt date, currency and at least one positive product quantity are required.']];try{(new InventoryOperationalAccessService())->assertAuthorizedDestination($this->tenant->companyId(),$actorId,$warehouse,$destination);$id=$this->inventory->createGoodsReceipt($this->tenant->companyId(),['warehouse_id'=>$warehouse,'destination_location_id'=>$destination,'supplier_name'=>$supplier,'supplier_reference'=>trim((string)($input['supplier_reference']??''))?:null,'receipt_date'=>$date,'currency'=>$currency,'notes'=>trim((string)($input['notes']??''))?:null],$lines,$actorId);return['successful'=>true,'id'=>$id];}catch(\Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
     public function approveGoodsReceipt(int $id,int $actorId): array
-    {try{if($this->receiptForActor($id,$actorId)===null)throw new RuntimeException('Goods receipt was not found.');$this->inventory->approveGoodsReceipt($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));return['successful'=>true,'id'=>$id];}catch(\Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    {try{if(!$this->canMutateReceipt($id,$actorId))throw new RuntimeException('Goods receipt was not found.');$this->inventory->approveGoodsReceipt($this->tenant->companyId(),$id,$actorId,date('Y-m-d H:i:s'));return['successful'=>true,'id'=>$id];}catch(\Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+
+    private function canMutateReceipt(int $id, int $actor): bool
+    {
+        $company=$this->tenant->companyId();
+        $row=$this->inventory->goodsReceipt($company,$id);
+        return $row && (new InventoryOperationalAccessService())->canAccessRecord($company,$actor,$row,'warehouse_id','destination_location_id');
+    }
 
     private function receiptForActor(int $id,int $actorId): ?array
-    {$company=$this->tenant->companyId();$row=$this->inventory->goodsReceipt($company,$id);$access=new InventoryOperationalAccessService();return is_array($row)&&$access->canAccessRecord($company,$actorId,$row,'warehouse_id','destination_location_id')?$row:null;}
+    {$company=$this->tenant->companyId();$row=$this->inventory->goodsReceipt($company,$id);$access=new InventoryOperationalAccessService();return is_array($row)&&(new InventoryReadScope())->location($company,$actorId,(int)$row['warehouse_id'],(int)$row['destination_location_id'])?$row:null;}
 
     /** @return array<string, mixed> */
     public function postTransfer(int $transferId, int $actorId): array
     {
-        if ($transferId < 1 || $actorId < 1) {
-            return [
-                'successful' => false,
-                'errors' => ['form' => 'A valid transfer and actor are required.'],
-            ];
-        }
-
-        try {
-            return [
-                'successful' => true,
-                'result' => $this->inventory->postTransfer(
-                    $this->tenant->companyId(),
-                    $transferId,
-                    $actorId,
-                    date('Y-m-d H:i:s')
-                ),
-            ];
-        } catch (\Throwable $exception) {
-            return [
-                'successful' => false,
-                'errors' => ['form' => $exception->getMessage()],
-            ];
-        }
+        try { return ['successful'=>true, 'result'=>$this->dispatchTransfer($transferId, $actorId)]; }
+        catch (\Throwable $e) { return ['successful'=>false, 'errors'=>['form'=>$e->getMessage()]]; }
     }
 
     /** @return array<string,mixed> */
     public function transferWorkspace(?int $transferId=null): array
     {
         $company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);$access=new InventoryOperationalAccessService();$connection=\db();
-        $list=$connection->prepare("SELECT t.*,sw.name source_warehouse_name,dw.name destination_warehouse_name,MAX(sl.name) source_location_name,MAX(dl.name) destination_location_name,COALESCE(SUM(l.quantity),0) requested_quantity,COALESCE(SUM(l.dispatched_quantity),0) dispatched_quantity,COALESCE(SUM(l.received_quantity),0) received_quantity,GROUP_CONCAT(CONCAT(p.name,' x ',l.quantity) ORDER BY l.transfer_line_id SEPARATOR ', ') product_summary FROM inventory_transfers t INNER JOIN inventory_warehouses sw ON sw.company_id=t.company_id AND sw.warehouse_id=t.source_warehouse_id INNER JOIN inventory_warehouses dw ON dw.company_id=t.company_id AND dw.warehouse_id=t.destination_warehouse_id LEFT JOIN inventory_transfer_lines l ON l.company_id=t.company_id AND l.transfer_id=t.transfer_id LEFT JOIN inventory_warehouse_locations sl ON sl.company_id=l.company_id AND sl.warehouse_id=l.source_warehouse_id AND sl.location_id=l.source_location_id LEFT JOIN inventory_warehouse_locations dl ON dl.company_id=l.company_id AND dl.warehouse_id=l.destination_warehouse_id AND dl.location_id=l.destination_location_id LEFT JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id WHERE t.company_id=:company_id GROUP BY t.transfer_id ORDER BY t.transfer_id DESC");$list->execute(['company_id'=>$company]);
+        $read=new InventoryReadScope();$transferScope='('.$read->predicate($company,$actor,'t.source_warehouse_id').' OR '.$read->predicate($company,$actor,'t.destination_warehouse_id').')';
+        $list=$connection->prepare("SELECT t.*,sw.name source_warehouse_name,dw.name destination_warehouse_name,MAX(sl.name) source_location_name,MAX(dl.name) destination_location_name,COALESCE(SUM(l.quantity),0) requested_quantity,COALESCE(SUM(l.dispatched_quantity),0) dispatched_quantity,COALESCE(SUM(l.received_quantity),0) received_quantity,GROUP_CONCAT(CONCAT(p.name,' x ',l.quantity) ORDER BY l.transfer_line_id SEPARATOR ', ') product_summary FROM inventory_transfers t INNER JOIN inventory_warehouses sw ON sw.company_id=t.company_id AND sw.warehouse_id=t.source_warehouse_id INNER JOIN inventory_warehouses dw ON dw.company_id=t.company_id AND dw.warehouse_id=t.destination_warehouse_id LEFT JOIN inventory_transfer_lines l ON l.company_id=t.company_id AND l.transfer_id=t.transfer_id LEFT JOIN inventory_warehouse_locations sl ON sl.company_id=l.company_id AND sl.warehouse_id=l.source_warehouse_id AND sl.location_id=l.source_location_id LEFT JOIN inventory_warehouse_locations dl ON dl.company_id=l.company_id AND dl.warehouse_id=l.destination_warehouse_id AND dl.location_id=l.destination_location_id LEFT JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id WHERE t.company_id=:company_id AND ($transferScope) GROUP BY t.transfer_id ORDER BY t.transfer_id DESC");$list->execute(['company_id'=>$company]);
         $products=$connection->prepare("SELECT product_id,sku,name FROM sales_products WHERE company_id=:company_id AND active=TRUE AND deleted_at IS NULL AND product_type NOT IN('service','fixed_asset') ORDER BY name");$products->execute(['company_id'=>$company]);
         $data=['transfers'=>$list->fetchAll(\PDO::FETCH_ASSOC),'warehouses'=>$access->warehousesForUser($company,$actor),'locations'=>$access->locationsForUser($company,$actor),'products'=>$products->fetchAll(\PDO::FETCH_ASSOC),'transfer'=>null];
-        if($transferId!==null){foreach($data['transfers'] as $row)if((int)$row['transfer_id']===$transferId){$data['transfer']=$row;break;}if(is_array($data['transfer'])){$lines=$connection->prepare("SELECT l.*,p.sku,p.name product_name,b.quantity_on_hand,b.quantity_reserved,b.quantity_available FROM inventory_transfer_lines l INNER JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id LEFT JOIN inventory_stock_balances b ON b.company_id=l.company_id AND b.warehouse_id=l.source_warehouse_id AND b.location_id=l.source_location_id AND b.product_id=l.product_id WHERE l.company_id=:company_id AND l.transfer_id=:transfer_id ORDER BY l.transfer_line_id");$lines->execute(['company_id'=>$company,'transfer_id'=>$transferId]);$data['transfer']['lines']=$lines->fetchAll(\PDO::FETCH_ASSOC);}}
+        $data += $access->transferDestinations($company,$actor);
+        $read=new InventoryReadScope();
+        $data['transfers']=array_values(array_filter($data['transfers'],fn(array $row):bool=>$read->warehouse($company,$actor,(int)$row['source_warehouse_id'])||$read->warehouse($company,$actor,(int)$row['destination_warehouse_id'])));
+        if($transferId!==null){foreach($data['transfers'] as $row)if((int)$row['transfer_id']===$transferId){$data['transfer']=$row;break;}if(is_array($data['transfer'])){$lines=$connection->prepare("SELECT l.*,p.sku,p.name product_name,b.quantity_on_hand,b.quantity_reserved,b.quantity_available FROM inventory_transfer_lines l INNER JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id LEFT JOIN inventory_stock_balances b ON b.company_id=l.company_id AND b.warehouse_id=l.source_warehouse_id AND b.location_id=l.source_location_id AND b.product_id=l.product_id WHERE l.company_id=:company_id AND l.transfer_id=:transfer_id ORDER BY l.transfer_line_id");$lines->execute(['company_id'=>$company,'transfer_id'=>$transferId]);$data['transfer']['lines']=$lines->fetchAll(\PDO::FETCH_ASSOC);if(!$read->warehouse($company,$actor,(int)$data['transfer']['source_warehouse_id'])){foreach($data['transfer']['lines'] as &$line){unset($line['quantity_on_hand'],$line['quantity_reserved'],$line['quantity_available']);}unset($line);}}}
         return $data;
     }
 
     public function createTransfer(array $input,int $actorId): int
     {
-        $company=$this->tenant->companyId();$sourceWarehouse=(int)($input['source_warehouse_id']??0);$sourceLocation=(int)($input['source_location_id']??0);$destinationWarehouse=(int)($input['destination_warehouse_id']??0);$destinationLocation=(int)($input['destination_location_id']??0);$reason=trim((string)($input['reason']??''));$productIds=(array)($input['product_id']??[]);$quantities=(array)($input['quantity']??[]);if($reason===''||min($sourceWarehouse,$sourceLocation,$destinationWarehouse,$destinationLocation)<1)throw new RuntimeException('Source, destination and transfer reason are required.');if($sourceWarehouse===$destinationWarehouse&&$sourceLocation===$destinationLocation)throw new RuntimeException('Source and destination locations must differ.');$access=new InventoryOperationalAccessService();$access->assertAuthorizedSource($company,$actorId,$sourceWarehouse,$sourceLocation);$access->assertAuthorizedTransferDestination($company,$actorId,$destinationWarehouse,$destinationLocation);$lines=[];foreach($productIds as $index=>$productId){$product=(int)$productId;$quantity=round((float)($quantities[$index]??0),3);if($product>0&&$quantity>0)$lines[]=['product_id'=>$product,'quantity'=>$quantity];}if($lines===[])throw new RuntimeException('At least one positive product quantity is required.');$availability=$access->availability($company,$actorId,$sourceWarehouse,$sourceLocation,array_column($lines,'product_id'));foreach($lines as $line){$available=(float)($availability[$line['product_id']]['quantity_available']??0);$negative=!empty($availability[$line['product_id']]['allow_negative_stock']);if(!$negative&&$line['quantity']>$available+0.0005)throw new RuntimeException('Transfer quantity exceeds exact source-location available stock.');}
+        $company=$this->tenant->companyId();$sourceWarehouse=(int)($input['source_warehouse_id']??0);$sourceLocation=(int)($input['source_location_id']??0);$destinationWarehouse=(int)($input['destination_warehouse_id']??0);$destinationLocation=(int)($input['destination_location_id']??0);$reason=trim((string)($input['reason']??''));$productIds=(array)($input['product_id']??[]);$quantities=(array)($input['quantity']??[]);if($reason===''||min($sourceWarehouse,$sourceLocation,$destinationWarehouse,$destinationLocation)<1)throw new RuntimeException('Source, destination and transfer reason are required.');if($sourceWarehouse===$destinationWarehouse&&$sourceLocation===$destinationLocation)throw new RuntimeException('Source and destination locations must differ.');$access=new InventoryOperationalAccessService();$access->assertAuthorizedSource($company,$actorId,$sourceWarehouse,$sourceLocation);$access->assertAuthorizedTransferDestination($company,$actorId,$destinationWarehouse,$destinationLocation,$sourceWarehouse);$lines=[];foreach($productIds as $index=>$productId){$product=(int)$productId;$quantity=round((float)($quantities[$index]??0),3);if($product>0&&$quantity>0)$lines[]=['product_id'=>$product,'quantity'=>$quantity];}if($lines===[])throw new RuntimeException('At least one positive product quantity is required.');$availability=$access->availability($company,$actorId,$sourceWarehouse,$sourceLocation,array_column($lines,'product_id'));foreach($lines as $line){$available=(float)($availability[$line['product_id']]['quantity_available']??0);$negative=!empty($availability[$line['product_id']]['allow_negative_stock']);if($line['quantity']>$available+0.0005)throw new RuntimeException('Transfer quantity exceeds exact source-location available stock.');}
         $connection=\db();$connection->beginTransaction();try{$operation=$connection->prepare("SELECT operation_type_id FROM inventory_operation_types WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND operation_kind='internal_transfer' AND active=TRUE AND is_default=TRUE LIMIT 1");$operation->execute(['company_id'=>$company,'warehouse_id'=>$sourceWarehouse]);$operationId=(int)$operation->fetchColumn();if($operationId<1)throw new RuntimeException('The source warehouse internal-transfer operation is not configured.');$number='TRF-'.date('Ymd').'-'.strtoupper(substr(bin2hex(random_bytes(4)),0,8));$header=$connection->prepare("INSERT INTO inventory_transfers(company_id,source_warehouse_id,destination_warehouse_id,operation_type_id,transfer_number,transfer_date,status,notes,reason,created_by) VALUES(:company_id,:source_warehouse_id,:destination_warehouse_id,:operation_type_id,:number,CURRENT_DATE,'draft',:notes,:reason,:actor)");$header->execute(['company_id'=>$company,'source_warehouse_id'=>$sourceWarehouse,'destination_warehouse_id'=>$destinationWarehouse,'operation_type_id'=>$operationId,'number'=>$number,'notes'=>trim((string)($input['notes']??''))?:null,'reason'=>$reason,'actor'=>$actorId]);$id=(int)$connection->lastInsertId();$insert=$connection->prepare("INSERT INTO inventory_transfer_lines(company_id,transfer_id,source_warehouse_id,source_location_id,destination_warehouse_id,destination_location_id,product_id,quantity,unit_cost,notes) VALUES(:company_id,:transfer_id,:source_warehouse_id,:source_location_id,:destination_warehouse_id,:destination_location_id,:product_id,:quantity,:unit_cost,:notes)");foreach($lines as $line){$unitCost=(float)($availability[$line['product_id']]['average_unit_cost']??0);$insert->execute(['company_id'=>$company,'transfer_id'=>$id,'source_warehouse_id'=>$sourceWarehouse,'source_location_id'=>$sourceLocation,'destination_warehouse_id'=>$destinationWarehouse,'destination_location_id'=>$destinationLocation,'product_id'=>$line['product_id'],'quantity'=>$line['quantity'],'unit_cost'=>$unitCost,'notes'=>$reason]);}$connection->commit();$this->auditTransfer($actorId,'CREATE',$id,[],['status'=>'draft']);return $id;}catch(\Throwable $e){if($connection->inTransaction())$connection->rollBack();throw $e;}
     }
 
@@ -155,7 +145,7 @@ final class InventoryService
         if(!is_array($route))throw new RuntimeException('The transfer has no valid route.');
         $access=new InventoryOperationalAccessService();
         $access->assertAuthorizedSource($company,$actorId,(int)$route['source_warehouse_id'],(int)$route['source_location_id']);
-        $access->assertAuthorizedTransferDestination($company,$actorId,(int)$route['destination_warehouse_id'],(int)$route['destination_location_id']);
+        $access->assertAuthorizedTransferDestination($company,$actorId,(int)$route['destination_warehouse_id'],(int)$route['destination_location_id'],(int)$route['source_warehouse_id']);
         $spec=$map[$action];$from=$spec[0];$to=$spec[1];$column=$spec[2];$time=$spec[3];
         $owns=!$connection->inTransaction();
         try{
@@ -170,6 +160,8 @@ final class InventoryService
             if($statement->rowCount()!==1)throw new RuntimeException('The transfer transition is stale, unsafe, or violates maker/checker separation.');
             if($action==='cancel'){
                 (new StockRequestService())->onTransferCancelled($company,$transferId);
+                (new CentralStockReplenishmentService())->transferTransition($company,$transferId,'cancel');
+                (new QuickSaleFulfilmentService())->transferTransition($company,$transferId,'cancel');
             }
             if($owns)$connection->commit();
             $this->auditTransfer($actorId,strtoupper($action),$transferId,['status'=>$from],['status'=>$to]);
@@ -183,9 +175,238 @@ final class InventoryService
     public function receiveTransfer(int $transferId,int $actorId): array { return $this->moveTransfer($transferId,$actorId,true); }
 
     /** @return array<string,mixed> */
-    private function moveTransfer(int $transferId,int $actorId,bool $receiving): array
+    private function moveTransfer(int $transferId, int $actorId, bool $receiving): array
     {
-        $company=$this->tenant->companyId();$connection=\db();$connection->beginTransaction();try{$header=$connection->prepare('SELECT * FROM inventory_transfers WHERE company_id=:company_id AND transfer_id=:transfer_id FOR UPDATE');$header->execute(['company_id'=>$company,'transfer_id'=>$transferId]);$transfer=$header->fetch(\PDO::FETCH_ASSOC);$required=$receiving?'in_transit':'approved';$done=$receiving?'done':'in_transit';if(!is_array($transfer)||(string)$transfer['status']!==$required)throw new RuntimeException($receiving?'Only an in-transit transfer can be received.':'Only an approved transfer can be dispatched.');$lines=$connection->prepare('SELECT * FROM inventory_transfer_lines WHERE company_id=:company_id AND transfer_id=:transfer_id ORDER BY transfer_line_id FOR UPDATE');$lines->execute(['company_id'=>$company,'transfer_id'=>$transferId]);$rows=$lines->fetchAll(\PDO::FETCH_ASSOC);if($rows===[])throw new RuntimeException('The transfer has no lines.');$stockRequests=new StockRequestService();if(!$receiving)$stockRequests->beforeTransferDispatch($company,$transferId);$access=new InventoryOperationalAccessService();$movementCount=0;foreach($rows as $line){if($receiving)$access->assertAuthorizedTransferDestination($company,$actorId,(int)$line['destination_warehouse_id'],(int)$line['destination_location_id']);else $access->assertAuthorizedSource($company,$actorId,(int)$line['source_warehouse_id'],(int)$line['source_location_id']);$transit=$connection->prepare("SELECT location_id FROM inventory_warehouse_locations WHERE company_id=:company_id AND warehouse_id=:warehouse_id AND location_usage='transit' AND active=TRUE AND deleted_at IS NULL ORDER BY location_id LIMIT 1");$transit->execute(['company_id'=>$company,'warehouse_id'=>$line['source_warehouse_id']]);$transitLocation=(int)$transit->fetchColumn();if($transitLocation<1)throw new RuntimeException('The source warehouse has no active in-transit location.');$quantity=$receiving?(float)$line['dispatched_quantity']:(float)$line['quantity'];$result=$this->inventory->completeStockMovement(['companyId'=>$company,'productId'=>(int)$line['product_id'],'sourceWarehouseId'=>(int)$line['source_warehouse_id'],'sourceLocationId'=>$receiving?$transitLocation:(int)$line['source_location_id'],'destinationWarehouseId'=>$receiving?(int)$line['destination_warehouse_id']:(int)$line['source_warehouse_id'],'destinationLocationId'=>$receiving?(int)$line['destination_location_id']:$transitLocation,'quantity'=>$quantity,'unitCost'=>(float)$line['unit_cost'],'movementType'=>$receiving?'transfer_in':'transfer_out','operationTypeId'=>(int)$transfer['operation_type_id'],'currency'=>(string)($_SESSION['auth']['company']['default_currency']??'ETB'),'referenceType'=>'inventory_transfer','referenceId'=>$transferId,'referenceNumber'=>$transfer['transfer_number'],'idempotencyKey'=>sprintf('inventory-transfer:%d:line:%d:%s',$transferId,$line['transfer_line_id'],$receiving?'receive':'dispatch'),'notes'=>$transfer['reason']??$transfer['notes'],'occurredAt'=>date('Y-m-d H:i:s'),'actorId'=>$actorId]);if(empty($result['replayed']))$movementCount++;$column=$receiving?'received_quantity':'dispatched_quantity';$connection->prepare("UPDATE inventory_transfer_lines SET $column=:quantity WHERE company_id=:company_id AND transfer_line_id=:line_id")->execute(['quantity'=>$quantity,'company_id'=>$company,'line_id'=>$line['transfer_line_id']]);}$actorColumn=$receiving?'received_by':'dispatched_by';$timeColumn=$receiving?'received_at':'dispatched_at';$connection->prepare("UPDATE inventory_transfers SET status=:status,$actorColumn=:actor,$timeColumn=NOW(),posted_by=IF(:is_receiving=1,:actor_two,posted_by),posted_at=IF(:is_receiving_two=1,NOW(),posted_at) WHERE company_id=:company_id AND transfer_id=:transfer_id AND status=:required")->execute(['status'=>$done,'actor'=>$actorId,'is_receiving'=>$receiving?1:0,'actor_two'=>$actorId,'is_receiving_two'=>$receiving?1:0,'company_id'=>$company,'transfer_id'=>$transferId,'required'=>$required]);if($receiving)$stockRequests->afterTransferReceive($company,$transferId);else $stockRequests->afterTransferDispatch($company,$transferId);$connection->commit();$this->auditTransfer($actorId,$receiving?'RECEIVE':'DISPATCH',$transferId,['status'=>$required],['status'=>$done]);return['transferId'=>$transferId,'status'=>$done,'movementCount'=>$movementCount];}catch(\Throwable $e){if($connection->inTransaction())$connection->rollBack();throw $e;}
+        $company = $this->tenant->companyId();
+        $connection = \db();
+        $connection->beginTransaction();
+
+        try {
+            $header = $connection->prepare(
+                'SELECT * FROM inventory_transfers
+                 WHERE company_id=:company_id AND transfer_id=:transfer_id
+                 FOR UPDATE'
+            );
+            $header->execute([
+                'company_id' => $company,
+                'transfer_id' => $transferId,
+            ]);
+            $transfer = $header->fetch(\PDO::FETCH_ASSOC);
+            $required = $receiving ? 'in_transit' : 'approved';
+            $done = $receiving ? 'done' : 'in_transit';
+
+            if (!is_array($transfer) || (string) $transfer['status'] !== $required) {
+                throw new RuntimeException(
+                    $receiving
+                        ? 'Only an in-transit transfer can be received.'
+                        : 'Only an approved transfer can be dispatched.'
+                );
+            }
+
+            $lines = $connection->prepare(
+                'SELECT * FROM inventory_transfer_lines
+                 WHERE company_id=:company_id AND transfer_id=:transfer_id
+                 ORDER BY transfer_line_id FOR UPDATE'
+            );
+            $lines->execute([
+                'company_id' => $company,
+                'transfer_id' => $transferId,
+            ]);
+            $rows = $lines->fetchAll(\PDO::FETCH_ASSOC);
+            if ($rows === []) {
+                throw new RuntimeException('The transfer has no lines.');
+            }
+
+            $stockRequests = new StockRequestService();
+            if (!$receiving) {
+                $stockRequests->beforeTransferDispatch($company, $transferId);
+                (new CentralStockReplenishmentService())
+                    ->transferTransition($company, $transferId, 'dispatch');
+                (new QuickSaleFulfilmentService())
+                    ->transferTransition($company, $transferId, 'dispatch');
+            }
+
+            // The configured INT staging destination is authoritative. Current production
+            // warehouses use OUTPUT for this purpose; a virtual TRANSIT location is not required.
+            $stageStatement = $connection->prepare(
+                "SELECT l.location_id
+                 FROM inventory_operation_types ot
+                 INNER JOIN inventory_warehouse_locations l
+                   ON l.company_id=ot.company_id
+                  AND l.warehouse_id=ot.warehouse_id
+                  AND l.location_id=ot.default_destination_location_id
+                 WHERE ot.company_id=:company_id
+                   AND ot.operation_type_id=:operation_type_id
+                   AND ot.warehouse_id=:warehouse_id
+                   AND ot.operation_kind='internal_transfer'
+                   AND ot.active=TRUE
+                   AND l.active=TRUE AND l.deleted_at IS NULL
+                   AND l.location_usage='internal' AND l.is_virtual=FALSE
+                   AND l.receiving_allowed=TRUE AND l.picking_allowed=TRUE"
+            );
+            $stageStatement->execute([
+                'company_id' => $company,
+                'operation_type_id' => (int) $transfer['operation_type_id'],
+                'warehouse_id' => (int) $transfer['source_warehouse_id'],
+            ]);
+            $stageLocation = (int) $stageStatement->fetchColumn();
+            if ($stageLocation < 1) {
+                throw new RuntimeException(
+                    'The source warehouse internal-transfer operation has no valid staging destination.'
+                );
+            }
+
+            $access = new InventoryOperationalAccessService();
+            $movementCount = 0;
+
+            foreach ($rows as $line) {
+                $sourceWarehouse = (int) $line['source_warehouse_id'];
+                $sourceLocation = (int) $line['source_location_id'];
+                $destinationWarehouse = (int) $line['destination_warehouse_id'];
+                $destinationLocation = (int) $line['destination_location_id'];
+
+                if ($stageLocation === $sourceLocation) {
+                    throw new RuntimeException(
+                        'The internal-transfer staging location must differ from the stock source location.'
+                    );
+                }
+
+                if ($receiving) {
+                    $access->assertAuthorizedReceive(
+                        $company,
+                        $actorId,
+                        $destinationWarehouse,
+                        $destinationLocation
+                    );
+                } else {
+                    $access->assertAuthorizedSource(
+                        $company,
+                        $actorId,
+                        $sourceWarehouse,
+                        $sourceLocation
+                    );
+                }
+
+                $quantity = $receiving
+                    ? (float) $line['dispatched_quantity']
+                    : (float) $line['quantity'];
+                if ($quantity <= 0) {
+                    throw new RuntimeException('Transfer quantity must be positive.');
+                }
+
+                $availableBalance = $this->inventory->stockBalanceForUpdate(
+                    $company,
+                    $sourceWarehouse,
+                    $receiving ? $stageLocation : $sourceLocation,
+                    (int) $line['product_id']
+                );
+                if (
+                    (float) ($availableBalance['quantity_on_hand'] ?? 0)
+                    - (float) ($availableBalance['quantity_reserved'] ?? 0)
+                    + 0.0005 < $quantity
+                ) {
+                    throw new RuntimeException(
+                        'Transfer stock is no longer available; negative stock is not permitted.'
+                    );
+                }
+
+                $result = $this->inventory->completeStockMovement([
+                    'companyId' => $company,
+                    'productId' => (int) $line['product_id'],
+                    'sourceWarehouseId' => $sourceWarehouse,
+                    'sourceLocationId' => $receiving ? $stageLocation : $sourceLocation,
+                    'destinationWarehouseId' => $receiving
+                        ? $destinationWarehouse
+                        : $sourceWarehouse,
+                    'destinationLocationId' => $receiving
+                        ? $destinationLocation
+                        : $stageLocation,
+                    'quantity' => $quantity,
+                    'unitCost' => (float) $line['unit_cost'],
+                    'movementType' => $receiving ? 'transfer_in' : 'transfer_out',
+                    'operationTypeId' => (int) $transfer['operation_type_id'],
+                    'currency' => (string) (
+                        $_SESSION['auth']['company']['default_currency'] ?? 'ETB'
+                    ),
+                    'referenceType' => 'inventory_transfer',
+                    'referenceId' => $transferId,
+                    'referenceNumber' => $transfer['transfer_number'],
+                    'idempotencyKey' => sprintf(
+                        'inventory-transfer:%d:line:%d:%s',
+                        $transferId,
+                        $line['transfer_line_id'],
+                        $receiving ? 'receive' : 'dispatch'
+                    ),
+                    'notes' => $transfer['reason'] ?? $transfer['notes'],
+                    'occurredAt' => date('Y-m-d H:i:s'),
+                    'actorId' => $actorId,
+                ]);
+                if (empty($result['replayed'])) {
+                    $movementCount++;
+                }
+
+                $column = $receiving ? 'received_quantity' : 'dispatched_quantity';
+                $connection->prepare(
+                    "UPDATE inventory_transfer_lines
+                     SET $column=:quantity
+                     WHERE company_id=:company_id AND transfer_line_id=:line_id"
+                )->execute([
+                    'quantity' => $quantity,
+                    'company_id' => $company,
+                    'line_id' => (int) $line['transfer_line_id'],
+                ]);
+            }
+
+            $actorColumn = $receiving ? 'received_by' : 'dispatched_by';
+            $timeColumn = $receiving ? 'received_at' : 'dispatched_at';
+            $connection->prepare(
+                "UPDATE inventory_transfers
+                 SET status=:status,$actorColumn=:actor,$timeColumn=NOW(),
+                     posted_by=IF(:is_receiving=1,:actor_two,posted_by),
+                     posted_at=IF(:is_receiving_two=1,NOW(),posted_at)
+                 WHERE company_id=:company_id AND transfer_id=:transfer_id
+                   AND status=:required"
+            )->execute([
+                'status' => $done,
+                'actor' => $actorId,
+                'is_receiving' => $receiving ? 1 : 0,
+                'actor_two' => $actorId,
+                'is_receiving_two' => $receiving ? 1 : 0,
+                'company_id' => $company,
+                'transfer_id' => $transferId,
+                'required' => $required,
+            ]);
+
+            if ($receiving) {
+                $stockRequests->afterTransferReceive($company, $transferId);
+                (new CentralStockReplenishmentService())
+                    ->transferTransition($company, $transferId, 'receive');
+                (new QuickSaleFulfilmentService())
+                    ->transferTransition($company, $transferId, 'receive');
+            } else {
+                $stockRequests->afterTransferDispatch($company, $transferId);
+            }
+
+            $connection->commit();
+            $this->auditTransfer(
+                $actorId,
+                $receiving ? 'RECEIVE' : 'DISPATCH',
+                $transferId,
+                ['status' => $required],
+                ['status' => $done]
+            );
+
+            return [
+                'transferId' => $transferId,
+                'status' => $done,
+                'movementCount' => $movementCount,
+            ];
+        } catch (\Throwable $e) {
+            if ($connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            throw $e;
+        }
     }
 
     private function auditTransfer(int $actorId,string $action,int $transferId,array $before,array $after): void { (new \App\Models\AuditLog())->record($actorId,$action,'inventory','inventory_transfers',(string)$transferId,$before,$after); }
@@ -212,12 +433,17 @@ final class InventoryService
         $companyId = $this->tenant->companyId();
         $connection = \db();
 
+        $read=new InventoryReadScope();
+        $actor=(int)($_SESSION['auth']['user_id']??0);
+        $scope=$read->predicate($companyId,$actor,'warehouse_id');
+        $balanceScope=$read->predicate($companyId,$actor,'balances.warehouse_id');
+        $movementScope='('.$read->predicate($companyId,$actor,'movements.source_warehouse_id').' OR '.$read->predicate($companyId,$actor,'movements.destination_warehouse_id').')';
         $summary = $connection->prepare(
             "SELECT
                 (
                     SELECT COUNT(*)
                     FROM inventory_warehouses
-                    WHERE company_id = :warehouse_company
+                    WHERE company_id = :warehouse_company AND ($scope)
                 ) AS warehouse_count,
                 (
                     SELECT COUNT(*)
@@ -226,8 +452,8 @@ final class InventoryService
                       ON locations.company_id = balances.company_id
                      AND locations.warehouse_id = balances.warehouse_id
                      AND locations.location_id = balances.location_id
-                    WHERE balances.company_id = :balance_company
-                      AND locations.location_usage IN ('internal', 'transit')
+                    WHERE balances.company_id = :balance_company AND ($balanceScope)
+                      AND ($balanceScope) AND locations.location_usage IN ('internal', 'transit')
                 ) AS stock_item_count,
                 (
                     SELECT COALESCE(
@@ -239,13 +465,13 @@ final class InventoryService
                       ON locations.company_id = balances.company_id
                      AND locations.warehouse_id = balances.warehouse_id
                      AND locations.location_id = balances.location_id
-                    WHERE balances.company_id = :quantity_company
-                      AND locations.location_usage IN ('internal', 'transit')
+                    WHERE balances.company_id = :quantity_company AND ($balanceScope)
+                      AND ($balanceScope) AND locations.location_usage IN ('internal', 'transit')
                 ) AS total_quantity,
                 (
                     SELECT COUNT(*)
                     FROM inventory_goods_receipts
-                    WHERE company_id = :receipt_company
+                    WHERE company_id = :receipt_company AND ($scope)
                       AND status <> 'posted'
                 ) AS pending_receipt_count"
         );
@@ -298,7 +524,7 @@ final class InventoryService
                AND locations.location_id = balances.location_id
              WHERE balances.company_id =
                 :company_id
-               AND locations.location_usage IN ('internal', 'transit')
+               AND ($balanceScope) AND locations.location_usage IN ('internal', 'transit')
              ORDER BY
                 products.name,
                 balances.stock_balance_id
@@ -318,7 +544,7 @@ final class InventoryService
                 receipt_date,
                 posted_at
              FROM inventory_goods_receipts
-             WHERE company_id = :company_id
+             WHERE company_id = :company_id AND ($scope)
              ORDER BY goods_receipt_id DESC
              LIMIT 25"
         );
@@ -359,7 +585,7 @@ final class InventoryService
                 ON operation_types.company_id = movements.company_id
                AND operation_types.warehouse_id = movements.warehouse_id
                AND operation_types.operation_type_id = movements.operation_type_id
-             WHERE movements.company_id = :company_id
+             WHERE movements.company_id = :company_id AND ($movementScope)
              ORDER BY movements.movement_id DESC
              LIMIT 50"
         );

@@ -12,14 +12,71 @@ final class InventoryOperationalAccessService
 {
     public const ALL_ACCESS_PERMISSION = 'inventory.warehouses.all_access';
 
+    public function authorityLevel(int $companyId, int $userId): ?string
+    {
+        $s = \db()->prepare('SELECT authority_level FROM inventory_stock_authorities WHERE company_id=? AND user_id=? AND active=TRUE');
+        $s->execute([$companyId, $userId]);
+        $value = $s->fetchColumn();
+        return $value === false ? null : (string) $value;
+    }
+
+    /** Destination options are routes, not operational access assignments. */
+    public function transferDestinations(int $companyId, int $userId): array
+    {
+        $s = \db()->prepare("SELECT w.warehouse_id,w.code warehouse_code,w.name warehouse_name,l.location_id,l.code,l.name
+            FROM inventory_warehouses w JOIN inventory_warehouse_locations l ON l.company_id=w.company_id AND l.warehouse_id=w.warehouse_id
+            WHERE w.company_id=? AND w.active=TRUE AND w.deleted_at IS NULL AND l.active=TRUE AND l.deleted_at IS NULL
+              AND l.receiving_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE ORDER BY w.name,l.name");
+        $s->execute([$companyId]);
+        $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+        $sources = $this->warehousesForUser($companyId, $userId);
+        $warehouses = $locations = [];
+        foreach ($rows as $row) {
+            $allowed = [];
+            foreach ($sources as $source) {
+                try {
+                    $this->assertAuthorizedTransferDestination($companyId, $userId, (int) $row['warehouse_id'], (int) $row['location_id'], (int) $source['warehouse_id']);
+                    $allowed[] = (int) $source['warehouse_id'];
+                } catch (RuntimeException $e) { continue; }
+            }
+            if ($allowed === []) continue;
+            $row['source_warehouse_ids'] = $allowed;
+            $locations[] = $row;
+            $warehouses[(int) $row['warehouse_id']] = ['warehouse_id'=>(int) $row['warehouse_id'], 'code'=>$row['warehouse_code'], 'name'=>$row['warehouse_name'], 'source_warehouse_ids'=>$allowed];
+        }
+        return ['destinationWarehouses'=>array_values($warehouses), 'destinationLocations'=>$locations];
+    }
+
+    public function ownsWarehouse(int $companyId, int $userId, int $warehouseId): bool
+    {
+        if ((new InventoryReadScope())->isAdministrator($companyId, $userId)) return true;
+        $scope = new SalesHierarchyScope();
+        if ($scope->isAgent($companyId, $userId)) return false;
+        $s = \db()->prepare("SELECT 1 FROM inventory_warehouses w JOIN company_users cu ON cu.company_id=w.company_id AND cu.user_id=? AND cu.active=TRUE
+            WHERE w.company_id=? AND w.warehouse_id=? AND w.active=TRUE AND w.deleted_at IS NULL
+            AND ((w.code<>'PT-CENTRAL' AND (EXISTS(SELECT 1 FROM inventory_stock_authorities a WHERE a.company_id=w.company_id AND a.warehouse_id=w.warehouse_id AND a.user_id=cu.user_id AND a.active=TRUE)
+              OR (w.manager_user_id=cu.user_id AND NOT EXISTS(SELECT 1 FROM inventory_stock_authorities a WHERE a.company_id=w.company_id AND a.user_id=cu.user_id AND a.active=TRUE))))
+              OR (w.code='PT-CENTRAL' AND EXISTS(SELECT 1 FROM inventory_user_warehouse_access x WHERE x.company_id=w.company_id AND x.warehouse_id=w.warehouse_id AND x.user_id=cu.user_id AND x.active=TRUE)))");
+        $s->execute([$userId, $companyId, $warehouseId]);
+        return (bool) $s->fetchColumn();
+    }
+
+    public function assertAuthorizedReceive(int $companyId, int $userId, int $warehouseId, int $locationId): void
+    {
+        if (!$this->canAccessLocation($companyId, $userId, $warehouseId, $locationId)) throw new RuntimeException('Only the destination warehouse owner or explicitly authorized operator may receive stock.');
+        $s = \db()->prepare("SELECT 1 FROM inventory_warehouse_locations WHERE company_id=? AND warehouse_id=? AND location_id=? AND active=TRUE AND deleted_at IS NULL AND receiving_allowed=TRUE AND location_usage='internal' AND is_virtual=FALSE");
+        $s->execute([$companyId, $warehouseId, $locationId]);
+        if (!$s->fetchColumn()) throw new RuntimeException('The destination must be an active internal receiving location.');
+    }
+
     public function hasCompanyWideAccess(int $companyId, int $userId): bool
     {
-        return $this->hasPermission($companyId, $userId, self::ALL_ACCESS_PERMISSION);
+        return (new InventoryReadScope())->isAdministrator($companyId, $userId) && $this->hasPermission($companyId, $userId, self::ALL_ACCESS_PERMISSION);
     }
 
     public function canAccessWarehouse(int $companyId, int $userId, int $warehouseId): bool
     {
-        if ($warehouseId < 1) {
+        if ($warehouseId < 1 || !$this->ownsWarehouse($companyId, $userId, $warehouseId)) {
             return false;
         }
         $sql = "SELECT COUNT(*) FROM inventory_warehouses w
@@ -86,7 +143,7 @@ final class InventoryOperationalAccessService
             $parameters['user_id'] = $userId;
         }
         $statement->execute($parameters);
-        return $statement->fetchAll(PDO::FETCH_ASSOC);
+        return array_values(array_filter($statement->fetchAll(PDO::FETCH_ASSOC), fn(array $row): bool => $this->ownsWarehouse($companyId, $userId, (int) $row['warehouse_id'])));
     }
 
     /** @return list<array<string,mixed>> */
@@ -119,7 +176,7 @@ final class InventoryOperationalAccessService
         $sql .= ' ORDER BY l.warehouse_id,l.pick_priority,l.name,l.location_id';
         $statement = \db()->prepare($sql);
         $statement->execute($parameters);
-        return $statement->fetchAll(PDO::FETCH_ASSOC);
+        return array_values(array_filter($statement->fetchAll(PDO::FETCH_ASSOC), fn(array $row): bool => $this->ownsWarehouse($companyId, $userId, (int) $row['warehouse_id'])));
     }
 
     /** @return list<array<string,mixed>> */
@@ -131,7 +188,7 @@ final class InventoryOperationalAccessService
         $parameters=['company_id'=>$companyId];
         if($warehouseId!==null){$sql.=' AND l.warehouse_id=:warehouse_id';$parameters['warehouse_id']=$warehouseId;}
         if(!$implicit){$sql.=" AND EXISTS(SELECT 1 FROM inventory_user_warehouse_access wa WHERE wa.company_id=l.company_id AND wa.user_id=:warehouse_user AND wa.warehouse_id=l.warehouse_id AND wa.active=TRUE) AND EXISTS(SELECT 1 FROM inventory_user_location_access la WHERE la.company_id=l.company_id AND la.user_id=:location_user AND la.warehouse_id=l.warehouse_id AND la.location_id=l.location_id AND la.active=TRUE)";$parameters['warehouse_user']=$userId;$parameters['location_user']=$userId;}
-        $sql.=' ORDER BY l.warehouse_id,l.name,l.location_id';$statement=\db()->prepare($sql);$statement->execute($parameters);return $statement->fetchAll(PDO::FETCH_ASSOC);
+        $sql.=' ORDER BY l.warehouse_id,l.name,l.location_id';$statement=\db()->prepare($sql);$statement->execute($parameters);return array_values(array_filter($statement->fetchAll(PDO::FETCH_ASSOC), fn(array $row): bool => $this->ownsWarehouse($companyId, $userId, (int) $row['warehouse_id'])));
     }
 
     /** @return array<string,mixed> */
@@ -143,10 +200,28 @@ final class InventoryOperationalAccessService
     }
 
     /** @return array<string,mixed> */
-    public function assertAuthorizedTransferDestination(int $companyId,int $userId,int $warehouseId,int $locationId): array
+    public function assertAuthorizedTransferDestination(int $companyId, int $userId, int $warehouseId, int $locationId, ?int $sourceWarehouseId = null): array
     {
-        $sql="SELECT w.warehouse_id,w.name warehouse_name,l.location_id,l.name location_name FROM inventory_warehouses w INNER JOIN inventory_warehouse_locations l ON l.company_id=w.company_id AND l.warehouse_id=w.warehouse_id WHERE w.company_id=:company_id AND w.warehouse_id=:warehouse_id AND l.location_id=:location_id AND w.active=TRUE AND w.deleted_at IS NULL AND l.active=TRUE AND l.deleted_at IS NULL AND l.receiving_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE";$statement=\db()->prepare($sql);$statement->execute(['company_id'=>$companyId,'warehouse_id'=>$warehouseId,'location_id'=>$locationId]);$destination=$statement->fetch(PDO::FETCH_ASSOC);if(!is_array($destination))throw new RuntimeException('Select an active internal receiving destination in the selected warehouse.');
-        if(!$this->hasImplicitAllAccess($companyId,$userId)){$access=\db()->prepare("SELECT COUNT(*) FROM inventory_user_warehouse_access wa INNER JOIN inventory_user_location_access la ON la.company_id=wa.company_id AND la.user_id=wa.user_id AND la.warehouse_id=wa.warehouse_id WHERE wa.company_id=:company_id AND wa.user_id=:user_id AND wa.warehouse_id=:warehouse_id AND la.location_id=:location_id AND wa.active=TRUE AND la.active=TRUE");$access->execute(['company_id'=>$companyId,'user_id'=>$userId,'warehouse_id'=>$warehouseId,'location_id'=>$locationId]);if((int)$access->fetchColumn()!==1)throw new RuntimeException('You are not assigned to use the selected destination warehouse and location.');}
+        $s = \db()->prepare("SELECT w.warehouse_id,w.code,w.name warehouse_name,l.location_id,l.name location_name FROM inventory_warehouses w JOIN inventory_warehouse_locations l ON l.company_id=w.company_id AND l.warehouse_id=w.warehouse_id WHERE w.company_id=? AND w.warehouse_id=? AND l.location_id=? AND w.active=TRUE AND w.deleted_at IS NULL AND l.active=TRUE AND l.deleted_at IS NULL AND l.receiving_allowed=TRUE AND l.location_usage='internal' AND l.is_virtual=FALSE");
+        $s->execute([$companyId, $warehouseId, $locationId]);
+        $destination = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$destination) throw new RuntimeException('Select an active internal receiving destination.');
+        if ((new InventoryReadScope())->isAdministrator($companyId, $userId)) return $destination;
+        if ($sourceWarehouseId === null) {
+            $this->assertAuthorizedReceive($companyId, $userId, $warehouseId, $locationId);
+            return $destination;
+        }
+        if (!$this->ownsWarehouse($companyId, $userId, $sourceWarehouseId)) throw new RuntimeException('The transfer source must be your own represented warehouse.');
+        if ($sourceWarehouseId === $warehouseId) return $destination;
+        $s = \db()->prepare('SELECT code FROM inventory_warehouses WHERE company_id=? AND warehouse_id=?');
+        $s->execute([$companyId, $sourceWarehouseId]);
+        $sourceCode = $s->fetchColumn();
+        $s = \db()->prepare('SELECT user_id,authority_level FROM inventory_stock_authorities WHERE company_id=? AND warehouse_id=? AND active=TRUE');
+        $s->execute([$companyId, $warehouseId]);
+        $target = $s->fetch(PDO::FETCH_ASSOC);
+        $level = $this->authorityLevel($companyId, $userId);
+        $expected = $sourceCode === 'PT-CENTRAL' ? 'regional' : (['regional'=>'district','district'=>'shop'][$level ?? ''] ?? null);
+        if (!$target || $expected === null || $target['authority_level'] !== $expected || ($sourceCode !== 'PT-CENTRAL' && !in_array((int) $target['user_id'], (new SalesHierarchyScope())->userIds($companyId, $userId), true))) throw new RuntimeException('Allowed routes are Central to Regional, Regional to subordinate District, and District to subordinate Shop.');
         return $destination;
     }
 
@@ -157,6 +232,7 @@ final class InventoryOperationalAccessService
         int $warehouseId,
         int $locationId
     ): array {
+        if (!$this->ownsWarehouse($companyId, $userId, $warehouseId)) throw new RuntimeException('Stock may be taken only from your own represented warehouse.');
         $statement = \db()->prepare(
             "SELECT w.warehouse_id,w.name warehouse_name,w.allow_negative_stock,
                     l.location_id,l.name location_name

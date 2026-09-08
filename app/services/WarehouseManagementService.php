@@ -69,7 +69,7 @@ final class WarehouseManagementService
         );
         $actorId=(int)($_SESSION['auth']['user_id']??0);
         $access=new InventoryOperationalAccessService();
-        $warehouses=array_values(array_filter($warehouses,static fn(array $warehouse):bool=>$access->canAccessWarehouse($companyId,$actorId,(int)($warehouse['warehouse_id']??0))));
+        $warehouses=array_values(array_filter($warehouses,static fn(array $warehouse):bool=>(new InventoryReadScope())->warehouse($companyId,$actorId,(int)($warehouse['warehouse_id']??0))));
         $readinessRows = $this->locations
             ->readinessForCompany($companyId);
         $readinessByWarehouse = [];
@@ -175,8 +175,7 @@ final class WarehouseManagementService
         return [
             'branches' => $this->warehouses
                 ->activeBranchesForCompany($companyId),
-            'managers' => $this->warehouses
-                ->activeManagersForCompany($companyId),
+            'managers' => array_values(array_filter($this->warehouses->activeManagersForCompany($companyId), static fn(array $row):bool => (new InventoryReadScope())->isAdministrator($companyId,(int)($_SESSION['auth']['user_id']??0)) || in_array((int)$row['user_id'],(new SalesHierarchyScope())->userIds($companyId,(int)($_SESSION['auth']['user_id']??0)),true))),
             'warehouseTypes' => [
                 'standard' => 'Standard',
                 'retail' => 'Retail',

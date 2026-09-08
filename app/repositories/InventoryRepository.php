@@ -6,6 +6,8 @@ namespace App\Repositories;
 
 interface InventoryRepository
 {
+    /** Atomic reservation-only change inside a linked Inventory transfer transaction. */
+    public function changeReplenishmentReservation(int $companyId, int $warehouseId, int $locationId, int $productId, float $delta): void;
     /** @return list<array<string,mixed>> */
     public function goodsReceipts(int $companyId): array;
     /** @return array<string,mixed>|null */

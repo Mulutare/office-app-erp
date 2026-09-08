@@ -185,7 +185,7 @@ class CompanyMembershipRepository extends MySqlRepository
         int $companyId
     ): array {
         $statement = $this->connection()->prepare(
-            'SELECT DISTINCT permissions.code
+            'SELECT DISTINCT permissions.code, roles.code role_code
              FROM company_user_roles assignments
              INNER JOIN roles
                  ON roles.role_id =
@@ -208,12 +208,11 @@ class CompanyMembershipRepository extends MySqlRepository
             'company_id' => $companyId,
         ]);
 
-        return array_values(array_map(
-            'strval',
-            $statement->fetchAll(
-                \PDO::FETCH_COLUMN
-            )
-        ));
+        $codes = [];
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $grant) {
+            if (\App\Services\ModuleRoleService::grantAllowed($grant['role_code'], $grant['code'])) $codes[$grant['code']] = true;
+        }
+        return array_keys($codes);
     }
 
     public function add(

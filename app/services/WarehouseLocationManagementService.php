@@ -66,7 +66,7 @@ final class WarehouseLocationManagementService
         );
         $actorId=(int)($_SESSION['auth']['user_id']??0);
         $access=new InventoryOperationalAccessService();
-        $locations=array_values(array_filter($locations,static fn(array $location):bool=>$access->canAccessLocation($companyId,$actorId,(int)($location['warehouse_id']??0),(int)($location['location_id']??0))));
+        $locations=array_values(array_filter($locations,static fn(array $location):bool=>(new InventoryReadScope())->location($companyId,$actorId,(int)($location['warehouse_id']??0),(int)($location['location_id']??0))));
         $active = 0;
         $receiving = 0;
         $picking = 0;
@@ -103,9 +103,15 @@ final class WarehouseLocationManagementService
 
         unset($location);
 
+        $readScope = new InventoryReadScope();
+        $readWarehouses = array_values(array_filter(
+            $this->warehouses->listForCompany($companyId),
+            static fn (array $warehouse): bool => $readScope->warehouse($companyId, $actorId, (int) ($warehouse['warehouse_id'] ?? 0))
+        ));
+
         return [
             'locations' => $locations,
-            'warehouses' => $access->warehousesForUser($companyId,$actorId),
+            'warehouses' => $readWarehouses,
             'summary' => [
                 'total' => count($locations),
                 'active' => $active,
@@ -129,12 +135,11 @@ final class WarehouseLocationManagementService
         $parents = array_values(array_filter(
             $this->locations->listForCompany($companyId),
             static fn (array $location): bool =>
-                !empty($location['active'])
+                !empty($location['active']) && (new InventoryReadScope())->warehouse($companyId,(int)($_SESSION['auth']['user_id']??0),(int)$location['warehouse_id'])
         ));
 
         return [
-            'warehouses' => $this->locations
-                ->activeWarehousesForCompany($companyId),
+            'warehouses' => (new InventoryOperationalAccessService())->warehousesForUser($companyId,(int)($_SESSION['auth']['user_id']??0)),
             'parents' => $parents,
             'locationTypes' => [
                 'zone' => 'Zone',
@@ -195,6 +200,7 @@ final class WarehouseLocationManagementService
         }
 
         $companyId = $this->tenant->companyId();
+        if (!(new InventoryOperationalAccessService())->canAccessWarehouse($companyId,$createdBy,(int)($input['warehouse_id']??0))) return ['successful'=>false,'errors'=>['form'=>'Only the warehouse owner may create its locations.']];
         $values = $this->normalize($input);
         $errors = $this->validate(
             $companyId,
@@ -333,6 +339,7 @@ final class WarehouseLocationManagementService
         }
 
         $companyId = $this->tenant->companyId();
+        if (!(new InventoryOperationalAccessService())->canAccessWarehouse($companyId,$actorId,$warehouseId)) return ['successful'=>false,'errors'=>['form'=>'Only the warehouse owner may provision its locations.']];
         $connection = \db();
         $ownsTransaction = !$connection->inTransaction();
 

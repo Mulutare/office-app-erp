@@ -114,6 +114,7 @@ final class AuthorizationService
                 continue;
             }
 
+            if (!$this->moduleEntitled($moduleCode)) continue;
             $hasEnabledModule = true;
 
             if ($this->auth->can($permissionCode)) {
@@ -142,6 +143,7 @@ final class AuthorizationService
         string $permissionCode
     ): void {
         $this->requireTenantPermission($permissionCode);
+        $this->requireModuleEntitlement($moduleCode);
 
         if ($this->modules->isLicensed($moduleCode)) {
             return;
@@ -189,6 +191,7 @@ final class AuthorizationService
         string $moduleCode
     ): void {
         $this->requireAuthentication();
+        $this->requireModuleEntitlement($moduleCode);
 
         if (
             $this->modules->isEnabled(
@@ -208,6 +211,16 @@ final class AuthorizationService
         ]);
 
         exit;
+    }
+
+    private function moduleEntitled(string $module): bool
+    {
+        return (new ModuleRoleService())->entitled((int) ($_SESSION['auth']['company']['company_id'] ?? 0), (int) ($_SESSION['auth']['user_id'] ?? 0), $module);
+    }
+
+    private function requireModuleEntitlement(string $module): void
+    {
+        if (!$this->moduleEntitled($module)) $this->deny();
     }
 
     private function deny(): void

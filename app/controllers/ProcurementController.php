@@ -1,10 +1,14 @@
 <?php
+
 declare(strict_types=1);
+
 namespace App\Controllers;
+
 use App\Services\AuthorizationService;
 use App\Services\ProcurementService;
 use PDOException;
 use Throwable;
+
 final class ProcurementController
 {
     private AuthorizationService $auth; private ProcurementService $service;
@@ -15,7 +19,7 @@ final class ProcurementController
     public function updateSupplier(string $id):void{$this->mutate('procurement.suppliers.manage',fn()=>$this->service->updateSupplier((int)$id,$_POST,$this->actor()),'/procurement');}
     public function supplierActive(string $id):void{$this->mutate('procurement.suppliers.manage',fn()=>$this->service->setSupplierActive((int)$id,\postString('active')==='1',$this->actor()),'/procurement');}
     public function requisition():void{$this->mutate('procurement.requisitions.create',fn()=>$this->service->createRequisition($_POST,$this->actor()),'/procurement');}
-    public function requisitionAction(string $id):void{$action=\postString('action');$permission=in_array($action,['approve','reject'],true)?'procurement.requisitions.approve':'procurement.requisitions.create';$this->mutate($permission,fn()=>$this->service->transitionRequisition((int)$id,$action,$this->actor(),\postString('reason')),'/procurement');}
+    public function requisitionAction(string $id):void{$action=\postString('action');$permission=in_array($action,['approve','reject'],true)?'procurement.requisitions.approve':'procurement.requisitions.create';$this->mutate($permission,fn()=>$this->service->transitionRequisition((int)$id,$action,$this->actor(),\postString('reason'),$_POST),'/procurement?section=requisitions');}
     public function order():void{$this->mutate('procurement.orders.create',fn()=>$this->service->createOrder($_POST,$this->actor()),'/procurement');}
     public function orderAction(string $id):void{$action=\postString('action');$permission=['approve'=>'procurement.orders.approve','confirm'=>'procurement.orders.confirm'][$action]??'procurement.orders.create';$this->mutate($permission,function()use($id,$action){$this->service->assertOrderAccess((int)$id,$this->actor());$this->service->transitionOrder((int)$id,$action,$this->actor());},'/procurement/'.(int)$id);}
     public function receipt(string $id):void{$this->mutate('procurement.receipts.create',function()use($id){$this->service->assertOrderAccess((int)$id,$this->actor());return $this->service->createReceipt((int)$id,(array)($_POST['quantity']??[]),$this->actor());},'/procurement/'.(int)$id);}
