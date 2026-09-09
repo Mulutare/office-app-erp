@@ -167,6 +167,7 @@ final class CentralStockReplenishmentService
                 // Regional stock never does.
                 $received = $this->rows("SELECT l.product_id,SUM(l.quantity) quantity FROM inventory_central_transfer_links x JOIN inventory_transfer_lines l ON l.company_id=x.company_id AND l.transfer_line_id=x.transfer_line_id WHERE x.company_id=? AND x.demand_id=? AND x.state='received' GROUP BY l.product_id", [$company,$id]);
                 foreach ($received as $line) $required[(int)$line['product_id']] = max(0, ($required[(int)$line['product_id']] ?? 0) - (float)$line['quantity']);
+                $this->recordRegionalRequestReceiptsLocked($company, $request, $id, $regional, $actor);
             }
         }
         // Committed procurement is not purchased twice or displaced by unrelated new stock.
@@ -203,11 +204,123 @@ final class CentralStockReplenishmentService
         $requisition = $shortage === [] ? null : $this->requisitionLocked($company, $id, $request, $central, $shortage, $actor);
         $state = $shortage !== [] || $coverage !== [] ? 'awaiting_procurement' : ($transfer !== null || $pending !== [] ? 'awaiting_transfer' : 'ready');
         $c->prepare('UPDATE inventory_central_demands SET state=? WHERE company_id=? AND demand_id=?')->execute([$state, $company, $id]);
-        if ($request !== null) $c->prepare('UPDATE inventory_stock_requests SET status=?,current_handler_user_id=? WHERE company_id=? AND request_id=?')->execute([$state === 'ready' ? 'pending_review' : $state, (int) $regional['user_id'], $company, $request]);
+        if ($request !== null) {
+            $kind = $this->rows('SELECT request_kind FROM inventory_stock_requests WHERE company_id=? AND request_id=?', [$company,$request]);
+            $managerRequest = (string)($kind[0]['request_kind'] ?? 'employee_issue') === 'manager_replenishment';
+            $requestStatus = $state === 'ready'
+                ? ($managerRequest ? 'closed' : 'pending_review')
+                : $state;
+            $c->prepare('UPDATE inventory_stock_requests SET status=?,current_handler_user_id=? WHERE company_id=? AND request_id=?')
+                ->execute([$requestStatus, (int) $regional['user_id'], $company, $request]);
+        }
         RepositoryFactory::auditLogs()->record($actor, 'central_replenishment.checked', 'inventory', 'inventory_central_demands', (string) $id, null, ['state' => $state, 'transfer_id' => $transfer, 'requisition_id' => $requisition], $company);
         return ['status' => $state, 'transfer_id' => $transfer, 'requisition_id' => $requisition];
     }
 
+    private function recordRegionalRequestReceiptsLocked(
+        int $company,
+        int $request,
+        int $demand,
+        array $regional,
+        int $actor
+    ): void {
+        $c = \db();
+
+        $rows = $this->rows(
+            "SELECT l.*,t.created_at transfer_created_at,
+                    t.dispatched_at transfer_dispatched_at,
+                    t.received_at transfer_received_at,
+                    t.created_by transfer_created_by
+             FROM inventory_central_transfer_links x
+             JOIN inventory_transfer_lines l
+               ON l.company_id=x.company_id
+              AND l.transfer_line_id=x.transfer_line_id
+             JOIN inventory_transfers t
+               ON t.company_id=l.company_id
+              AND t.transfer_id=l.transfer_id
+             WHERE x.company_id=?
+               AND x.demand_id=?
+               AND x.state='received'
+             ORDER BY l.transfer_line_id",
+            [$company,$demand]
+        );
+
+        foreach ($rows as $line) {
+            $transferLineId = (int)$line['transfer_line_id'];
+
+            if ($this->rows(
+                "SELECT allocation_id
+                 FROM inventory_stock_request_allocations
+                 WHERE company_id=? AND request_id=? AND transfer_line_id=?
+                 LIMIT 1",
+                [$company,$request,$transferLineId]
+            ) !== []) continue;
+
+            $requestLines = $this->rows(
+                "SELECT request_line_id,requested_quantity
+                 FROM inventory_stock_request_lines
+                 WHERE company_id=? AND request_id=? AND product_id=?
+                 FOR UPDATE",
+                [$company,$request,(int)$line['product_id']]
+            );
+
+            if (count($requestLines) !== 1) {
+                throw new RuntimeException('Central replenishment could not resolve exactly one matching stock-request line.');
+            }
+
+            $requestLine = $requestLines[0];
+
+            $used = $this->rows(
+                "SELECT COALESCE(SUM(quantity),0) quantity
+                 FROM inventory_stock_request_allocations
+                 WHERE company_id=? AND request_id=? AND request_line_id=?
+                   AND status<>'released'",
+                [$company,$request,(int)$requestLine['request_line_id']]
+            );
+
+            $needed = max(
+                0.0,
+                (float)$requestLine['requested_quantity']
+                - (float)($used[0]['quantity'] ?? 0)
+            );
+
+            $quantity = round(min(
+                $needed,
+                (float)$line['received_quantity']
+            ), 3);
+
+            if ($quantity <= 0.0005) continue;
+
+            $receivedAt = $line['transfer_received_at'] ?: date('Y-m-d H:i:s');
+
+            $c->prepare(
+                "INSERT INTO inventory_stock_request_allocations(
+                    company_id,request_id,request_line_id,authority_id,
+                    source_warehouse_id,source_location_id,
+                    destination_warehouse_id,destination_location_id,
+                    quantity,status,transfer_id,transfer_line_id,
+                    reserved_at,dispatched_at,received_at,issued_at,created_by
+                 ) VALUES(?,?,?,?,?,?,?,?,?,'issued',?,?,?,?,?,?,?)"
+            )->execute([
+                $company,
+                $request,
+                (int)$requestLine['request_line_id'],
+                (int)$regional['authority_id'],
+                (int)$line['source_warehouse_id'],
+                (int)$line['source_location_id'],
+                (int)$line['destination_warehouse_id'],
+                (int)$line['destination_location_id'],
+                $quantity,
+                (int)$line['transfer_id'],
+                $transferLineId,
+                $line['transfer_created_at'] ?: $receivedAt,
+                $line['transfer_dispatched_at'],
+                $receivedAt,
+                $receivedAt,
+                (int)($line['transfer_created_by'] ?: $actor),
+            ]);
+        }
+    }
     private function requisitionLocked(int $company, int $demand, ?int $request, array $central, array $shortage, int $actor): int
     {
         $c = \db();
