@@ -23,37 +23,8 @@ final class SalesHierarchyScope
     /** @return list<int> */
     public function userIds(int $companyId, int $actorId): array
     {
-        $statement = \db()->prepare(
-            'SELECT cu.user_id,cu.manager_user_id FROM company_users cu
-             INNER JOIN users u ON u.user_id=cu.user_id AND u.active=TRUE AND u.deleted_at IS NULL
-             WHERE cu.company_id=? AND cu.active=TRUE'
-        );
-        $statement->execute([$companyId]);
-        $parents = array_column($statement->fetchAll(\PDO::FETCH_ASSOC), 'manager_user_id', 'user_id');
-        if (!array_key_exists($actorId, $parents)) return [];
         if ($this->isAgent($companyId, $actorId)) return [$actorId];
-        $manager = \db()->prepare("SELECT 1 FROM inventory_stock_authorities WHERE company_id=? AND user_id=? AND active=TRUE UNION ALL SELECT 1 FROM inventory_warehouses WHERE company_id=? AND manager_user_id=? AND active=TRUE AND deleted_at IS NULL LIMIT 1");
-        $manager->execute([$companyId,$actorId,$companyId,$actorId]);
-        if (!$manager->fetchColumn() && !$this->hasCompanyWideAccess($companyId,$actorId)) return [$actorId];
-        $this->parentId($companyId, $actorId);
-        $visible = [$actorId => true];
-        $queue = [$actorId];
-        for ($i = 0; $i < count($queue); $i++) {
-            foreach ($parents as $userId => $managerId) {
-                if ((int) $managerId === $queue[$i] && !isset($visible[$userId])) {
-                    $seen = [];
-                    $current = (int) $userId;
-                    while ($current > 0) {
-                        if (isset($seen[$current]) || !array_key_exists($current, $parents)) throw new \RuntimeException('The reporting hierarchy contains a cycle or an inactive/out-of-company manager.');
-                        $seen[$current] = true;
-                        $current = (int) $parents[$current];
-                    }
-                    $visible[$userId] = true;
-                    $queue[] = (int) $userId;
-                }
-            }
-        }
-        return array_map('intval', array_keys($visible));
+        return (new StockHierarchy())->userIds($companyId, $actorId);
     }
 
     public function canManage(int $companyId, int $actorId): bool

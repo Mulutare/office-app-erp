@@ -741,12 +741,46 @@ $statusLabel = match ($status) {
                         </div>
 
                         <div class="form-field">
-                            <label>Invoice attachment</label>
-                            <input
-                                type="file"
-                                name="invoice_attachment"
-                                accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-                            >
+                            <label>Evidence files (up to 10)</label>
+                            <div data-evidence-rows style="display:grid;gap:8px">
+    <div
+        data-evidence-row
+        style="display:flex;gap:8px;align-items:center"
+    >
+        <input
+            type="file"
+            name="evidence_files[]"
+            data-evidence-input
+            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+            style="flex:1"
+        >
+
+        <button
+            type="button"
+            class="btn btn-secondary"
+            data-remove-evidence
+        >
+            Remove
+        </button>
+    </div>
+</div>
+
+<div style="margin-top:8px">
+    <button
+        type="button"
+        class="btn btn-secondary"
+        data-add-evidence
+    >
+        + Add attachment
+    </button>
+</div>
+
+<small
+    data-evidence-count
+    style="display:block;margin-top:7px"
+>
+    0 of 10 files selected
+</small>
                             <?php if ($isReportCorrection): ?>
                                 <small>
                                     Attach the corrected receipt / invoice.
@@ -755,7 +789,7 @@ $statusLabel = match ($status) {
                             <?php endif; ?>
 
                             <small>
-                                PDF, PNG or JPEG - maximum 10 MB
+                                Up to 10 PDF, PNG or JPEG files — maximum 10 MB each
                             </small>
                         </div>
 
@@ -791,56 +825,10 @@ $statusLabel = match ($status) {
                 </div>
             </form>
 
-            <script>
-            (() => {
-                const form =
-                    document.querySelector('[data-quick-sale-report]');
-
-                if (!form) return;
-
-                const clamp = (value, min, max) =>
-                    Math.min(max, Math.max(min, value));
-
-                form.querySelectorAll('[data-report-line]')
-                    .forEach((row) => {
-                        const allocated =
-                            Number(row.dataset.allocated || 0);
-
-                        const sold =
-                            row.querySelector('[data-sold]');
-
-                        const returned =
-                            row.querySelector('[data-returned]');
-
-                        const format = (value) =>
-                            clamp(value, 0, allocated).toFixed(3);
-
-                        sold.addEventListener('input', () => {
-                            const soldValue =
-                                clamp(
-                                    Number(sold.value || 0),
-                                    0,
-                                    allocated
-                                );
-
-                            returned.value =
-                                format(allocated - soldValue);
-                        });
-
-                        returned.addEventListener('input', () => {
-                            const returnedValue =
-                                clamp(
-                                    Number(returned.value || 0),
-                                    0,
-                                    allocated
-                                );
-
-                            sold.value =
-                                format(allocated - returnedValue);
-                        });
-                    });
-            })();
-            </script>
+            <script
+    src="<?= e(appBasePath()) ?>/assets/js/quick-sale.js"
+    defer
+></script>
 
         <?php elseif ($canViewReport && $managerReport !== null): ?>
 
@@ -1233,3 +1221,10 @@ $statusLabel = match ($status) {
     <?php endif; ?>
 <?php require __DIR__ . '/quick-sale-routing.php'; ?>
 </div>
+<?php if (!empty($detail['evidenceFiles'])): ?>
+<section class="card"><h3>Report evidence</h3><p>Each report keeps its original attachments. Up to 10 PDF, PNG or JPEG files per report, 10 MB each.</p>
+<?php foreach ($detail['evidenceFiles'] as $attachment): ?>
+<p>Report #<?= (int)$attachment['report_id'] ?> · <?= e($attachment['status']) ?> ·
+<a target="_blank" rel="noopener" href="<?= e(appBasePath()) ?>/sales/quick-sale/<?= (int)$sale['quick_sale_id'] ?>/reports/<?= (int)$attachment['report_id'] ?>/evidence?evidence_id=<?= (int)$attachment['evidence_id'] ?>"><?= e($attachment['original_name']) ?></a></p>
+<?php endforeach; ?></section>
+<?php endif; ?>

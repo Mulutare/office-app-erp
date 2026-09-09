@@ -162,7 +162,8 @@ public function showQuickSale(string $id): void
             (int) $id,
             (int) $reportId,
             $this->actorId(),
-            $privilegedReviewer
+            $privilegedReviewer,
+            max(0, (int) ($_GET['evidence_id'] ?? 0))
         );
 
         if ($evidence === null) {
@@ -358,9 +359,7 @@ public function showQuickSale(string $id): void
                     \postString('report_note'),
                 'lines' => $lines,
             ],
-            is_array($_FILES['invoice_attachment'] ?? null)
-                ? $_FILES['invoice_attachment']
-                : []
+            ($_FILES['evidence_files'] ?? $_FILES['invoice_attachment'] ?? [])
         );
 
         $this->finishTo(

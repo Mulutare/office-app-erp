@@ -60,6 +60,10 @@ final class ActionRequiredCountService
         };
         $parameters = ['company_id' => $companyId, 'user_id' => $userId];
 
+        if ($module==='inventory' && $section==='stock_requests' && $can('inventory.stock_requests.view') && $can('inventory.stock_requests.process')) {
+            $add("SELECT r.request_id id,r.request_number reference FROM inventory_stock_requests r JOIN inventory_stock_authorities a ON a.company_id=r.company_id AND a.user_id=r.current_handler_user_id AND a.active=TRUE WHERE r.company_id=:company_id AND r.current_handler_user_id=:user_id AND r.status='pending_review'",$parameters,'stock_request','Stock request awaiting allocation decision','decide_stock_request','/inventory/stock-requests/{id}');
+            $add("SELECT p.proposal_id id,p.proposal_number reference FROM inventory_peer_proposals p JOIN inventory_stock_authorities a ON a.company_id=p.company_id AND a.authority_id=p.source_authority_id AND a.active=TRUE AND a.user_id=p.source_owner_user_id WHERE p.company_id=:company_id AND p.source_owner_user_id=:user_id AND p.state='proposed'",$parameters,'peer_proposal','Peer stock transfer approval required','decide_peer','/inventory/stock-requests');
+        }
         if ($module === 'sales' && $section === 'quick_sale' && $can('sales.view')) {
             $add(
                 "SELECT
@@ -493,7 +497,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             );
         }
 
-        foreach (['sales'=>['quick_sale','orders','quotations','deliveries','settlements'], 'inventory'=>['receipts','transfers']] as $moduleCode=>$sections) {
+        foreach (['sales'=>['quick_sale','orders','quotations','deliveries','settlements'], 'inventory'=>['receipts','transfers','stock_requests']] as $moduleCode=>$sections) {
             foreach ($sections as $section) $counts[$moduleCode][$section]=count($this->itemsFor($companyId,$userId,$permissions,$moduleCode,$section));
         }
         foreach ($counts as $moduleCode=>&$moduleCounts) {
@@ -521,7 +525,12 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
         if (in_array($entity,['quotation','sales_order'],true)) return $scope->canReadSalesRow($company,$actor,$row);
         if ($entity==='quick_sale') return (int)$row['manager_user_id']===$actor || $scope->canReadOwner($company,$actor,(int)$row['user_id']);
         if ($entity==='goods_receipt') return $access->canAccessRecord($company,$actor,$row,'warehouse_id','destination_location_id');
-        if ($entity==='transfer') return $access->canAccessWarehouse($company,$actor,(int)$row[$action==='receive_transfer'?'destination_warehouse_id':'source_warehouse_id']);
+        if ($entity==='transfer') {
+            $s=\db()->prepare('SELECT p.source_owner_user_id,p.destination_owner_user_id FROM inventory_peer_proposals p JOIN inventory_transfer_lines l ON l.company_id=p.company_id AND l.transfer_line_id=p.transfer_line_id WHERE l.company_id=? AND l.transfer_id=?');
+            $s->execute([$company,$id]); $peer=$s->fetch(PDO::FETCH_ASSOC);
+            if ($peer && (int)$peer[$action==='receive_transfer'?'destination_owner_user_id':'source_owner_user_id']!==$actor) return false;
+            return $access->canAccessWarehouse($company,$actor,(int)$row[$action==='receive_transfer'?'destination_warehouse_id':'source_warehouse_id']);
+        }
         if ($entity==='delivery') return $access->canAccessWarehouse($company,$actor,(int)$row['warehouse_id']);
         if ($entity==='settlement' && $module==='sales') return $scope->hasCompanyWideAccess($company,$actor)||in_array((int)($row['created_by']??0),$scope->userIds($company,$actor),true);
         return true;
@@ -609,6 +618,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'submit_requisition', 'approve_requisition' => '/procurement?section=requisitions',
             'create_purchase_order' => '/procurement?section=orders',
             'submit_purchase_order', 'approve_purchase_order', 'confirm_purchase_order', 'close_purchase_order', 'create_supplier_bill', 'create_receipt' => '/procurement/{id}',
+            'decide_stock_request' => '/inventory/stock-requests/{id}',
+            'decide_peer' => '/inventory/stock-requests',
             'approve_transfer', 'dispatch_transfer', 'receive_transfer' => '/inventory/transfers/{id}',
             'approve_receipt', 'post_receipt' => '/inventory/receipts/{id}',
             'post_supplier_bill' => '/procurement?section=bills',

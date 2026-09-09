@@ -120,6 +120,13 @@ final class InventoryService
         $read=new InventoryReadScope();
         $data['transfers']=array_values(array_filter($data['transfers'],fn(array $row):bool=>$read->warehouse($company,$actor,(int)$row['source_warehouse_id'])||$read->warehouse($company,$actor,(int)$row['destination_warehouse_id'])));
         if($transferId!==null){foreach($data['transfers'] as $row)if((int)$row['transfer_id']===$transferId){$data['transfer']=$row;break;}if(is_array($data['transfer'])){$lines=$connection->prepare("SELECT l.*,p.sku,p.name product_name,b.quantity_on_hand,b.quantity_reserved,b.quantity_available FROM inventory_transfer_lines l INNER JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id LEFT JOIN inventory_stock_balances b ON b.company_id=l.company_id AND b.warehouse_id=l.source_warehouse_id AND b.location_id=l.source_location_id AND b.product_id=l.product_id WHERE l.company_id=:company_id AND l.transfer_id=:transfer_id ORDER BY l.transfer_line_id");$lines->execute(['company_id'=>$company,'transfer_id'=>$transferId]);$data['transfer']['lines']=$lines->fetchAll(\PDO::FETCH_ASSOC);if(!$read->warehouse($company,$actor,(int)$data['transfer']['source_warehouse_id'])){foreach($data['transfer']['lines'] as &$line){unset($line['quantity_on_hand'],$line['quantity_reserved'],$line['quantity_available']);}unset($line);}}}
+        if (is_array($data['transfer'])) {
+            $t=$data['transfer'];
+            $s=$connection->prepare('SELECT p.source_owner_user_id,p.destination_owner_user_id FROM inventory_peer_proposals p JOIN inventory_transfer_lines l ON l.company_id=p.company_id AND l.transfer_line_id=p.transfer_line_id WHERE l.company_id=? AND l.transfer_id=?');
+            $s->execute([$company,$transferId]); $peer=$s->fetch(\PDO::FETCH_ASSOC);
+            $data['transfer']['canDispatch']=$access->canAccessWarehouse($company,$actor,(int)$t['source_warehouse_id']) && (!$peer || (int)$peer['source_owner_user_id']===$actor);
+            $data['transfer']['canReceive']=$access->canAccessWarehouse($company,$actor,(int)$t['destination_warehouse_id']) && (!$peer || (int)$peer['destination_owner_user_id']===$actor);
+        }
         return $data;
     }
 
@@ -139,6 +146,9 @@ final class InventoryService
         ];
         if(!isset($map[$action]))throw new RuntimeException('Invalid transfer transition.');
         $connection=\db();
+        $peer=$connection->prepare('SELECT 1 FROM inventory_peer_proposals p JOIN inventory_transfer_lines l ON l.company_id=p.company_id AND l.transfer_line_id=p.transfer_line_id WHERE l.company_id=? AND l.transfer_id=?');
+        $peer->execute([$company,$transferId]);
+        if ($peer->fetchColumn()) throw new RuntimeException('Peer transfers use their source-owner decision workflow. Approved transfers must be dispatched and received.');
         $scope=$connection->prepare('SELECT source_warehouse_id,source_location_id,destination_warehouse_id,destination_location_id FROM inventory_transfer_lines WHERE company_id=:company_id AND transfer_id=:transfer_id LIMIT 1');
         $scope->execute(['company_id'=>$company,'transfer_id'=>$transferId]);
         $route=$scope->fetch(\PDO::FETCH_ASSOC);
@@ -218,6 +228,7 @@ final class InventoryService
             }
 
             $stockRequests = new StockRequestService();
+            $stockRequests->peerTransferTransition($company,$transferId,$actorId,$receiving);
             if (!$receiving) {
                 $stockRequests->beforeTransferDispatch($company, $transferId);
                 (new CentralStockReplenishmentService())
@@ -387,6 +398,7 @@ final class InventoryService
                 $stockRequests->afterTransferDispatch($company, $transferId);
             }
 
+            $stockRequests->peerTransferTransition($company,$transferId,$actorId,$receiving,true);
             $connection->commit();
             $this->auditTransfer(
                 $actorId,

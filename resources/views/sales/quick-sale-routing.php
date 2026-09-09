@@ -2,18 +2,14 @@
 <?php if ($isManager && $status === 'submitted' && empty($detail['stockCheck']['sufficient_locations'])): ?>
 <section class="card qs-routing">
     <h2>Stock unavailable</h2>
-    <p><?= !empty($detail['isRegional']) ? 'Regional stock is insufficient. Passion Technologies Central stock will be checked.' : 'Forward this same request to your direct parent manager.' ?></p>
+    <p>This sale stays pending. The responsible manager can request replenishment for their own warehouse, then allocate stock after receipt.</p>
     <?php foreach (($detail['replenishment']['transfers'] ?? []) as $link): ?>
         <p>Company stock transfer requested: <?= e($link['transfer_number']) ?> — <?= e($link['status']) ?></p>
     <?php endforeach; ?>
     <?php foreach (($detail['replenishment']['requisitions'] ?? []) as $link): ?>
         <p>Company procurement: <?= e($link['requisition_number']) ?> — <?= e($link['status']) ?></p>
     <?php endforeach; ?>
-    <form method="post" action="<?= e(appBasePath()) ?>/sales/quick-sale/<?= e($sale['quick_sale_id']) ?>/escalate">
-        <?= csrfField() ?>
-        <label>Reason<input name="reason" required maxlength="2000" value="Insufficient available stock at assigned sources."></label>
-        <button class="btn btn-primary" type="submit"><?= !empty($detail['isRegional']) ? 'Check company replenishment' : 'Escalate to parent manager' ?></button>
-    </form>
+    <a class="btn btn-primary" href="<?=e(appBasePath())?>/inventory/stock-requests">Request Stock</a>
 </section>
 <?php endif; ?>
 <?php if ($isManager && $status === 'closed' && $managerReport && !empty($managerReport['finance_invoice_id'])): ?>

@@ -9,7 +9,7 @@ final class ModuleRoleService
 {
     public const OWNERS = [
         'sales' => ['sales_user','sales_manager','sales_officer','sales_approver','sales_cashier','sales_inventory_controller','sales_commission_officer','sales_credit_controller'],
-        'inventory' => ['warehouse_inventory_user','warehouse_sales_employee'],
+        'inventory' => ['warehouse_inventory_user','warehouse_sales_employee','stock_hierarchy_manager'],
         'procurement' => ['procurement_requester','procurement_approver','purchasing_officer'],
         'finance' => ['finance_officer','finance_approver','executive_viewer','auditor'],
         'hr' => ['hr_administrator','employee_self_service'],

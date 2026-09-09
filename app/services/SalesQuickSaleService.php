@@ -425,6 +425,7 @@ final class SalesQuickSaleService
     ): array {
         $upload = new PrivateUploadService();
         $stored = null;
+        $storedFiles = [];
         $connection = \db();
 
         try {
@@ -762,15 +763,30 @@ final class SalesQuickSaleService
                     );
                 }
 
-                $stored = $upload->storeQuickSaleInvoice(
-                    $companyId,
-                    $file
-                );
             } else {
                 $invoiceReference = '';
                 $paymentMethod = '';
                 $paymentReference = '';
             }
+            $files = [];
+            if (is_array($file['name'] ?? null)) {
+                if (count($file['name']) > 10) throw new RuntimeException('Attach at most 10 evidence files.');
+                foreach (array_keys($file['name']) as $key) {
+                    $item = [];
+                    foreach (['name','type','tmp_name','error','size'] as $field) {
+                        if (!is_array($file[$field] ?? null) || !array_key_exists($key, $file[$field]) || is_array($file[$field][$key])) {
+                            throw new RuntimeException('Invalid evidence upload.');
+                        }
+                        $item[$field] = $file[$field][$key];
+                    }
+                    if ($item['error'] !== UPLOAD_ERR_NO_FILE) $files[] = $item;
+                }
+            } elseif (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $files[] = $file;
+            }
+            if ($totalSold > 0.0005 && $files === []) throw new RuntimeException('Attach at least one invoice or receipt for sold stock.');
+            foreach ($files as $item) $storedFiles[] = $upload->storeQuickSaleInvoice($companyId, $item);
+            $stored = $storedFiles[0] ?? null; // Keep the legacy first-attachment contract readable.
 
             $reportStatement = $connection->prepare(
                 "INSERT INTO sales_quick_sale_reports (
@@ -854,6 +870,15 @@ final class SalesQuickSaleService
                 );
             }
 
+            $evidenceInsert = $connection->prepare('INSERT INTO sales_quick_sale_report_evidence
+                (company_id,report_id,original_name,storage_path,mime_type,file_size,sha256,sequence)
+                VALUES(?,?,?,?,?,?,?,?)');
+            foreach ($storedFiles as $index => $attachment) {
+                $evidenceInsert->execute([$companyId,$reportId,$attachment['evidence_original_name'],
+                    $attachment['evidence_path'],$attachment['evidence_mime'],$attachment['evidence_size'],
+                    $attachment['evidence_sha256'],$index+1]);
+            }
+
             $lineInsert = $connection->prepare(
                 "INSERT INTO sales_quick_sale_report_lines (
                     company_id,
@@ -930,7 +955,7 @@ final class SalesQuickSaleService
                 }
             }
 
-            $this->routingAudit($companyId, $quickSaleId, $actorId, 'report_submitted', ['report_id' => $reportId]);
+            $this->routingAudit($companyId, $quickSaleId, $actorId, 'report_submitted', ['report_id' => $reportId,'evidence_count'=>count($storedFiles),'evidence_sha256'=>array_column($storedFiles,'evidence_sha256')]);
             $connection->commit();
 
             return [
@@ -943,11 +968,7 @@ final class SalesQuickSaleService
                 $connection->rollBack();
             }
 
-            if (is_array($stored)) {
-                $upload->remove(
-                    (string) $stored['evidence_path']
-                );
-            }
+            foreach ($storedFiles as $attachment) $upload->remove((string)$attachment['evidence_path']);
 
             return [
                 'successful' => false,
@@ -1850,11 +1871,22 @@ final class SalesQuickSaleService
     }
 
     /** @return array<string,mixed>|null */
+    private function reportEvidenceList(int $companyId, int $quickSaleId): array
+    {
+        $s = \db()->prepare('SELECT e.evidence_id,e.report_id,e.original_name,e.sequence,r.status
+            FROM sales_quick_sale_report_evidence e JOIN sales_quick_sale_reports r
+              ON r.company_id=e.company_id AND r.report_id=e.report_id
+            WHERE r.company_id=? AND r.quick_sale_id=? ORDER BY e.report_id,e.sequence');
+        $s->execute([$companyId,$quickSaleId]);
+        return $s->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
     public function reportEvidence(
         int $quickSaleId,
         int $reportId,
         int $actorId,
-        bool $privilegedReviewer = false
+        bool $privilegedReviewer = false,
+        int $evidenceId = 0
     ): ?array {
         if ($quickSaleId < 1 || $reportId < 1 || $actorId < 1) {
             return null;
@@ -1918,6 +1950,13 @@ final class SalesQuickSaleService
             'report_id' => $reportId,
         ]);
 
+        if ($evidenceId > 0) {
+            $statement = \db()->prepare('SELECT e.report_id,e.storage_path evidence_path,e.original_name evidence_original_name,
+                e.mime_type evidence_mime,e.file_size evidence_size FROM sales_quick_sale_report_evidence e
+                JOIN sales_quick_sale_reports r ON r.company_id=e.company_id AND r.report_id=e.report_id
+                WHERE e.company_id=? AND r.quick_sale_id=? AND e.report_id=? AND e.evidence_id=?');
+            $statement->execute([$companyId,$quickSaleId,$reportId,$evidenceId]);
+        }
         $evidence = $statement->fetch(\PDO::FETCH_ASSOC);
 
         if (!is_array($evidence)) {
@@ -2221,6 +2260,7 @@ final class SalesQuickSaleService
                         ?? ''
                     ) === 'submitted'
                     && $managerReportLines !== [],
+                'evidenceFiles' => $this->reportEvidenceList($companyId, $quickSaleId),
                 'managerReport' => $managerReport,
                 'managerReportLines' => $managerReportLines,
                 'locations' => $locations,

@@ -283,6 +283,8 @@ $router->get(
 $router->get('/inventory/stock-requests',[$stockRequestController,'index']);
 $router->get('/inventory/stock-requests/{id}',[$stockRequestController,'show']);
 $router->post('/inventory/stock-requests',[$stockRequestController,'create']);
+$router->post('/inventory/stock-requests/{id}/peer-proposals',[$stockRequestController,'proposePeer']);
+$router->post('/inventory/peer-proposals/{id}/decision',[$stockRequestController,'decidePeer']);
 $router->post('/inventory/stock-requests/{id}/process',[$stockRequestController,'process']);
 $router->post('/inventory/stock-requests/{id}/issue',[$stockRequestController,'issue']);
 $router->post('/inventory/stock-requests/{id}/receive',[$stockRequestController,'receive']);

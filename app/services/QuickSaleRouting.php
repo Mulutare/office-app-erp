@@ -95,58 +95,7 @@ trait QuickSaleRouting
 
     public function escalate(int $saleId, int $actor, string $reason): array
     {
-        $company = $this->tenant->companyId();
-        return $this->routingLock($company, $saleId, function () use ($company, $saleId, $actor, $reason): array {
-            $scope = new SalesHierarchyScope();
-            $sale = $this->quickSaleRecord($company, $saleId);
-            if (!$scope->canManage($company, $actor) || !$sale || (int) $sale['manager_user_id'] !== $actor) {
-                throw new RuntimeException('Only the current responsible manager can escalate this request.');
-            }
-            if ($sale['status'] !== 'submitted' || !empty($sale['sales_order_id'])) {
-                throw new RuntimeException('An allocated or already converted request cannot be escalated.');
-            }
-            if ((string) ($sale['fulfilment_state'] ?? 'at_origin') === 'awaiting_transfer') {
-                throw new RuntimeException('This Quick Sale is already waiting for a downstream stock transfer.');
-            }
-            $reason = trim($reason);
-            if ($reason === '' || mb_strlen($reason) > 2000) throw new RuntimeException('Enter a stock insufficiency reason (up to 2000 characters).');
-            $quotation = $this->sales->quotation($company, (int) $sale['quotation_id']);
-            if (!$quotation) throw new RuntimeException('Quotation was not found.');
-            $stock = $this->stockCheck($company, $actor, (int) $sale['warehouse_id'], $quotation['lines']);
-            if ($stock['sufficient_locations'] !== []) throw new RuntimeException('Available stock can satisfy this request. Allocate it at this level.');
-            $parent = $scope->parentId($company, $actor);
-            $authority = \db()->prepare("SELECT authority_level FROM inventory_stock_authorities WHERE company_id=? AND user_id=? AND active=TRUE");
-            $authority->execute([$company, $actor]);
-            if ($authority->fetchColumn() === 'regional') {
-                $result = (new CentralStockReplenishmentService())->quickSale($company, $saleId, $actor);
-                $this->routingAudit($company, $saleId, $actor, 'central_replenishment', ['reason' => $reason, 'state' => $result['status']]);
-                return ['successful' => true, 'id' => $saleId, 'unresolved' => true] + $result;
-            }
-            if ($parent === null) throw new RuntimeException('Configure the Regional stock authority before requesting company replenishment.');
-            if (!$scope->canManage($company, $parent)) throw new RuntimeException('The direct parent manager needs the Sales confirmation permission before escalation.');
-            $warehouse = $this->resolveShopWarehouse($company, $parent);
-            // A reconfigured hierarchy must not send a request back to a previous processor.
-            foreach ($this->routingHistory($company, $saleId) as $event) {
-                $values = json_decode((string) $event['new_values'], true) ?: [];
-                if ((int) ($values['from_manager_id'] ?? 0) === $parent) throw new RuntimeException('This request has already passed through that manager. Correct the hierarchy.');
-            }
-            $db = \db();
-            $db->beginTransaction();
-            try {
-                $update = $db->prepare("UPDATE sales_quick_sales SET manager_user_id=?,warehouse_id=?
-                    WHERE company_id=? AND quick_sale_id=? AND manager_user_id=? AND status='submitted'");
-                $update->execute([$parent, (int) $warehouse['warehouse_id'], $company, $saleId, $actor]);
-                if ($update->rowCount() !== 1) throw new RuntimeException('Request ownership changed. Refresh the page.');
-                $this->routingAudit($company, $saleId, $actor, 'escalated', $stock + [
-                    'from_manager_id' => $actor, 'to_manager_id' => $parent,
-                    'to_warehouse_id' => (int) $warehouse['warehouse_id'], 'reason' => $reason]);
-                $db->commit();
-            } catch (Throwable $e) {
-                if ($db->inTransaction()) $db->rollBack();
-                throw $e;
-            }
-            return ['successful' => true, 'id' => $saleId];
-        });
+        return ['successful'=>false,'errors'=>['form'=>'Quick Sale stays with the Shop. The responsible manager can create a separate Request Stock for their own warehouse.']];
     }
 
     public function handoffToFinance(int $saleId, int $reportId, int $actor): array

@@ -11,6 +11,7 @@ use Throwable;
 
 final class StockRequestService
 {
+    use StockRequestPeerWorkflow;
     private TenantContext $tenant;
 
     public function __construct(?TenantContext $tenant = null)
@@ -111,22 +112,56 @@ final class StockRequestService
         }
 
         $authority = $this->authorityForUser($companyId, $actorId);
-        $role = $this->roleFromTitle((string) ($actor['job_title'] ?? ''));
-        $canCreate = in_array($role, ['dsa', 'dsp'], true) || (is_array($authority) && in_array($role, ['shop','district','regional'], true));
-        $canProcess = is_array($authority) && in_array($role, ['shop', 'district', 'regional'], true);
-        $canManageReorder = is_array($authority)
-            && $role === 'regional'
-            && ($authority['authority_level'] ?? '') === 'regional';
+        $employeeRole = $this->roleFromTitle(
+            (string) ($actor['job_title'] ?? '')
+        );
+        $managerRole = $this->managerAuthorityRole(
+            $companyId,
+            $actorId,
+            $authority
+        );
+        $role = in_array($employeeRole, ['dsa', 'dsp'], true)
+            ? $employeeRole
+            : $managerRole;
+        $canCreate =
+            in_array($role, ['dsa', 'dsp'], true)
+            || $managerRole !== null;
+
+        $canProcess = $managerRole !== null;
+
+        $canManageReorder =
+            $managerRole === 'regional'
+            && $this->actorCan(
+                $companyId,
+                $actorId,
+                'inventory.reorder_thresholds.manage'
+            );
 
         return [
             'stockRequests' => $requestId === null ? $requests : $this->listVisibleRequests($companyId, $actorId, (new InventoryReadScope())->isAdministrator($companyId, $actorId), $visibleRequesterIds),
+            'peerProposals' => $this->peerWorkspace($companyId,$actorId,$requestId),
+            'peerCandidates' => $this->peerCandidates($companyId,$actorId,$request),
             'stockRequest' => $request,
-            'stockRequestProducts' => $this->stockableProducts($companyId),
+            'stockRequestProducts' => $this->requestableProducts($companyId),
             'stockRequestActor' => $actor,
-            'stockRequestActorRole' => $role,
+            'stockRequestActorRole' => $managerRole ?? $role,
             'stockRequestAuthority' => $authority,
-            'canCreateStockRequest' => $canCreate,
-            'canProcessStockRequest' => $canProcess,
+            'canCreateStockRequest' => (
+                ($managerRole !== null || in_array($role, ['dsa', 'dsp'], true))
+                && (new ModuleRoleService())->permissionAllowed(
+                    $companyId,
+                    $actorId,
+                    'inventory.stock_requests.create'
+                )
+            ),
+            'canProcessStockRequest' => (
+                $managerRole !== null
+                && (new ModuleRoleService())->permissionAllowed(
+                    $companyId,
+                    $actorId,
+                    'inventory.stock_requests.process'
+                )
+            ),
             'canManageStockAuthorities' => $manageAuthorities,
             'canManageReorderThresholds' => $canManageReorder,
             'stockAuthorities' => $manageAuthorities ? $this->authorities($companyId) : [],
@@ -139,11 +174,21 @@ final class StockRequestService
     public function createRequest(array $input, int $actorId): int
     {
         $companyId = $this->tenant->companyId();
+        if (!(new ModuleRoleService())->permissionAllowed($companyId, $actorId, 'inventory.stock_requests.create')) throw new RuntimeException('Stock request creation is not permitted.');
         $actor = $this->employeeContext($companyId, $actorId);
-        $role = $this->roleFromTitle((string) ($actor['job_title'] ?? ''));
-        $lines = $this->normalizeRequestLines($input);
+        $employeeRole = $this->roleFromTitle(
+            (string) ($actor['job_title'] ?? '')
+        );
+        $managerRole = $this->managerAuthorityRole(
+            $companyId,
+            $actorId
+        );
+        $role = in_array($employeeRole, ['dsa', 'dsp'], true)
+            ? $employeeRole
+            : $managerRole;
+        $lines = $this->normalizeRequestInputLines($input);
         if ($lines === []) throw new RuntimeException('Add at least one product with a positive requested quantity.');
-        $this->assertStockableProducts($companyId, array_keys($lines));
+        $this->assertRequestableProducts($companyId, array_keys($lines));
         $notes = trim((string) ($input['notes'] ?? '')) ?: null;
 
         $requestKind = 'employee_issue';
@@ -158,6 +203,18 @@ final class StockRequestService
             if (!is_array($servingAuthority) || ($servingAuthority['authority_level'] ?? '') !== 'shop') {
                 throw new RuntimeException('Your direct Shop Manager does not have an active represented stock location.');
             }
+            if (
+                !(new ModuleRoleService())->permissionAllowed(
+                    $companyId,
+                    $managerId,
+                    'inventory.stock_requests.process'
+                )
+            ) {
+                throw new RuntimeException(
+                    'Your direct Shop Manager does not have the Stock Hierarchy Manager privilege.'
+                );
+            }
+
             $handlerId = $managerId;
         } elseif ($managerRequest) {
             $requestKind = 'manager_replenishment';
@@ -165,7 +222,7 @@ final class StockRequestService
             if (!is_array($servingAuthority) || (string) ($servingAuthority['authority_level'] ?? '') !== $role) {
                 throw new RuntimeException('Your represented manager warehouse is not configured for this replenishment request.');
             }
-            $this->assertAuthorityMatchesJobTitle($companyId, $actorId, $role);
+            $this->assertManagerAuthorityLevel($companyId, $actorId, $role);
             if ($role === 'regional') {
                 // Regional proactive requests are fulfilled from PT-CENTRAL. Existing
                 // Regional stock is deliberately not deducted from the requested amount.
@@ -197,7 +254,14 @@ final class StockRequestService
                 'request_number' => $number,
                 'requester_user_id' => $actorId,
                 'requester_employee_id' => (int) $actor['employee_id'],
-                'requester_role_snapshot' => (string) $actor['job_title'],
+                'requester_role_snapshot' =>
+                    in_array(
+                        $role,
+                        ['shop', 'district', 'regional'],
+                        true
+                    )
+                        ? ucfirst($role) . ' Stock Authority'
+                        : (string) $actor['job_title'],
                 'serving_authority_id' => (int) $servingAuthority['authority_id'],
                 'current_handler_user_id' => $handlerId,
                 'notes' => $notes,
@@ -242,6 +306,7 @@ final class StockRequestService
     public function processRequest(int $requestId, int $actorId): array
     {
         $companyId = $this->tenant->companyId();
+        if (!(new ModuleRoleService())->permissionAllowed($companyId, $actorId, 'inventory.stock_requests.process')) throw new RuntimeException('Stock request processing is not permitted.');
         $connection = \db();
         $connection->beginTransaction();
         try {
@@ -257,13 +322,26 @@ final class StockRequestService
             if (!is_array($authority)) {
                 throw new RuntimeException('Your represented stock location is not configured.');
             }
-            $this->assertAuthorityMatchesJobTitle($companyId, $actorId, (string) $authority['authority_level']);
+            $this->assertManagerAuthorityLevel($companyId, $actorId, (string) $authority['authority_level']);
             if ($requestStatus === 'awaiting_procurement' && (string) $authority['authority_level'] !== 'regional') {
                 throw new RuntimeException('Only the Regional Manager can recheck a stock request that is waiting for company procurement.');
             }
             $serving = $this->authorityById($companyId, (int) $request['serving_authority_id'], true);
             if (!is_array($serving)) throw new RuntimeException('The serving stock authority is no longer active.');
 
+            if (($request['request_kind']??'employee_issue')==='employee_issue' && (int)$authority['authority_id']!==(int)$serving['authority_id']) {
+                // Finish already reserved 080 onward transfers without creating a new
+                // allocation or escalating any further employee shortage.
+                $legacy=$connection->prepare("SELECT COUNT(*) FROM inventory_stock_request_allocations WHERE company_id=? AND request_id=? AND authority_id=? AND status='source_reserved' AND transfer_id IS NULL");
+                $legacy->execute([$companyId,$requestId,$authority['authority_id']]);
+                if ((int)$legacy->fetchColumn()<1) throw new RuntimeException('Employee shortages stay with their serving Shop Manager. Only previously committed onward transfers may continue here.');
+                (new InventoryOperationalAccessService())->assertAuthorizedSource($companyId,$actorId,(int)$authority['warehouse_id'],(int)$authority['location_id']);
+                $this->createTransferForAllocationsLocked($connection,$request,$authority,$serving,[],$actorId);
+                $status=$this->refreshRequestStatusLocked($connection,$companyId,$requestId);
+                $this->audit($actorId,'stock_request.legacy_transfer_forwarded','inventory_stock_requests',$requestId,['status'=>$status]);
+                $connection->commit();
+                return ['status'=>$status];
+            }
             if ((string)($request['request_kind'] ?? 'employee_issue') === 'manager_replenishment'
                 && (string)$authority['authority_level'] === 'regional'
                 && (int)$authority['authority_id'] === (int)$serving['authority_id']) {
@@ -293,37 +371,8 @@ final class StockRequestService
             );
             $remaining = $this->remainingLinesLocked($connection, $companyId, $requestId);
 
-            if ($remaining !== []) {
-                if ((string) $authority['authority_level'] === 'regional') {
-                    $result = (new CentralStockReplenishmentService())->requestLocked(
-                        $companyId, $requestId, $authority, $remaining, $actorId
-                    );
-                    $connection->commit();
-                    return $result;
-                }
-
-                $nextManager = $this->nextManagerAuthority($companyId, $actorId, (string) $authority['authority_level']);
-                if (!is_array($nextManager)) {
-                    throw new RuntimeException('The next stock authority in the reporting hierarchy is not configured.');
-                }
-                $connection->prepare(
-                    "UPDATE inventory_stock_requests
-                     SET status='pending_review',current_handler_user_id=:handler
-                     WHERE company_id=:company_id AND request_id=:request_id"
-                )->execute([
-                    'handler' => (int) $nextManager['user_id'],
-                    'company_id' => $companyId,
-                    'request_id' => $requestId,
-                ]);
-                $connection->commit();
-                $this->audit($actorId, 'stock_request.escalated', 'inventory_stock_requests', $requestId, [
-                    'from_level' => $authority['authority_level'],
-                    'to_level' => $nextManager['authority_level'],
-                    'to_user_id' => (int) $nextManager['user_id'],
-                ]);
-                return ['status' => 'pending_review', 'handler_user_id' => (int) $nextManager['user_id']];
-            }
-
+            // A shortage stays with the responsible manager. Any replenishment of
+            // that manager's own warehouse is a separate, deliberate stock request.
             $status = $this->refreshRequestStatusLocked($connection, $companyId, $requestId);
             $connection->commit();
             $this->audit($actorId, 'stock_request.allocated', 'inventory_stock_requests', $requestId, ['status' => $status]);
@@ -349,7 +398,7 @@ final class StockRequestService
             if (!is_array($serving) || (int) $serving['user_id'] !== $actorId || (string) $serving['authority_level'] !== 'shop') {
                 throw new RuntimeException('Only the serving Shop Manager can issue this stock request.');
             }
-            $this->assertAuthorityMatchesJobTitle($companyId, $actorId, 'shop');
+            $this->assertManagerAuthorityLevel($companyId, $actorId, 'shop');
 
             $lines = $this->requestLines($companyId, $requestId, true);
             foreach ($lines as $line) {
@@ -449,6 +498,7 @@ final class StockRequestService
     public function saveAuthority(array $input, int $actorId): void
     {
         $companyId = $this->tenant->companyId();
+        if (!$this->actorCan($companyId,$actorId,'inventory.stock_authorities.manage')) throw new RuntimeException('Stock authority management is not permitted.');
         $userId = (int) ($input['user_id'] ?? 0);
         $level = strtolower(trim((string) ($input['authority_level'] ?? '')));
         $warehouseId = (int) ($input['warehouse_id'] ?? 0);
@@ -457,7 +507,7 @@ final class StockRequestService
         if ($userId < 1 || $warehouseId < 1 || $locationId < 1 || !in_array($level, ['shop', 'district', 'regional'], true)) {
             throw new RuntimeException('Manager, authority level, warehouse and stock location are required.');
         }
-        $this->assertAuthorityMatchesJobTitle($companyId, $userId, $level);
+
         $location = \db()->prepare(
             "SELECT w.warehouse_id,w.name warehouse_name,l.location_id,l.name location_name,l.receiving_allowed
              FROM inventory_warehouses w
@@ -486,6 +536,9 @@ final class StockRequestService
                     || (int) $current['location_id'] !== $locationId
                     || (string) $current['authority_level'] !== $level
                     || ((bool) $current['active'] !== $active);
+                $peerWork=$connection->prepare("SELECT COUNT(*) FROM inventory_peer_proposals WHERE company_id=? AND (source_authority_id=? OR destination_authority_id=?) AND state IN('proposed','source_approved','dispatched')");
+                $peerWork->execute([$companyId,$current['authority_id'],$current['authority_id']]);
+                if ($changedRoute && (int)$peerWork->fetchColumn()>0) throw new RuntimeException('Finish or reject pending peer work before changing this authority.');
                 if ($changedRoute && $this->authorityHasOpenWork($connection, $companyId, (int) $current['authority_id'])) {
                     throw new RuntimeException('This stock authority has open stock requests or reservations. Finish them before changing its level or stock location.');
                 }
@@ -523,6 +576,7 @@ final class StockRequestService
                 ]);
                 $authorityId = (int) $connection->lastInsertId();
             }
+            (new StockHierarchy())->saveParent($companyId,$warehouseId,(int)($input['parent_warehouse_id']??0),$level);
             $connection->commit();
             $this->audit($actorId, 'stock_authority.saved', 'inventory_stock_authorities', $authorityId, [
                 'user_id' => $userId,
@@ -530,6 +584,7 @@ final class StockRequestService
                 'warehouse_id' => $warehouseId,
                 'location_id' => $locationId,
                 'active' => $active,
+                'parent_warehouse_id' => (int)($input['parent_warehouse_id']??0) ?: null,
             ]);
         } catch (Throwable $e) {
             if ($connection->inTransaction()) $connection->rollBack();
@@ -541,8 +596,12 @@ final class StockRequestService
     {
         $companyId = $this->tenant->companyId();
         $authority = $this->authorityForUser($companyId, $actorId);
-        $role = $this->roleFromTitle((string) ($this->employeeContext($companyId, $actorId)['job_title'] ?? ''));
-        if (!is_array($authority) || $role !== 'regional' || (string) $authority['authority_level'] !== 'regional') {
+        $role = $this->managerAuthorityRole(
+            $companyId,
+            $actorId,
+            $authority
+        );
+        if ($role !== 'regional') {
             throw new RuntimeException('Only the Regional Manager can edit company-stock notification quantities.');
         }
         $productId = (int) ($input['product_id'] ?? 0);
@@ -809,7 +868,7 @@ final class StockRequestService
     {
         $companyId = (int) $request['company_id'];
         $requestId = (int) $request['request_id'];
-        $remainingLines = $this->remainingLinesLocked($connection, $companyId, $requestId);
+        $remainingLines = $this->uncommittedLinesLocked($connection, $companyId, $requestId);
         $allocated = [];
         foreach ($remainingLines as $line) {
             $remaining = (float) $line['remaining_quantity'];
@@ -1108,18 +1167,72 @@ final class StockRequestService
         $normalized = strtolower(trim(preg_replace('/\s+/', ' ', $title) ?? $title));
         if (preg_match('/(^|[^a-z])dsa([^a-z]|$)/', $normalized)) return 'dsa';
         if (preg_match('/(^|[^a-z])dsp([^a-z]|$)/', $normalized)) return 'dsp';
-        if (str_contains($normalized, 'shop manager')) return 'shop';
-        if (str_contains($normalized, 'district manager')) return 'district';
-        if (str_contains($normalized, 'regional manager')) return 'regional';
+
         return null;
     }
 
-    private function assertAuthorityMatchesJobTitle(int $companyId, int $userId, string $level): void
-    {
-        $context = $this->employeeContext($companyId, $userId);
-        $role = $this->roleFromTitle((string) ($context['job_title'] ?? ''));
-        if ($role !== $level) {
-            throw new RuntimeException(sprintf('The employee HR Job Title does not match the %s stock-authority level.', ucfirst($level)));
+    private function managerAuthorityRole(
+        int $companyId,
+        int $userId,
+        ?array $authority = null
+    ): ?string {
+        $authority ??= $this->authorityForUser(
+            $companyId,
+            $userId
+        );
+
+        if (
+            !is_array($authority)
+            || (int) ($authority['user_id'] ?? 0) !== $userId
+            || empty($authority['active'])
+        ) {
+            return null;
+        }
+
+        $level = (string) (
+            $authority['authority_level'] ?? ''
+        );
+
+        if (
+            !in_array(
+                $level,
+                ['shop', 'district', 'regional'],
+                true
+            )
+        ) {
+            return null;
+        }
+
+        if (
+            !(new ModuleRoleService())->permissionAllowed(
+                $companyId,
+                $userId,
+                'inventory.stock_requests.process'
+            )
+        ) {
+            return null;
+        }
+
+        return $level;
+    }
+
+    private function assertManagerAuthorityLevel(
+        int $companyId,
+        int $userId,
+        string $level
+    ): void {
+        if (
+            $this->managerAuthorityRole(
+                $companyId,
+                $userId
+            ) !== $level
+        ) {
+            throw new RuntimeException(
+                sprintf(
+                    'The user is not an active %s stock authority with the Stock Hierarchy Manager privilege.',
+                    ucfirst($level)
+                )
+            );
         }
     }
 
@@ -1174,17 +1287,8 @@ final class StockRequestService
     /** @return array<string,mixed>|null */
     private function nextManagerAuthority(int $companyId, int $userId, string $currentLevel): ?array
     {
-        $manager = \db()->prepare(
-            'SELECT manager_user_id FROM company_users WHERE company_id=:company_id AND user_id=:user_id AND active=TRUE'
-        );
-        $manager->execute(['company_id' => $companyId, 'user_id' => $userId]);
-        $managerId = (int) $manager->fetchColumn();
-        if ($managerId < 1) return null;
-        $authority = $this->authorityForUser($companyId, $managerId);
-        if (!is_array($authority)) return null;
-        $expected = ['shop' => 'district', 'district' => 'regional'][$currentLevel] ?? null;
-        if ($expected === null || (string) $authority['authority_level'] !== $expected) return null;
-        $this->assertAuthorityMatchesJobTitle($companyId, $managerId, $expected);
+        $authority = (new StockHierarchy())->parentForUser($companyId,$userId);
+        if ($authority) $this->assertManagerAuthorityLevel($companyId,(int)$authority['user_id'],(string)$authority['authority_level']);
         return $authority;
     }
 
@@ -1203,40 +1307,20 @@ final class StockRequestService
             return null;
         }
 
-        $parentsStatement = \db()->prepare(
-            'SELECT user_id,manager_user_id FROM company_users
-             WHERE company_id=:company_id AND active=TRUE'
-        );
-        $parentsStatement->execute(['company_id' => $companyId]);
-        $parents = array_column(
-            $parentsStatement->fetchAll(PDO::FETCH_ASSOC),
-            'manager_user_id',
-            'user_id'
-        );
-
-        $cursor = $servingUserId;
-        $child = 0;
-        $seen = [];
-        while ($cursor > 0 && $cursor !== $currentUserId) {
-            if (isset($seen[$cursor]) || !array_key_exists($cursor, $parents)) {
-                throw new RuntimeException(
-                    'The stock reporting hierarchy contains a cycle or an inactive manager.'
-                );
-            }
-            $seen[$cursor] = true;
-            $child = $cursor;
-            $cursor = (int) $parents[$cursor];
+        $cursor=$servingUserId; $child=0; $seen=[];
+        while ($cursor>0 && $cursor!==$currentUserId) {
+            if (isset($seen[$cursor])) throw new RuntimeException('Stock hierarchy cycle.');
+            $seen[$cursor]=true; $child=$cursor;
+            $parent=(new StockHierarchy())->parentForUser($companyId,$cursor);
+            $cursor=(int)($parent['user_id']??0);
         }
-
-        if ($cursor !== $currentUserId || $child < 1) {
-            return null;
-        }
+        if ($cursor!==$currentUserId || $child<1) return null;
 
         $authority = $this->authorityForUser($companyId, $child);
         if (!is_array($authority) || (string) $authority['authority_level'] !== $expected) {
             return null;
         }
-        $this->assertAuthorityMatchesJobTitle($companyId, $child, $expected);
+        $this->assertManagerAuthorityLevel($companyId, $child, $expected);
         return $authority;
     }
 
@@ -1245,6 +1329,7 @@ final class StockRequestService
     {
         $statement = \db()->prepare(
             "SELECT l.*,p.sku,p.name,p.unit_of_measure,
+                    (SELECT COALESCE(SUM(pp.quantity),0) FROM inventory_peer_proposals pp WHERE pp.company_id=l.company_id AND pp.request_id=l.request_id AND pp.request_line_id=l.request_line_id AND pp.state='proposed') proposed_quantity,
                     COALESCE(SUM(CASE WHEN a.status<>'released' THEN a.quantity ELSE 0 END),0) allocated_quantity,
                     COALESCE(SUM(CASE WHEN a.status IN('shop_reserved','issued') THEN a.quantity ELSE 0 END),0) ready_quantity
              FROM inventory_stock_request_lines l
@@ -1438,7 +1523,7 @@ final class StockRequestService
         $statement = \db()->prepare(
             "SELECT a.*,u.display_name,COALESCE(pa.job_title_name_snapshot,e.job_title) job_title,
                     w.code warehouse_code,w.name warehouse_name,l.code location_code,l.name location_name,
-                    cu.manager_user_id,mu.display_name manager_name
+                    cu.manager_user_id,mu.display_name manager_name,pw.name parent_warehouse_name
              FROM inventory_stock_authorities a
              INNER JOIN company_users cu ON cu.company_id=a.company_id AND cu.user_id=a.user_id
              INNER JOIN users u ON u.user_id=a.user_id
@@ -1447,6 +1532,7 @@ final class StockRequestService
              INNER JOIN inventory_warehouses w ON w.company_id=a.company_id AND w.warehouse_id=a.warehouse_id
              INNER JOIN inventory_warehouse_locations l ON l.company_id=a.company_id AND l.warehouse_id=a.warehouse_id AND l.location_id=a.location_id
              LEFT JOIN users mu ON mu.user_id=cu.manager_user_id
+             LEFT JOIN inventory_warehouses pw ON pw.company_id=w.company_id AND pw.warehouse_id=w.parent_warehouse_id
              WHERE a.company_id=:company_id ORDER BY FIELD(a.authority_level,'shop','district','regional'),u.display_name"
         );
         $statement->execute(['company_id' => $companyId]);
@@ -1472,7 +1558,15 @@ final class StockRequestService
         $statement->execute(['company_id' => $companyId]);
         $out = [];
         foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            if (in_array($this->roleFromTitle((string) $row['job_title']), ['shop','district','regional'], true)) $out[] = $row;
+            if (
+                (new ModuleRoleService())->permissionAllowed(
+                    $companyId,
+                    (int) $row['user_id'],
+                    'inventory.stock_requests.process'
+                )
+            ) {
+                $out[] = $row;
+            }
         }
         return $out;
     }
@@ -1499,6 +1593,218 @@ final class StockRequestService
     }
 
     /** @return array<string,mixed> */
+
+    /**
+     * Products that may be requested for physical stock replenishment.
+     *
+     * A manager may request a product even when the represented
+     * warehouse currently has zero stock.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function requestableProducts(int $companyId): array
+    {
+        $statement = \db()->prepare(
+            "SELECT
+                p.product_id,
+                p.sku,
+                p.name,
+                p.unit_of_measure,
+                p.product_type
+             FROM sales_products p
+             WHERE p.company_id=:company_id
+               AND p.active=TRUE
+               AND p.deleted_at IS NULL
+               AND (
+                    p.product_type IS NULL
+                    OR p.product_type NOT IN('service','fixed_asset')
+               )
+             ORDER BY p.name,p.product_id"
+        );
+
+        $statement->execute([
+            'company_id' => $companyId,
+        ]);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Canonical stock-request input.
+     *
+     * Supports the existing form as well as product_id[] / quantity[].
+     * Blank extra rows are ignored. Invalid partial rows fail closed.
+     *
+     * @return array<int,float>
+     */
+    private function normalizeRequestInputLines(array $input): array
+    {
+        $pairs = [];
+
+        if (
+            isset($input['lines'])
+            && is_array($input['lines'])
+        ) {
+            foreach ($input['lines'] as $line) {
+                if (!is_array($line)) {
+                    throw new RuntimeException(
+                        'Invalid stock request line.'
+                    );
+                }
+
+                $pairs[] = [
+                    $line['product_id'] ?? null,
+                    $line['quantity'] ?? null,
+                ];
+            }
+        } else {
+            $products =
+                $input['product_id']
+                ?? $input['product_ids']
+                ?? [];
+
+            $quantities =
+                $input['quantity']
+                ?? $input['quantities']
+                ?? [];
+
+            if (!is_array($products)) {
+                $products = [$products];
+            }
+
+            if (!is_array($quantities)) {
+                $quantities = [$quantities];
+            }
+
+            $count = max(
+                count($products),
+                count($quantities)
+            );
+
+            for ($i = 0; $i < $count; $i++) {
+                $pairs[] = [
+                    $products[$i] ?? null,
+                    $quantities[$i] ?? null,
+                ];
+            }
+        }
+
+        if (count($pairs) > 20) {
+            throw new RuntimeException(
+                'A stock request may contain at most 20 product lines.'
+            );
+        }
+
+        $result = [];
+
+        foreach ($pairs as [$productRaw, $quantityRaw]) {
+            if (
+                ($productRaw === null || $productRaw === '')
+                && ($quantityRaw === null || $quantityRaw === '')
+            ) {
+                continue;
+            }
+
+            if (
+                is_array($productRaw)
+                || is_array($quantityRaw)
+                || !is_numeric($productRaw)
+                || !is_numeric($quantityRaw)
+            ) {
+                throw new RuntimeException(
+                    'Select a product and enter a valid positive quantity.'
+                );
+            }
+
+            $productId = (int) $productRaw;
+            $quantity = round((float) $quantityRaw, 3);
+
+            if (
+                $productId < 1
+                || $quantity <= 0
+                || $quantity > 999999999999.999
+            ) {
+                throw new RuntimeException(
+                    'Select a product and enter a valid positive quantity.'
+                );
+            }
+
+            /*
+             * Duplicate submitted product rows are collapsed on the
+             * server instead of producing duplicate request lines.
+             */
+            $result[$productId] = round(
+                ($result[$productId] ?? 0.0) + $quantity,
+                3
+            );
+        }
+
+        if (count($result) > 20) {
+            throw new RuntimeException(
+                'A stock request may contain at most 20 different products.'
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * Revalidate every submitted product server-side.
+     *
+     * Browser options are never trusted.
+     *
+     * @param list<int> $productIds
+     */
+    private function assertRequestableProducts(
+        int $companyId,
+        array $productIds
+    ): void {
+        $productIds = array_values(
+            array_unique(
+                array_filter(
+                    array_map('intval', $productIds),
+                    static fn (int $id): bool => $id > 0
+                )
+            )
+        );
+
+        if ($productIds === []) {
+            throw new RuntimeException(
+                'Add at least one valid stock product.'
+            );
+        }
+
+        $placeholders = implode(
+            ',',
+            array_fill(0, count($productIds), '?')
+        );
+
+        $statement = \db()->prepare(
+            "SELECT COUNT(*)
+             FROM sales_products
+             WHERE company_id=?
+               AND product_id IN ($placeholders)
+               AND active=TRUE
+               AND deleted_at IS NULL
+               AND (
+                    product_type IS NULL
+                    OR product_type NOT IN('service','fixed_asset')
+               )"
+        );
+
+        $statement->execute(
+            array_merge([$companyId], $productIds)
+        );
+
+        if (
+            (int) $statement->fetchColumn()
+            !== count($productIds)
+        ) {
+            throw new RuntimeException(
+                'One or more selected products are not valid stock products.'
+            );
+        }
+    }
     private function regionalReorderWorkspace(int $companyId, array $authority): array
     {
         $statement = \db()->prepare(
@@ -1541,35 +1847,7 @@ final class StockRequestService
         int $userId,
         string $permission
     ): bool {
-        if ($companyId < 1 || $userId < 1 || $permission === '') {
-            return false;
-        }
-
-        $statement = \db()->prepare(
-            "SELECT 1
-             FROM company_user_roles cur
-             INNER JOIN roles r
-               ON r.role_id=cur.role_id
-              AND r.active=TRUE
-             INNER JOIN company_role_permissions crp
-               ON crp.company_id=cur.company_id
-              AND crp.role_id=cur.role_id
-             INNER JOIN permissions p
-               ON p.permission_id=crp.permission_id
-              AND p.active=TRUE
-             WHERE cur.company_id=:company_id
-               AND cur.user_id=:user_id
-               AND p.code=:permission
-             LIMIT 1"
-        );
-
-        $statement->execute([
-            'company_id' => $companyId,
-            'user_id' => $userId,
-            'permission' => $permission,
-        ]);
-
-        return $statement->fetchColumn() !== false;
+        return (new ModuleRoleService())->permissionAllowed($companyId,$userId,$permission);
     }
     private function audit(int $actorId, string $action, string $table, int $id, ?array $values): void
     {

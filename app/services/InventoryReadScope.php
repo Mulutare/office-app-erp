@@ -47,53 +47,8 @@ final class InventoryReadScope
         $ownAuthority = $authorityByUser[$actor] ?? null;
 
         if (is_array($ownAuthority)) {
-            // Manager read scope is broader than mutation scope. Always include the
-            // represented warehouse, then recursively include warehouses represented
-            // by reporting descendants. No access rows are created by this read scope.
-            $ids[(int) $ownAuthority['warehouse_id']] = true;
-            $visibleUsers = $hierarchy->userIds($company, $actor);
-            foreach ($authorities as $authority) {
-                if (in_array((int) $authority['user_id'], $visibleUsers, true)) {
-                    $ids[(int) $authority['warehouse_id']] = true;
-                }
-            }
-            foreach ($warehouses as $warehouse) {
-                $manager = (int) ($warehouse['manager_user_id'] ?? 0);
-                if ($manager > 0 && in_array($manager, $visibleUsers, true) && !$this->isCompanyWarehouse($warehouse)) {
-                    $ids[(int) $warehouse['warehouse_id']] = true;
-                }
-            }
-
-            // Regional managers own the complete branch inventory view. In production,
-            // many Shop warehouses pre-date manager/reporting links, so manager_user_id
-            // alone is not an authoritative way to discover every warehouse underneath
-            // a Regional warehouse. Branch membership is authoritative for the Regional
-            // read boundary; the company/Central warehouse remains excluded.
-            $level = strtolower(trim((string) ($ownAuthority['authority_level'] ?? '')));
-            $ownWarehouse = $this->warehouseRow($warehouses, (int) $ownAuthority['warehouse_id']);
-            $branchId = (int) ($ownWarehouse['branch_id'] ?? 0);
-            if ($level === 'regional' && $branchId > 0) {
-                foreach ($warehouses as $warehouse) {
-                    if ((int) ($warehouse['branch_id'] ?? 0) === $branchId && !$this->isCompanyWarehouse($warehouse)) {
-                        $ids[(int) $warehouse['warehouse_id']] = true;
-                    }
-                }
-            }
-
-            // District fallback for legacy Shop warehouses: if this branch has exactly
-            // one active District stock authority, Shop/retail warehouses in that branch
-            // necessarily belong below that District even when old manager links are
-            // incomplete. With multiple District authorities we do NOT broaden scope;
-            // reporting relationships remain the discriminator and sibling privacy wins.
-            if ($level === 'district' && $branchId > 0 && $this->districtAuthorityCountForBranch($company, $branchId) === 1) {
-                foreach ($warehouses as $warehouse) {
-                    $type = strtolower(trim((string) ($warehouse['warehouse_type'] ?? '')));
-                    if ((int) ($warehouse['branch_id'] ?? 0) === $branchId
-                        && in_array($type, ['standard', 'retail'], true)
-                        && !$this->isCompanyWarehouse($warehouse)) {
-                        $ids[(int) $warehouse['warehouse_id']] = true;
-                    }
-                }
+            foreach ((new StockHierarchy())->visibleAuthorities($company,$actor) as $a) {
+                $ids[(int)$a['warehouse_id']]=true;
             }
         } else {
             // Members/agents may read the warehouse of their own reporting team only.
