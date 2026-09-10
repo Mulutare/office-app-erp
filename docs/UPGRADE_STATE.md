@@ -1,5 +1,28 @@
 # Office App ERP Upgrade State
 
+## START HERE FOR EVERY DEVELOPMENT / UPGRADE TASK
+
+**This is the authoritative development handoff and upgrade-state document for the entire ERP.**
+
+- Read this file completely before changing the ERP.
+- The ERP is already in production. Work is incremental upgrade only.
+- Never assume the whole repository should be upgraded or refactored.
+- Determine the exact requested module/functionality first.
+- Inspect current code and current migration state before editing.
+- Preserve all unrelated modules and production behavior.
+- After every completed/deployed upgrade, update this file.
+- If information here conflicts with actual production evidence, stop and verify production before making a destructive or compatibility-sensitive change.
+- Always check current Git HEAD with `git rev-parse HEAD`, rather than relying on a self-referential commit number stored in this document.
+- Where deployment is involved, always check the current migration baseline from both repository files and production migration records.
+
+Application functional baseline:
+`8798d7026b6b1f21daa7ad5cab4af95fa4a06f12`
+(Fix Regional Central replenishment reconciliation)
+
+The documentation/state file was introduced immediately afterward and is part of the development baseline.
+Do not store a "current documentation commit" as a permanent fixed value: committing an edit to this file itself creates a newer commit.
+The application functional baseline identifies the recorded application behavior; it is not a substitute for checking current HEAD.
+
 ## 1. Upgrade Policy
 
 This ERP is maintained using INCREMENTAL PRODUCTION UPGRADES.
@@ -40,10 +63,12 @@ Rules:
 
 ## 2. Current Repository Baseline
 
+The following records the application functional baseline, including branch, remote state, and latest commits at that baseline. Check current repository state separately; run `git rev-parse HEAD` for current HEAD.
+
 Branch:
 main
 
-Baseline commit:
+Application functional baseline commit:
 8798d7026b6b1f21daa7ad5cab4af95fa4a06f12
 
 Short commit:
@@ -245,13 +270,15 @@ migration when implementation begins.
 
 For every future upgrade:
 
+### Next-session checklist
+
 Before editing:
 
 1. read docs/UPGRADE_STATE.md
 2. run git status
 3. confirm branch
-4. confirm HEAD
-5. inspect latest migrations
+4. confirm HEAD with `git rev-parse HEAD`
+5. inspect latest repository migrations and, where deployment is involved, production migration records
 6. identify exact requested scope
 7. inspect affected existing code before modifying it
 
@@ -293,5 +320,64 @@ Update this document with:
 Implement the scoped notification + rejected edit/resubmit upgrade only.
 
 Do not combine it with any other ERP improvement.
+
+## 10. Module / Integration Status
+
+- Stock hierarchy and manager replenishment: existing behavior is documented in section 5; Regional Central reconciliation is recorded as deployed in section 4.
+- Quick Sale: reporting, multiple evidence files, correction, and existing finance/settlement integration are documented in section 5.
+- Action Required: the existing source of truth for pending business actions; see section 5.
+- Notifications and rejected edit/resubmit: planned / not yet implemented; see section 7 for the exact scope.
+- Other module/integration status: Not currently documented — verify before changing this area.
+
+## 11. Production-specific Deployment Notes
+
+The recorded production application is `office-app-erp`, using database `passiontech_officeapp`.
+Migrations 081 and 082 and the Regional Central reconciliation fix are recorded as deployed in section 4.
+Do not reapply old migrations or recreate already-completed production configuration.
+
+Additional production-specific deployment details:
+Not currently documented — verify before changing this area.
+
+## 12. Known Production / Local Differences
+
+The known local-only/untracked development and audit artifacts are listed in section 6 and must not be included automatically in upgrades.
+
+Other production/local differences:
+Not currently documented — verify before changing this area.
+
+## 13. Completed Upgrades
+
+Recorded completed production upgrades:
+
+- Migration 081: manager peer replenishment and multiple Quick Sale evidence.
+- Migration 082: Stock Hierarchy Manager role.
+- Application commit `8798d70`: Regional Central replenishment reconciliation fix.
+
+The application commit history at the functional baseline is retained in section 2.
+This state document was introduced afterward as part of the development baseline; documentation changes do not imply an application deployment.
+
+## 14. Current Unresolved Issues
+
+Not currently documented — verify before changing this area.
+
+## 15. Explicit Out-of-scope Items
+
+For the next planned upgrade in section 7:
+
+- No full-system redesign, cutover, or repository-wide refactor.
+- No unrelated ERP improvements, cleanup, or schema changes.
+- No stock hierarchy replenishment or routing changes.
+- No redesign of Quick Sale correction; attach notifications to existing behavior only.
+- No replacement of Action Required with notifications.
+- Preserve unrelated business logic, permissions, tenant isolation, and audit/history.
+
+## 16. Post-deployment Verification / Status
+
+Section 4 records the deployed baseline. Detailed post-deployment verification results and evidence:
+Not currently documented — verify before changing this area.
+
+After each deployment, record the deployed application baseline, migration status, completed scope, verification performed and its results, unresolved issues, and next planned upgrade.
+Distinguish recorded deployment status from checks actually performed; do not infer successful verification from this document alone.
+Follow the completion procedure in section 8.
 
 End of baseline state.

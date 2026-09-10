@@ -2,6 +2,17 @@
 
 OfficeApp ERP is a modular, multi-company enterprise application.
 
+## Development / Production Upgrade State
+
+Before modifying this ERP, read:
+
+`docs/UPGRADE_STATE.md`
+
+The system is maintained through scoped incremental production upgrades.
+UPGRADE_STATE.md contains the current production/development baseline, migration status,
+completed integrations, protected business behavior, and next upgrade scope.
+Developers and automation must read it completely before making changes.
+
 ## Runtime requirement
 
 PHP 8.1 or newer is required. The native cPanel baseline is PHP 8.1,
