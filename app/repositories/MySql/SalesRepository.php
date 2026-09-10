@@ -812,6 +812,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             $allowed = [
                 'submit' => ['draft'],
                 'approve' => ['submitted'],
+                'reject' => ['submitted'],
+                'resubmit' => ['rejected'],
                 'confirm' => ['approved'],
                 'cancel' => ['draft', 'submitted', 'approved', 'confirmed'],
                 'fulfill' => ['approved', 'confirmed'],
@@ -828,8 +830,26 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 throw new RuntimeException('Provide a cancellation reason of at least 10 characters.');
             }
 
+            if ($action === 'reject') {
+                $quick=$connection->prepare('SELECT COUNT(*) FROM sales_quick_sales qs JOIN sales_quotations q ON q.company_id=qs.company_id AND q.quotation_id=qs.quotation_id WHERE q.company_id=? AND q.sales_order_id=?');
+                $quick->execute([$companyId,$orderId]);
+                if((int)$quick->fetchColumn()>0)throw new RuntimeException('Use the existing Quick Sale workflow.');
+                foreach([
+                    'SELECT COUNT(*) FROM inventory_pickings WHERE company_id=? AND sales_order_id=?',
+                    'SELECT COUNT(*) FROM finance_invoices WHERE company_id=? AND sales_order_id=?'
+                ] as $sql) {
+                    $check=$connection->prepare($sql);$check->execute([$companyId,$orderId]);
+                    if((int)$check->fetchColumn()>0)throw new RuntimeException('This order already has execution records.');
+                }
+                if((float)$order['paid_amount']>0)throw new RuntimeException('A paid order cannot be rejected.');
+                (new \App\Services\AuthorizationService())->requireModulePermission('sales','sales.orders.approve');
+                if (trim((string)$reason)==='' || mb_strlen((string)$reason)>500) throw new RuntimeException('Provide a rejection reason of 1–500 characters.');
+                if ((int)$order['created_by']===$actorId) throw new RuntimeException('The creator cannot reject their own order.');
+            }
+            if ($action === 'resubmit' && (int)$order['created_by']!==$actorId) throw new RuntimeException('Only the creator may resubmit.');
             $newStatus = match ($action) {
-                'submit' => 'submitted',
+                'submit', 'resubmit' => 'submitted',
+                'reject' => 'rejected',
                 'approve' => 'approved',
                 'confirm' => 'confirmed',
                 'cancel' => 'cancelled',
@@ -850,7 +870,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             );
             $update->execute([
                 'status' => $newStatus,
-                'is_submit' => $action === 'submit' ? 1 : 0,
+                'is_submit' => in_array($action,['submit','resubmit'],true) ? 1 : 0,
                 'is_approve' => $action === 'approve' ? 1 : 0,
                 'actor_approve' => $actorId,
                 'is_approve_time' => $action === 'approve' ? 1 : 0,
@@ -869,13 +889,14 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 $this->enqueueOrderConfirmed($connection, $companyId, $orderId, $order);
             }
             $webhookEvent = match ($action) {
-                'submit' => 'sales.order.submitted',
+                'submit', 'resubmit' => 'sales.order.submitted',
+                'reject' => 'sales.order.rejected',
                 'approve' => 'sales.order.approved',
                 'confirm' => 'sales.order.confirmed',
                 'cancel' => 'sales.order.cancelled',
                 'fulfill' => 'sales.order.fulfilled',
             };
-            if ($action !== 'confirm') {
+            if (!in_array($action, ['confirm','reject','resubmit'], true)) {
                 $this->enqueue(
                     $connection,
                     $companyId,
@@ -908,6 +929,14 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
                 'action' => $action, 'reason' => $reason, 'actor_id' => $actorId,
                 'idempotency_key' => $idempotencyKey,
             ]);
+            $historyId = (int)$connection->lastInsertId();
+            if ($action === 'reject' && (int)$order['created_by']>0) {
+                (new \App\Services\UserNotificationService($connection))->notify(
+                    $companyId,(int)$order['created_by'],'sales_order.rejected','Sales Order rejected',
+                    (string)$reason,'sales_order',$orderId,'/sales/orders/'.$orderId,
+                    'sales-order:'.$orderId.':rejected:'.$historyId
+                );
+            }
             if ($ownsTransaction) { $connection->commit(); }
             return ['oldStatus' => $current, 'newStatus' => $newStatus];
         } catch (Throwable $exception) {
@@ -956,6 +985,42 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             throw new RuntimeException('The commission status changed or the transition is not allowed.');
         }
         return ['oldStatus' => $expected, 'newStatus' => $next];
+    }
+
+
+    public function updateRejectedOrder(int $companyId, int $orderId, array $order, array $lines, int $actorId): void
+    {
+        $c = $this->connection();
+        if (!$c->inTransaction()) throw new RuntimeException('Order correction requires a transaction.');
+        $q = $c->prepare("SELECT * FROM sales_orders WHERE company_id=? AND order_id=? AND deleted_at IS NULL FOR UPDATE");
+        $q->execute([$companyId,$orderId]);
+        $old = $q->fetch(PDO::FETCH_ASSOC);
+        if (!$old || $old['status'] !== 'rejected' || (int)$old['created_by'] !== $actorId) {
+            throw new RuntimeException('Only the original creator may correct a rejected order.');
+        }
+        // Never replace lines referenced by downstream execution or approved commissions.
+        foreach ([
+            "SELECT COUNT(*) FROM inventory_pickings WHERE company_id=? AND sales_order_id=?",
+            "SELECT COUNT(*) FROM finance_invoices WHERE company_id=? AND sales_order_id=?",
+            "SELECT COUNT(*) FROM sales_commissions WHERE company_id=? AND order_id=? AND status<>'accrued'"
+        ] as $sql) {
+            $check=$c->prepare($sql);$check->execute([$companyId,$orderId]);
+            if ((int)$check->fetchColumn()>0) throw new RuntimeException('This order has downstream records and cannot be corrected here.');
+        }
+        if ((float)$old['paid_amount'] > 0) throw new RuntimeException('A paid order cannot be corrected here.');
+        $fields=['warehouse_id','source_location_id','customer_id','territory_id','agent_id','external_reference',
+            'order_date','due_date','currency','subtotal','discount_amount','tax_amount','total_amount','notes'];
+        $values=[];foreach($fields as $field)$values[]=$order[$field];
+        $c->prepare('UPDATE sales_orders SET '.implode(',',array_map(static fn($f)=>$f.'=?',$fields)).',updated_by=? WHERE company_id=? AND order_id=?')
+            ->execute([...$values,$actorId,$companyId,$orderId]);
+        $c->prepare('DELETE FROM sales_order_lines WHERE company_id=? AND order_id=?')->execute([$companyId,$orderId]);
+        $add=$c->prepare('INSERT INTO sales_order_lines (company_id,order_id,product_id,description,quantity,unit_price,discount_amount,tax_rate,line_total,commission_rate) VALUES (:company_id,:order_id,:product_id,:description,:quantity,:unit_price,:discount_amount,:tax_rate,:line_total,:commission_rate)');
+        foreach($lines as $line)$add->execute($line+['company_id'=>$companyId,'order_id'=>$orderId]);
+        $c->prepare("DELETE FROM sales_commissions WHERE company_id=? AND order_id=? AND status='accrued'")->execute([$companyId,$orderId]);
+        if($order['agent_id']!==null && $order['commission_amount']>0) {
+            $c->prepare("INSERT INTO sales_commissions(company_id,order_id,agent_id,commission_amount,status,accrued_at) VALUES(?,?,?,?,'accrued',NOW())")
+                ->execute([$companyId,$orderId,$order['agent_id'],$order['commission_amount']]);
+        }
     }
 
     public function createOrder(int $companyId, array $order, array $lines, int $actorId): int
@@ -1065,7 +1130,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             );
             $order->execute(['company_id' => $companyId, 'order_id' => $orderId]);
             $row = $order->fetch(PDO::FETCH_ASSOC);
-            if (!is_array($row) || in_array($row['status'], ['draft', 'submitted', 'cancelled'], true)) {
+            if (!is_array($row) || in_array($row['status'], ['draft', 'submitted', 'rejected', 'cancelled'], true)) {
                 throw new RuntimeException('The order cannot receive a payment.');
             }
             $balance = (float) $row['total_amount'] - (float) $row['paid_amount'];

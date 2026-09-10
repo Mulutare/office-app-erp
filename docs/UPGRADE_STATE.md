@@ -87,9 +87,11 @@ d340e7b Complete Quick Sale workflow and settlement integration
 
 ## 3. Current Migration Baseline
 
-Latest migration in repository:
+Latest migration in repository (local development, not deployed):
 
-082_stock_hierarchy_manager_role.php
+083_user_notifications_and_rejection_resubmit.php
+
+Production remains recorded through 082. Migration 083 has not been run.
 
 Recent migration sequence:
 
@@ -107,8 +109,9 @@ Recent migration sequence:
 Next migration number must NOT be assumed permanently.
 Always inspect the repository before creating the next migration.
 
-At this baseline, if no newer migration exists, the next candidate is
-083.
+At the application functional baseline, 083 was the next candidate.
+Migration 083 now exists locally for this scoped upgrade. Inspect repository
+files and deployment migration records again before allocating another number.
 
 ## 4. Production Baseline
 
@@ -221,7 +224,7 @@ to commit.
 ## 7. Next Planned Upgrade
 
 Status:
-PLANNED / NOT YET IMPLEMENTED
+IMPLEMENTED LOCALLY / NOT DEPLOYED / RUNTIME VERIFICATION PENDING
 
 Scope:
 
@@ -262,9 +265,11 @@ Stock hierarchy:
 
 DO NOT modify replenishment/routing logic as part of this upgrade.
 
-Possible new migration:
-083 only if repository inspection confirms 082 is still the latest
-migration when implementation begins.
+Migration created after inspecting repository state:
+083_user_notifications_and_rejection_resubmit.php
+
+082 was the latest numbered MySQL migration before editing. No migration
+was applied in this session; production migration records were not queried.
 
 ## 8. Upgrade Completion Procedure
 
@@ -317,7 +322,11 @@ Update this document with:
 
 ## 9. Current Next Action
 
-Implement the scoped notification + rejected edit/resubmit upgrade only.
+Review the local scoped notification + rejected edit/resubmit upgrade.
+Tests/builds, staging, committing, pushing and deployment require a separate
+explicit request. Before deployment, verify production migration records,
+apply the reviewed migration using the established migration procedure, and
+verify the behaviors described in section 17.
 
 Do not combine it with any other ERP improvement.
 
@@ -326,7 +335,7 @@ Do not combine it with any other ERP improvement.
 - Stock hierarchy and manager replenishment: existing behavior is documented in section 5; Regional Central reconciliation is recorded as deployed in section 4.
 - Quick Sale: reporting, multiple evidence files, correction, and existing finance/settlement integration are documented in section 5.
 - Action Required: the existing source of truth for pending business actions; see section 5.
-- Notifications and rejected edit/resubmit: planned / not yet implemented; see section 7 for the exact scope.
+- Notifications and rejected edit/resubmit: implemented locally, runtime verification pending, NOT DEPLOYED; see sections 7 and 17.
 - Other module/integration status: Not currently documented — verify before changing this area.
 
 ## 11. Production-specific Deployment Notes
@@ -358,7 +367,12 @@ This state document was introduced afterward as part of the development baseline
 
 ## 14. Current Unresolved Issues
 
-Not currently documented — verify before changing this area.
+For the local notification/correction upgrade: runtime behavior and migration
+execution are unverified because tests/builds and deployment were not requested.
+Production migration records and production/local compatibility must be checked
+before deployment. See section 17 for deliberate correction-field limits.
+
+Other issues: Not currently documented — verify before changing this area.
 
 ## 15. Explicit Out-of-scope Items
 
@@ -379,5 +393,126 @@ Not currently documented — verify before changing this area.
 After each deployment, record the deployed application baseline, migration status, completed scope, verification performed and its results, unresolved issues, and next planned upgrade.
 Distinguish recorded deployment status from checks actually performed; do not infer successful verification from this document alone.
 Follow the completion procedure in section 8.
+
+## 17. Local Notification and Rejected Correction Upgrade
+
+Implementation status: IMPLEMENTED LOCALLY; runtime verification pending.
+Deployment status: NOT DEPLOYED.
+Observed starting branch: main.
+Observed starting HEAD: 977605ac301f4f663dade1e4a8b5ae4c05869baf.
+This records the starting point only; always check current HEAD independently.
+
+### Migration and notification functionality
+
+Migration 083 adds user_notifications with company/user membership isolation,
+per-recipient deterministic event uniqueness, read state, and newest-first/unread
+indexes. It adds purchase_requisition_status_history and extends the existing
+Sales Order status constraint to include rejected while retaining every old state.
+Previously applied migrations are unchanged.
+
+The shared UserNotificationService owns notification writes and read operations.
+The bell immediately beside Sign out opens the latest 30 notifications, shows an
+unread badge only above zero, differentiates unread entries, and displays escaped
+title, shortened message and timestamp. Empty state: No notifications.
+CSRF-protected POST actions derive company/user from the authenticated session.
+Opening an entry marks only that user's entry read and redirects to an internal
+ERP record path. Mark all as read clears only that recipient's unread entries
+and returns to the dashboard. Normal destination authorization remains in force.
+Reading notifications never changes domain work state.
+
+Events are written inside the associated domain transaction:
+
+- Sales Order rejection -> original creator, keyed by status-history ID.
+- Requisition rejection -> original requester, keyed by new status-history ID.
+- Quick Sale report submission, including corrected reports -> assigned manager,
+  keyed by report ID.
+- Quick Sale correction required -> original report submitter, keyed by report ID.
+- Stock request creation and transfer receipt/cancellation handback -> recorded
+  current handler when pending review, keyed by request/user and creation or
+  transfer event identity.
+- Peer proposal -> exact source owner, keyed by proposal ID.
+- Dispatched peer transfer -> exact destination owner, keyed by proposal ID.
+
+No company-wide recipient broadcast, rendering-triggered notification creation,
+email, push, queues, WebSockets or external notification service was added.
+Optional Quick Sale confirmation notifications were not added. General transfers
+without an existing exact responsible recipient do not generate notifications.
+
+### Same-document correction
+
+Sales Orders: submitted -> rejected, restricted to sales.orders.approve,
+with mandatory reason and creator/rejector separation. Quick Sale-linked orders
+and orders with execution/payment records cannot use this rejection path.
+The original creator with existing create/submit permissions and record scope
+can use Edit and Resubmit: rejected -> submitted on the same ID/number.
+Creation validation/calculation is reused, including active products/customers,
+source authorization, dates, discounts, tax and credit controls. Header and lines,
+commission accrual recalculation, status history and audit are transactional.
+Approval is required again; old rejection history remains.
+
+Correction fields are deliberately limited: dates, notes, and quantities,
+discounts and tax on existing direct-order products. Customer, owner, currency,
+product identity and existing source remain fixed. A missing legacy source
+must be selected and authorized. Quotation-linked commercial quantities,
+discounts, tax, prices and commission rates remain fixed; their dates/notes
+can be corrected. Downstream records or approved commissions block correction.
+
+Requisitions: submitted -> rejected remains; the original requester with the
+existing create permission can edit and resubmit rejected -> submitted on the
+same ID/number with requester unchanged. Existing product/department/warehouse
+validation and line validation are reused. Justification, required-by date,
+descriptions, quantities and positive estimated prices are editable.
+Product, department, warehouse and line IDs remain fixed; linked replenishment
+quantities remain fixed. Converted/approved records cannot use this path.
+History/audit retain previous rejection reasons. Approval is required again.
+
+Action Required adds owner tasks: Correct and resubmit order and Correct and
+resubmit requisition. Rejected records do not become approver work until
+resubmitted. Notification read state is not used to determine pending work.
+
+### Preserved behavior and verification status
+
+Quick Sale still creates a NEW corrected report under the SAME Quick Sale;
+old report/evidence remain immutable and Correct Sales Report remains.
+Stock hierarchy, manager routing, Central replenishment, peer source approval,
+finance integrations and unrelated modules remain unchanged. Stock/peer changes
+are notification calls only.
+
+No tests, builds, migration execution or deployment were run. Static source/diff
+review was performed. Before a separately authorized deployment, verify migration
+083 against the actual production ledger and verify tenant/user read isolation,
+CSRF, notification deduplication and rollback, owner-only correction, repeated
+rejection/resubmission history, source/credit validation, exact record links,
+unchanged Quick Sale correction/evidence, and unchanged stock/peer behavior.
+
+### Files created
+
+- `app/controllers/NotificationController.php`
+- `app/services/UserNotificationService.php`
+- `database/migrations/mysql/083_user_notifications_and_rejection_resubmit.php`
+- `resources/views/components/rejected-order.php`
+- `resources/views/components/user-notifications.php`
+- `resources/views/procurement/requisition.php`
+
+### Files modified
+
+- `app/controllers/ProcurementController.php`
+- `app/controllers/SalesController.php`
+- `app/repositories/MySql/SalesRepository.php`
+- `app/repositories/SalesRepository.php`
+- `app/services/ActionRequiredCountService.php`
+- `app/services/ProcurementService.php`
+- `app/services/SalesQuickSaleService.php`
+- `app/services/SalesService.php`
+- `app/services/StockRequestPeerWorkflow.php`
+- `app/services/StockRequestService.php`
+- `resources/views/layouts/app.php`
+- `resources/views/procurement/index.php`
+- `resources/views/sales/order.php`
+- `routes/web.php`
+- `docs/UPGRADE_STATE.md`
+
+After actual deployment, update the production baseline and verification evidence.
+Do not interpret this local implementation record as production upgrade evidence.
 
 End of baseline state.

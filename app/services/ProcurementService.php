@@ -88,6 +88,59 @@ final class ProcurementService
     public function createRequisition(array $in,int $actor): int
     { $lines=$this->lines($in,false);$just=trim((string)($in['justification']??''));$department=(int)($in['department_id']??0);$warehouse=(int)($in['warehouse_id']??0);if($just===''||$lines===[]||$department<1||$warehouse<1)throw new RuntimeException('Department, warehouse, justification and at least one valid line are required.');$c=\db();$c->beginTransaction();try{$company=$this->tenant->companyId();$this->assertDepartment($c,$company,$department);$this->assertWarehouse($c,$company,$warehouse);$this->assertProducts($c,$company,$lines);$number='PR-'.date('Ymd').'-'.strtoupper(substr(bin2hex(random_bytes(3)),0,6));$s=$c->prepare("INSERT INTO purchase_requisitions(company_id,requisition_number,requester_user_id,department_id,requested_date,required_by_date,justification,status) VALUES(:company,:number,:actor,:department,CURRENT_DATE,:required,:justification,'draft')");$s->execute(['company'=>$company,'number'=>$number,'actor'=>$actor,'department'=>$department,'required'=>$this->date($in['required_by_date']??null),'justification'=>$just]);$id=(int)$c->lastInsertId();$add=$c->prepare("INSERT INTO purchase_requisition_lines(company_id,requisition_id,product_id,description,quantity,estimated_unit_price,preferred_supplier_id,warehouse_id) VALUES(:company,:id,:product,:description,:quantity,:price,:supplier,:warehouse)");foreach($lines as $l)$add->execute(['company'=>$company,'id'=>$id,'product'=>$l['product_id'],'description'=>$l['description'],'quantity'=>$l['quantity'],'price'=>$l['unit_price'],'supplier'=>null,'warehouse'=>$warehouse]);$c->commit();$this->audit($actor,'requisition.created','purchase_requisitions',$id,['number'=>$number]);return$id;}catch(Throwable $e){if($c->inTransaction())$c->rollBack();throw$e;} }
 
+
+    public function resubmitRequisition(int $id,array $in,int $actor): void
+    {
+        (new AuthorizationService())->requireModulePermission('procurement','procurement.requisitions.create');
+        $company=$this->tenant->companyId();$c=\db();$owns=!$c->inTransaction();
+        try {
+            if($owns)$c->beginTransaction();
+            $q=$c->prepare('SELECT * FROM purchase_requisitions WHERE company_id=? AND requisition_id=? FOR UPDATE');
+            $q->execute([$company,$id]);$old=$q->fetch(PDO::FETCH_ASSOC);
+            if(!$old || $old['status']!=='rejected' || (int)$old['requester_user_id']!==$actor)
+                throw new RuntimeException('Only the original requester may correct this rejected requisition.');
+            $q=$c->prepare('SELECT COUNT(*) FROM purchase_orders WHERE company_id=? AND requisition_id=?');
+            $q->execute([$company,$id]);if((int)$q->fetchColumn()>0)throw new RuntimeException('A converted requisition cannot be edited.');
+            $q=$c->prepare('SELECT * FROM purchase_requisition_lines WHERE company_id=? AND requisition_id=? ORDER BY requisition_line_id FOR UPDATE');
+            $q->execute([$company,$id]);$oldLines=$q->fetchAll(PDO::FETCH_ASSOC);
+            // Keep product, warehouse and linked replenishment identifiers fixed.
+            $normalized=['product_id'=>[],'description'=>[],'quantity'=>[],'unit_price'=>[]];
+            foreach($oldLines as $line) {
+                $lineId=(int)$line['requisition_line_id'];
+                $values=$in['lines'][$lineId]??null;
+                if(!is_array($values))throw new RuntimeException('Every requisition line must be supplied.');
+                $normalized['product_id'][]=$line['product_id'];
+                $normalized['description'][]=$values['description']??$line['description'];
+                $normalized['quantity'][]=$values['quantity']??null;
+                $normalized['unit_price'][]=$values['unit_price']??null;
+                $this->assertWarehouse($c,$company,(int)$line['warehouse_id']);
+            }
+            $lines=$this->lines($normalized,true);
+            $just=trim((string)($in['justification']??''));
+            if($lines===[] || $just==='' || mb_strlen($just)>1000)throw new RuntimeException('Justification and valid lines are required.');
+            $this->assertDepartment($c,$company,(int)$old['department_id']);
+            $this->assertProducts($c,$company,$lines);
+            $linked=$c->prepare('SELECT COUNT(*) FROM inventory_stock_request_procurements WHERE company_id=? AND requisition_id=?');
+            $linked->execute([$company,$id]);$isLinked=(int)$linked->fetchColumn()>0;
+            $central=$c->prepare('SELECT COUNT(*) FROM inventory_central_procurement_links WHERE company_id=? AND requisition_id=?');
+            $central->execute([$company,$id]);$isLinked=$isLinked || (int)$central->fetchColumn()>0;
+            $update=$c->prepare('UPDATE purchase_requisition_lines SET description=?,quantity=?,estimated_unit_price=? WHERE company_id=? AND requisition_id=? AND requisition_line_id=?');
+            foreach($lines as $i=>$line) {
+                if($line['unit_price']<=0)throw new RuntimeException('Enter a positive estimated price for every item.');
+                if($isLinked && abs($line['quantity']-(float)$oldLines[$i]['quantity'])>0.0005)
+                    throw new RuntimeException('Linked replenishment quantities must be preserved.');
+                $update->execute([$line['description'],$line['quantity'],$line['unit_price'],$company,$id,$oldLines[$i]['requisition_line_id']]);
+            }
+            $c->prepare("UPDATE purchase_requisitions SET justification=?,required_by_date=?,status='submitted',rejection_reason=NULL,approved_by=NULL,approved_at=NULL WHERE company_id=? AND requisition_id=?")
+                ->execute([$just,$this->date($in['required_by_date']??null),$company,$id]);
+            $c->prepare("INSERT INTO purchase_requisition_status_history(company_id,requisition_id,from_status,to_status,action,reason,actor_id) VALUES(?,?,'rejected','submitted','resubmit',?,?)")
+                ->execute([$company,$id,$old['rejection_reason'],$actor]);
+            RepositoryFactory::auditLogs()->record($actor,'requisition.resubmit','procurement','purchase_requisitions',(string)$id,
+                ['header'=>$old,'lines'=>$oldLines],['justification'=>$just,'lines'=>$lines,'status'=>'submitted'],$company);
+            if($owns)$c->commit();
+        } catch(Throwable $e) {if($owns && $c->inTransaction())$c->rollBack();throw $e;}
+    }
+
     public function transitionRequisition(int $id,string $action,int $actor,?string $reason=null,array $input=[]): void
     {
         $map=['submit'=>['draft','submitted'],'approve'=>['submitted','approved'],'reject'=>['submitted','rejected'],'cancel'=>['draft','cancelled']];
@@ -99,9 +152,13 @@ final class ProcurementService
         $owns=!$c->inTransaction();
         try {
             if($owns) $c->beginTransaction();
-            $header=$c->prepare('SELECT status FROM purchase_requisitions WHERE company_id=? AND requisition_id=? FOR UPDATE');
+            $header=$c->prepare('SELECT * FROM purchase_requisitions WHERE company_id=? AND requisition_id=? FOR UPDATE');
             $header->execute([$company,$id]);
-            if($header->fetchColumn()!==$from) throw new RuntimeException('The requisition transition is invalid or stale.');
+            $previous=$header->fetch(PDO::FETCH_ASSOC);
+            if(!$previous || $previous['status']!==$from) throw new RuntimeException('The requisition transition is invalid or stale.');
+
+            if($action==='reject' && (int)$previous['requester_user_id']===$actor) throw new RuntimeException('The requester cannot reject their own requisition.');
+            if($action==='reject' && mb_strlen((string)$reason)>500) throw new RuntimeException('Rejection reason must not exceed 500 characters.');
 
             if($action==='submit') {
                 $prices=(array)($input['unit_price']??[]);
@@ -125,7 +182,15 @@ final class ProcurementService
             $s=$c->prepare("UPDATE purchase_requisitions SET status=:new_status,rejection_reason=:reason,approved_by=IF(:approval_status='approved',:approval_actor,approved_by),approved_at=IF(:approval_time_status='approved',NOW(),approved_at) WHERE company_id=:company AND requisition_id=:id AND status=:old_status AND (:separation_status<>'approved' OR requester_user_id<>:separation_actor)");
             $s->execute(['new_status'=>$to,'approval_status'=>$to,'approval_time_status'=>$to,'separation_status'=>$to,'reason'=>$this->text($reason),'approval_actor'=>$actor,'separation_actor'=>$actor,'company'=>$company,'id'=>$id,'old_status'=>$from]);
             if($s->rowCount()!==1) throw new RuntimeException('The requisition transition is invalid, stale, or violates separation of duties.');
-            $this->audit($actor,'requisition.'.$action,'purchase_requisitions',$id,['status'=>$to]);
+            $history=$c->prepare('INSERT INTO purchase_requisition_status_history(company_id,requisition_id,from_status,to_status,action,reason,actor_id) VALUES(?,?,?,?,?,?,?)');
+            $history->execute([$company,$id,$from,$to,$action,$reason,$actor]);
+            $historyId=(int)$c->lastInsertId();
+            if($action==='reject') {
+                (new UserNotificationService($c))->notify($company,(int)$previous['requester_user_id'],
+                    'requisition.rejected','Requisition rejected',(string)$reason,'requisition',$id,
+                    '/procurement/requisitions/'.$id,'procurement-requisition:'.$id.':rejected:'.$historyId);
+            }
+            $this->audit($actor,'requisition.'.$action,'purchase_requisitions',$id,['status'=>$to,'reason'=>$reason]);
             if($owns) $c->commit();
         } catch(Throwable $e) {
             if($owns&&$c->inTransaction()) $c->rollBack();

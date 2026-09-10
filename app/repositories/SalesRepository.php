@@ -93,6 +93,8 @@ interface SalesRepository
     ): array;
 
     /** @param array<string, mixed> $order @param list<array<string, mixed>> $lines */
+    public function updateRejectedOrder(int $companyId, int $orderId, array $order, array $lines, int $actorId): void;
+
     public function createOrder(int $companyId, array $order, array $lines, int $actorId): int;
 
     /** @param array<string, mixed> $payment */

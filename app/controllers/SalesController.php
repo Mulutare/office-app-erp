@@ -624,6 +624,15 @@ public function showQuickSale(string $id): void
     public function updateProduct(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('product');$input=$this->input(['sku','name','category','product_type','unit_of_measure','unit_price','commission_rate'])+['serial_tracking'=>isset($_POST['serial_tracking'])];$result=$this->sales->updateProduct((int)$id,$input,$this->actorId());$this->finishTo($result,'product','Product saved.',$input,'/sales/products/'.(int)$id,'/sales/products/'.(int)$id);}
     public function toggleProduct(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('product');$result=$this->sales->setProductActive((int)$id,\postString('active')==='1',$this->actorId());$this->finishTo($result,'product','Product status updated.',[],'/sales/products/'.(int)$id,'/sales/products/'.(int)$id);}
 
+    public function resubmitOrder(string $id): void
+    {
+        $this->authorize('sales.orders.create');$this->authorize('sales.orders.submit');$this->requireCsrf('order');
+        $input=$this->input(['customer_id','order_date','due_date','currency','territory_id','agent_id',
+            'warehouse_id','source_location_id','notes','external_reference'])+['lines'=>$this->orderLines()];
+        $result=$this->sales->resubmitRejectedOrder((int)$id,$input,$this->actorId());
+        $this->finishTo($result,'order','Corrected order resubmitted for approval.',$input,'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);
+    }
+
     public function storeOrder(): void
     {
         $this->authorize('sales.orders.create');
@@ -732,7 +741,7 @@ public function showQuickSale(string $id): void
         $action = \postString('action');
         $permission = match ($action) {
             'submit' => 'sales.orders.submit',
-            'approve' => 'sales.orders.approve',
+            'approve', 'reject' => 'sales.orders.approve',
             'confirm' => 'sales.orders.confirm',
             'fulfill' => 'sales.orders.confirm',
             'cancel' => 'sales.orders.cancel',

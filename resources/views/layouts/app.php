@@ -215,6 +215,8 @@ $companySwitchSuccess = getFlash(
                 </span>
             </div>
 
+            <?php \view('components.user-notifications'); ?>
+
             <form
                 method="post"
                 action="/office_app/public/logout"

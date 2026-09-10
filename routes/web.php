@@ -846,3 +846,11 @@ $router->post(
     '/administration/users',
     [$userAdministrationController, 'store']
 );
+
+$notificationController = new \App\Controllers\NotificationController();
+$router->post('/notifications/read-all', [$notificationController, 'readAll']);
+$router->post('/notifications/{id}/read', [$notificationController, 'read']);
+
+$router->get('/procurement/requisitions/{id}',[$procurementController,'showRequisition']);
+$router->post('/procurement/requisitions/{id}/resubmit',[$procurementController,'resubmitRequisition']);
+$router->post('/sales/orders/{id}/resubmit',[$salesController,'resubmitOrder']);

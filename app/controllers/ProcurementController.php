@@ -19,6 +19,25 @@ final class ProcurementController
     public function updateSupplier(string $id):void{$this->mutate('procurement.suppliers.manage',fn()=>$this->service->updateSupplier((int)$id,$_POST,$this->actor()),'/procurement');}
     public function supplierActive(string $id):void{$this->mutate('procurement.suppliers.manage',fn()=>$this->service->setSupplierActive((int)$id,\postString('active')==='1',$this->actor()),'/procurement');}
     public function requisition():void{$this->mutate('procurement.requisitions.create',fn()=>$this->service->createRequisition($_POST,$this->actor()),'/procurement');}
+    public function resubmitRequisition(string $id):void
+    {
+        $this->mutate('procurement.requisitions.create',fn()=>$this->service->resubmitRequisition((int)$id,$_POST,$this->actor()),'/procurement/requisitions/'.(int)$id);
+    }
+    public function showRequisition(string $id):void
+    {
+        $this->auth->requireModulePermission('procurement','procurement.view');
+        $q=\db()->prepare('SELECT * FROM purchase_requisitions WHERE company_id=? AND requisition_id=?');
+        $q->execute([(new \App\Services\TenantContext())->companyId(),(int)$id]);
+        $row=$q->fetch(\PDO::FETCH_ASSOC);
+        if(!$row){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
+        $q=\db()->prepare('SELECT * FROM purchase_requisition_lines WHERE company_id=? AND requisition_id=? ORDER BY requisition_line_id');
+        $q->execute([(new \App\Services\TenantContext())->companyId(),(int)$id]);$row['lines']=$q->fetchAll(\PDO::FETCH_ASSOC);
+        $q=\db()->prepare('SELECT * FROM purchase_requisition_status_history WHERE company_id=? AND requisition_id=? ORDER BY history_id DESC');
+        $q->execute([(new \App\Services\TenantContext())->companyId(),(int)$id]);$row['history']=$q->fetchAll(\PDO::FETCH_ASSOC);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>$row['requisition_number'],
+            'contentView'=>'procurement.requisition','requisition'=>$row,'user'=>$_SESSION['auth'],
+            'notice'=>\getFlash('procurement_notice'),'error'=>\getFlash('procurement_error')]);
+    }
     public function requisitionAction(string $id):void{$action=\postString('action');$permission=in_array($action,['approve','reject'],true)?'procurement.requisitions.approve':'procurement.requisitions.create';$this->mutate($permission,fn()=>$this->service->transitionRequisition((int)$id,$action,$this->actor(),\postString('reason'),$_POST),'/procurement?section=requisitions');}
     public function order():void{$this->mutate('procurement.orders.create',fn()=>$this->service->createOrder($_POST,$this->actor()),'/procurement');}
     public function orderAction(string $id):void{$action=\postString('action');$permission=['approve'=>'procurement.orders.approve','confirm'=>'procurement.orders.confirm'][$action]??'procurement.orders.create';$this->mutate($permission,function()use($id,$action){$this->service->assertOrderAccess((int)$id,$this->actor());$this->service->transitionOrder((int)$id,$action,$this->actor());},'/procurement/'.(int)$id);}

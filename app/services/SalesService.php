@@ -154,7 +154,10 @@ final class SalesService
     public function orderDetail(int $id): ?array
     {
         $companyId=$this->tenant->companyId();$order=$this->sales->orderDetail($companyId,$id);
-        return is_array($order)&&$this->canAccessOrderRow($order,(int)($_SESSION['auth']['user_id']??0))?$order:null;
+        if(!is_array($order)||!$this->canAccessOrderRow($order,(int)($_SESSION['auth']['user_id']??0)))return null;
+        $h=\db()->prepare('SELECT * FROM sales_order_status_history WHERE company_id=? AND order_id=? ORDER BY history_id DESC');
+        $h->execute([$companyId,$id]);$order['status_history']=$h->fetchAll(\PDO::FETCH_ASSOC);
+        return $order;
     }
 
     public function deliveries(): array{$company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);return array_values(array_filter($this->inventory->deliveryPickings($company),fn(array $row):bool=>$this->canAccessDeliveryRow($company,$actor,$row)));}
@@ -191,6 +194,7 @@ final class SalesService
     {
         if(!in_array($policy,['ordered','delivered'],true))return['successful'=>false,'errors'=>['invoice_policy'=>'Select ordered or delivered invoice policy.']];
         if($this->orderDetail($orderId)===null)return['successful'=>false,'errors'=>['form'=>'Sales Order was not found.']];
+        if(($this->orderDetail($orderId)['status']??null)==='rejected')return ['successful'=>false,'errors'=>['form'=>'A rejected order must be resubmitted and approved first.']];
         try{$invoiceId=(new FinancePostingService())->createCustomerInvoiceFromOrder($this->tenant->companyId(),$orderId,$policy,$actorId);return['successful'=>true,'invoiceId'=>$invoiceId];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
     }
 
@@ -554,6 +558,59 @@ final class SalesService
     /** @param array<string, mixed> $input @return array<string, mixed> */
     public function createOrder(array $input, int $actorId): array
     {
+        return $this->prepareAndSaveOrder($input,$actorId);
+    }
+
+    public function resubmitRejectedOrder(int $orderId, array $input, int $actorId): array
+    {
+        $company=$this->tenant->companyId();$c=\db();$owns=!$c->inTransaction();
+        try {
+            (new AuthorizationService())->requireModulePermission('sales','sales.orders.create');
+            (new AuthorizationService())->requireModulePermission('sales','sales.orders.submit');
+            if($owns)$c->beginTransaction();
+            $lock=$c->prepare('SELECT order_id FROM sales_orders WHERE company_id=? AND order_id=? FOR UPDATE');
+            $lock->execute([$company,$orderId]);
+            $old=$this->sales->orderDetail($company,$orderId);
+            if(!$old || $old['status']!=='rejected' || (int)$old['created_by']!==$actorId || !$this->canAccessOrderRow($old,$actorId)) {
+                throw new \RuntimeException('Only the original creator may correct this rejected order.');
+            }
+            $quick=$c->prepare('SELECT COUNT(*) FROM sales_quick_sales qs JOIN sales_quotations q ON q.company_id=qs.company_id AND q.quotation_id=qs.quotation_id WHERE q.company_id=? AND q.sales_order_id=?');
+            $quick->execute([$company,$orderId]);
+            if((int)$quick->fetchColumn()>0)throw new \RuntimeException('Use the existing Quick Sale workflow.');
+            // This correction flow preserves ownership, customer, pricing context and source.
+            foreach(['customer_id','currency','territory_id','agent_id','warehouse_id','source_location_id','external_reference'] as $field)
+                $input[$field]=in_array($field,['warehouse_id','source_location_id'],true) && empty($old[$field])
+                    ? ($input[$field]??null) : ($old[$field]??null);
+            $submitted=(array)($input['lines']??[]);
+            if(count($submitted)!==count($old['lines']))throw new \RuntimeException('Preserve the existing order products.');
+            foreach($submitted as $i=>$line) {
+                if((int)$line['product_id']!==(int)$old['lines'][$i]['product_id'])
+                    throw new \RuntimeException('Preserve the existing order products.');
+                if(!empty($old['quotation_id']))foreach(['quantity','discount_amount','tax_rate'] as $field) {
+                    if(abs((float)$line[$field]-(float)$old['lines'][$i][$field])>0.00001)
+                        throw new \RuntimeException('Quoted commercial terms must remain unchanged.');
+                }
+            }
+            $input['confirm']=true;
+            $result=$this->prepareAndSaveOrder($input,$actorId,$old);
+            if(empty($result['successful'])) {
+                if($owns)$c->rollBack();
+                return $result;
+            }
+            $this->sales->updateRejectedOrder($company,$orderId,$result['order'],$result['lines'],$actorId);
+            $this->sales->transitionOrder($company,$orderId,'resubmit',null,$actorId,bin2hex(random_bytes(16)));
+            $this->audit->record($actorId,'RESUBMIT_SALES_ORDER','sales','sales_orders',(string)$orderId,$old,
+                ['order'=>$result['order'],'lines'=>$result['lines']],$company);
+            if($owns)$c->commit();
+            return ['successful'=>true,'orderId'=>$orderId];
+        } catch(Throwable $e) {
+            if($owns && $c->inTransaction())$c->rollBack();
+            return ['successful'=>false,'errors'=>['form'=>$e->getMessage()]];
+        }
+    }
+
+    private function prepareAndSaveOrder(array $input, int $actorId, ?array $existing = null): array
+    {
         $companyId = $this->tenant->companyId();
         $warehouseId=(int)($input['warehouse_id']??0);$sourceLocationId=(int)($input['source_location_id']??0);
         try{$this->operationalAccess->assertAuthorizedSource($companyId,$actorId,$warehouseId,$sourceLocationId);}catch(Throwable $e){return ['successful'=>false,'errors'=>['fulfilment'=>$e->getMessage()]];}
@@ -620,7 +677,7 @@ final class SalesService
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' has an invalid product, quantity, discount or tax rate.';
                 continue;
             }
-            $unitPrice = (float) $product['unit_price'];
+            $unitPrice = (float) (!empty($existing['quotation_id']) ? $existing['lines'][$index]['unit_price'] : $product['unit_price']);
             $lineSubtotal = round($quantity * $unitPrice, 2);
             if ($lineDiscount > $lineSubtotal) {
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' discount exceeds its subtotal.';
@@ -631,7 +688,8 @@ final class SalesService
             $subtotal += $lineSubtotal;
             $discount += $lineDiscount;
             $tax += $lineTax;
-            $commissionAmount += round(($lineSubtotal - $lineDiscount) * (float) $product['commission_rate'] / 100, 2);
+            $commissionRate=(float)(!empty($existing['quotation_id']) ? $existing['lines'][$index]['commission_rate'] : $product['commission_rate']);
+            $commissionAmount += round(($lineSubtotal - $lineDiscount) * $commissionRate / 100, 2);
             $lines[] = [
                 'product_id' => $productId,
                 'description' => (string) $product['name'],
@@ -640,7 +698,7 @@ final class SalesService
                 'discount_amount' => $lineDiscount,
                 'tax_rate' => $taxRate,
                 'line_total' => $lineTotal,
-                'commission_rate' => (float) $product['commission_rate'],
+                'commission_rate' => $commissionRate,
             ];
         }
         if ($lines === []) {
@@ -677,7 +735,7 @@ final class SalesService
             }
         }
         try {
-            $orderNumber = $this->sales->reserveDocumentNumber($companyId, null, 'order');
+            $orderNumber = $existing['order_number'] ?? $this->sales->reserveDocumentNumber($companyId, null, 'order');
         } catch (Throwable $exception) {
             error_log('Sales order numbering failed: ' . $exception->getMessage());
             return ['successful' => false, 'errors' => ['form' => 'A Sales order number could not be reserved. Please retry.']];
@@ -709,6 +767,7 @@ final class SalesService
         if (preg_match('/^[A-Z]{3}$/', $order['currency']) !== 1) {
             return ['successful' => false, 'errors' => ['currency' => 'Currency must be a three-letter ISO code.']];
         }
+        if ($existing !== null) return ['successful'=>true,'order'=>$order,'lines'=>$lines];
         try {
             $id = $this->sales->createOrder($companyId, $order, $lines, $actorId);
             $this->audit->record($actorId, 'CREATE_SALES_ORDER', 'sales', 'sales_orders', (string) $id, null, [
@@ -772,6 +831,7 @@ final class SalesService
     {
         $companyId = $this->tenant->companyId();
         try {
+            if ($action === 'resubmit') throw new \RuntimeException('Use Edit and Resubmit to validate the corrected order.');
             $order=$this->sales->orderDetail($companyId,$orderId);
             $this->assertQuickSaleManager($actorId, null, $orderId);
             if(!is_array($order)||!$this->canAccessOrderRow($order,$actorId))throw new \RuntimeException('Sales order was not found.');
@@ -884,6 +944,7 @@ final class SalesService
     {
         $companyId = $this->tenant->companyId();
         $order = $this->orderDetail($orderId);
+        if ($order !== null && $order['status']==='rejected') return ['successful'=>false,'errors'=>['form'=>'A rejected order cannot receive payment.']];
 
         if ($order === null) {
             return [

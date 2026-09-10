@@ -289,6 +289,7 @@ final class StockRequestService
                 (new CentralStockReplenishmentService())->requestLocked($companyId, $requestId, $servingAuthority, $remaining, $actorId);
             }
 
+            $this->notifyCurrentHandler($connection,$companyId,$requestId,'created');
             $connection->commit();
             $this->audit($actorId, $requestKind === 'manager_replenishment' ? 'stock_replenishment.requested' : 'stock_request.created', 'inventory_stock_requests', $requestId, [
                 'request_number' => $number,
@@ -797,6 +798,7 @@ final class StockRequestService
                 'company_id' => $companyId,
                 'request_id' => (int) $allocation['request_id'],
             ]);
+            $this->notifyCurrentHandler($connection,$companyId,(int)$allocation['request_id'],'transfer-received:'.$transferId);
         }
 
         foreach (array_keys($finalRequestIds) as $requestId) {
@@ -851,6 +853,7 @@ final class StockRequestService
                  WHERE company_id=:company_id AND request_id=:request_id
                    AND status IN('awaiting_transfer','ready_to_issue')"
             )->execute(['handler' => $handlerId, 'company_id' => $companyId, 'request_id' => $requestId]);
+            $this->notifyCurrentHandler($connection,$companyId,(int)$requestId,'transfer-cancelled:'.$transferId);
         }
     }
 
@@ -1849,6 +1852,18 @@ final class StockRequestService
     ): bool {
         return (new ModuleRoleService())->permissionAllowed($companyId,$userId,$permission);
     }
+    private function notifyCurrentHandler(PDO $connection,int $company,int $request,string $event): void
+    {
+        $q=$connection->prepare('SELECT current_handler_user_id,request_number,status FROM inventory_stock_requests WHERE company_id=? AND request_id=?');
+        $q->execute([$company,$request]);$row=$q->fetch(PDO::FETCH_ASSOC);
+        if($row && (int)$row['current_handler_user_id']>0 && $row['status']==='pending_review') {
+            $user=(int)$row['current_handler_user_id'];
+            (new UserNotificationService($connection))->notify($company,$user,'stock_request.assigned',
+                'Stock request assigned',(string)$row['request_number'],'stock_request',$request,
+                '/inventory/stock-requests/'.$request,'stock-request:'.$request.':handler:'.$user.':'.$event);
+        }
+    }
+
     private function audit(int $actorId, string $action, string $table, int $id, ?array $values): void
     {
         RepositoryFactory::auditLogs()->record(

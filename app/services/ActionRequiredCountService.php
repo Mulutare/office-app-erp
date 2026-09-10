@@ -198,6 +198,7 @@ final class ActionRequiredCountService
             $add("SELECT q.quotation_id id,q.quotation_number reference FROM sales_quotations q WHERE q.company_id=:company_id AND q.status='sent' AND (q.expiration_date IS NULL OR q.expiration_date>=CURRENT_DATE) AND NOT EXISTS(SELECT 1 FROM sales_quick_sales qs WHERE qs.company_id=q.company_id AND qs.quotation_id=q.quotation_id)", $parameters, 'quotation', 'Confirm quotation', 'confirm_quotation', '/sales/quotations/{id}');
         } elseif ($module === 'sales' && $section === 'orders') {
             if ($can('sales.orders.submit')) {
+                if ($can('sales.orders.create')) $add("SELECT order_id id,order_number reference FROM sales_orders WHERE company_id=:company_id AND status='rejected' AND created_by=:user_id AND deleted_at IS NULL", $parameters, 'sales_order', 'Correct and resubmit order', 'resubmit_order', '/sales/orders/{id}');
                 $add("SELECT order_id id,order_number reference FROM sales_orders WHERE company_id=:company_id AND status='draft' AND created_by=:user_id AND deleted_at IS NULL", $parameters, 'sales_order', 'Submit order', 'submit_order', '/sales/orders/{id}');
             }
             if ($can('sales.orders.approve')) {
@@ -208,7 +209,7 @@ final class ActionRequiredCountService
                 $add("SELECT o.order_id id,o.order_number reference FROM sales_orders o WHERE o.company_id=:company_id AND o.status='confirmed' AND o.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM inventory_pickings p WHERE p.company_id=o.company_id AND p.sales_order_id=o.order_id AND p.picking_type='delivery' AND p.status<>'cancelled')", $parameters, 'sales_order', 'Prepare delivery', 'prepare_delivery', '/sales/orders/{id}');
             }
             if ($can('sales.view') && $can('finance.records.manage')) {
-                $add("SELECT o.order_id id,o.order_number reference FROM sales_orders o WHERE o.company_id=:company_id AND o.status NOT IN('draft','submitted','cancelled') AND o.deleted_at IS NULL AND EXISTS(SELECT 1 FROM sales_order_lines ol WHERE ol.company_id=o.company_id AND ol.order_id=o.order_id AND COALESCE((SELECT SUM(pl.completed_quantity-pl.returned_quantity) FROM inventory_picking_lines pl INNER JOIN inventory_pickings p ON p.company_id=pl.company_id AND p.picking_id=pl.picking_id WHERE p.company_id=ol.company_id AND p.sales_order_id=ol.order_id AND p.picking_type='delivery' AND p.status IN('done','partially_done') AND pl.product_id=ol.product_id),0)-COALESCE((SELECT SUM(il.quantity) FROM finance_invoice_lines il INNER JOIN finance_invoices i ON i.company_id=il.company_id AND i.invoice_id=il.invoice_id WHERE i.company_id=ol.company_id AND i.sales_order_id=ol.order_id AND i.document_type='customer_invoice' AND i.status<>'cancelled' AND il.sales_order_line_id=ol.order_line_id),0)>0.0005)", $parameters, 'sales_order', 'Create customer invoice', 'create_invoice', '/sales/orders/{id}');
+                $add("SELECT o.order_id id,o.order_number reference FROM sales_orders o WHERE o.company_id=:company_id AND o.status NOT IN('draft','submitted','rejected','cancelled') AND o.deleted_at IS NULL AND EXISTS(SELECT 1 FROM sales_order_lines ol WHERE ol.company_id=o.company_id AND ol.order_id=o.order_id AND COALESCE((SELECT SUM(pl.completed_quantity-pl.returned_quantity) FROM inventory_picking_lines pl INNER JOIN inventory_pickings p ON p.company_id=pl.company_id AND p.picking_id=pl.picking_id WHERE p.company_id=ol.company_id AND p.sales_order_id=ol.order_id AND p.picking_type='delivery' AND p.status IN('done','partially_done') AND pl.product_id=ol.product_id),0)-COALESCE((SELECT SUM(il.quantity) FROM finance_invoice_lines il INNER JOIN finance_invoices i ON i.company_id=il.company_id AND i.invoice_id=il.invoice_id WHERE i.company_id=ol.company_id AND i.sales_order_id=ol.order_id AND i.document_type='customer_invoice' AND i.status<>'cancelled' AND il.sales_order_line_id=ol.order_line_id),0)>0.0005)", $parameters, 'sales_order', 'Create customer invoice', 'create_invoice', '/sales/orders/{id}');
             }
             if ($can('sales.payments.record') && !$can('finance.records.manage')) {
                 $add("SELECT DISTINCT o.order_id id,o.order_number reference FROM sales_orders o INNER JOIN finance_invoices i ON i.company_id=o.company_id AND i.sales_order_id=o.order_id WHERE o.company_id=:company_id AND i.document_type='customer_invoice' AND i.status='posted' AND i.residual_amount>0 AND o.deleted_at IS NULL", $parameters, 'sales_order', 'Record customer payment', 'record_payment', '/sales/orders/{id}');
@@ -428,7 +429,7 @@ SELECT
  (SELECT COUNT(*) FROM sales_orders WHERE company_id=:c5 AND status='draft' AND created_by=:actor AND deleted_at IS NULL) draft_orders,
  (SELECT COUNT(*) FROM sales_orders o WHERE o.company_id=:c8 AND o.status='confirmed' AND o.deleted_at IS NULL
    AND NOT EXISTS(SELECT 1 FROM inventory_pickings p WHERE p.company_id=o.company_id AND p.sales_order_id=o.order_id AND p.picking_type='delivery' AND p.status<>'cancelled')) orders_to_deliver,
- (SELECT COUNT(*) FROM sales_orders o WHERE o.company_id=:c9 AND o.status NOT IN('draft','submitted','cancelled') AND o.deleted_at IS NULL
+ (SELECT COUNT(*) FROM sales_orders o WHERE o.company_id=:c9 AND o.status NOT IN('draft','submitted','rejected','cancelled') AND o.deleted_at IS NULL
    AND EXISTS(
     SELECT 1 FROM sales_order_lines ol WHERE ol.company_id=o.company_id AND ol.order_id=o.order_id
      AND COALESCE((SELECT SUM(pl.completed_quantity-pl.returned_quantity) FROM inventory_picking_lines pl
@@ -500,6 +501,11 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
         foreach (['sales'=>['quick_sale','orders','quotations','deliveries','settlements'], 'inventory'=>['receipts','transfers','stock_requests']] as $moduleCode=>$sections) {
             foreach ($sections as $section) $counts[$moduleCode][$section]=count($this->itemsFor($companyId,$userId,$permissions,$moduleCode,$section));
         }
+        if($can('procurement.requisitions.create')) {
+            $counts['procurement']['requisitions'] += $this->scalar($connection,
+                "SELECT COUNT(*) FROM purchase_requisitions WHERE company_id=:company AND requester_user_id=:actor AND status='rejected'",
+                ['company'=>$companyId,'actor'=>$userId]);
+        }
         foreach ($counts as $moduleCode=>&$moduleCounts) {
             if (isset(ModuleRoleService::OWNERS[$moduleCode]) && !(new ModuleRoleService())->entitled($companyId,$userId,$moduleCode)) $moduleCounts=array_fill_keys(array_keys($moduleCounts),0);
         }
@@ -557,6 +563,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
     {
         if ($section === 'requisitions') {
             if ($can('procurement.requisitions.create')) {
+                $add("SELECT requisition_id id,requisition_number reference FROM purchase_requisitions WHERE company_id=:company_id AND status='rejected' AND requester_user_id=:user_id", $parameters, 'requisition', 'Correct and resubmit requisition', 'resubmit_requisition', '/procurement/requisitions/{id}');
+
                 $scope = "(r.requester_user_id=:user_id OR EXISTS(SELECT 1 FROM inventory_central_procurement_links cp WHERE cp.company_id=r.company_id AND cp.requisition_id=r.requisition_id))";
                 $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='draft' AND ".$scope." AND EXISTS(SELECT 1 FROM purchase_requisition_lines l WHERE l.company_id=r.company_id AND l.requisition_id=r.requisition_id AND l.estimated_unit_price<=0)", $parameters, 'requisition', 'Enter estimated unit price', 'submit_requisition', '/procurement?section=requisitions');
                 $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='draft' AND ".$scope." AND NOT EXISTS(SELECT 1 FROM purchase_requisition_lines l WHERE l.company_id=r.company_id AND l.requisition_id=r.requisition_id AND l.estimated_unit_price<=0)", $parameters, 'requisition', 'Submit requisition', 'submit_requisition', '/procurement?section=requisitions');
@@ -611,10 +619,11 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
         return match ($actionKey) {
             'manage_quick_sale', 'review_quick_sale' => '/sales/quick-sale/{id}',
             'advance_quotation', 'confirm_quotation' => '/sales/quotations/{id}',
-            'submit_order', 'approve_order', 'confirm_order', 'prepare_delivery', 'create_invoice', 'record_payment' => '/sales/orders/{id}',
+            'resubmit_order', 'submit_order', 'approve_order', 'confirm_order', 'prepare_delivery', 'create_invoice', 'record_payment' => '/sales/orders/{id}',
             'validate_delivery' => '/sales/deliveries/{id}',
             'submit_settlement', 'review_settlement', 'add_bank_confirmation', 'reconcile_settlement', 'approve_settlement' => '/sales/settlements/{id}',
             'create_settlement' => '/sales/settlements#create-settlement',
+            'resubmit_requisition' => '/procurement/requisitions/{id}',
             'submit_requisition', 'approve_requisition' => '/procurement?section=requisitions',
             'create_purchase_order' => '/procurement?section=orders',
             'submit_purchase_order', 'approve_purchase_order', 'confirm_purchase_order', 'close_purchase_order', 'create_supplier_bill', 'create_receipt' => '/procurement/{id}',

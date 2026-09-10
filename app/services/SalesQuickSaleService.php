@@ -503,6 +503,7 @@ final class SalesQuickSaleService
                 "SELECT
                     qs.quick_sale_id,
                     qs.user_id,
+                    qs.manager_user_id,
                     qs.status,
                     q.sales_order_id
                  FROM sales_quick_sales qs
@@ -956,6 +957,10 @@ final class SalesQuickSaleService
             }
 
             $this->routingAudit($companyId, $quickSaleId, $actorId, 'report_submitted', ['report_id' => $reportId,'evidence_count'=>count($storedFiles),'evidence_sha256'=>array_column($storedFiles,'evidence_sha256')]);
+            (new UserNotificationService($connection))->notify($companyId,(int)$header['manager_user_id'],
+                'quick_sale_report.submitted','Quick Sale report ready','Review the submitted sales report.',
+                'quick_sale',$quickSaleId,'/sales/quick-sale/'.$quickSaleId,
+                'quick-sale-report:'.$reportId.':submitted');
             $connection->commit();
 
             return [
@@ -1783,6 +1788,7 @@ final class SalesQuickSaleService
             $reportStatement = $connection->prepare(
                 "SELECT
                     report_id,
+                    reported_by_user_id,
                     status
                  FROM sales_quick_sale_reports
                  WHERE company_id = :company_id
@@ -1849,6 +1855,10 @@ final class SalesQuickSaleService
             }
 
             $this->routingAudit($companyId, $quickSaleId, $actorId, 'correction_required', ['report_id' => $reportId, 'reason' => $reason]);
+            (new UserNotificationService($connection))->notify($companyId,(int)$report['reported_by_user_id'],
+                'quick_sale_report.correction_required','Correct Sales Report',$reason,
+                'quick_sale',$quickSaleId,'/sales/quick-sale/'.$quickSaleId,
+                'quick-sale-report:'.$reportId.':correction-required');
             $connection->commit();
 
             return [

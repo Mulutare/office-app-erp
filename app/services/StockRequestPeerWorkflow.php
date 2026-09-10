@@ -97,6 +97,10 @@ trait StockRequestPeerWorkflow
             $s=$c->prepare('INSERT INTO inventory_peer_proposals(company_id,proposal_number,request_id,request_line_id,source_authority_id,destination_authority_id,proposed_by,source_owner_user_id,destination_owner_user_id,quantity,source_warehouse_id,source_location_id,destination_warehouse_id,destination_location_id,product_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
             $s->execute([$company,$number,$requestId,$lineId,$source['authority_id'],$destination['authority_id'],$actor,$source['user_id'],$destination['user_id'],$quantity,$source['warehouse_id'],$source['location_id'],$destination['warehouse_id'],$destination['location_id'],$product]);
             $id=(int)$c->lastInsertId();
+            (new UserNotificationService($c))->notify($company,(int)$source['user_id'],'peer.proposed',
+                'Peer stock proposal', 'Review proposal '.$number,'stock_request',$requestId,
+                '/inventory/stock-requests/'.$requestId,'peer-proposal:'.$id.':proposed');
+
             $this->audit($actor,'peer.proposed','inventory_peer_proposals',$id,['request_id'=>$requestId,'quantity'=>$quantity,'reference'=>$number,'source_authority_id'=>$source['authority_id'],'destination_authority_id'=>$destination['authority_id']]);
             $c->commit();
         } catch (Throwable $e) { if ($c->inTransaction()) $c->rollBack(); throw $e; }
@@ -128,6 +132,19 @@ trait StockRequestPeerWorkflow
                 }
                 $c->prepare('UPDATE inventory_peer_proposals SET state=?,source_decided_by=?,source_decided_at=NOW(),rejection_reason=? WHERE company_id=? AND proposal_id=?')
                     ->execute([$decision==='approve'?'source_approved':'source_rejected',$actor,$decision==='reject'?mb_substr(trim($reason),0,1000):null,$company,$id]);
+            }
+            if ($decision==='reject') {
+                (new UserNotificationService($c))->notify(
+                    $company,
+                    (int)$p['proposed_by'],
+                    'peer.rejected',
+                    'Peer stock proposal rejected',
+                    mb_substr(trim($reason),0,1000),
+                    'stock_request',
+                    (int)$request['request_id'],
+                    '/inventory/stock-requests/'.(int)$request['request_id'],
+                    'peer-proposal:'.$id.':source-rejected'
+                );
             }
             $this->audit($actor,'peer.'.$decision,'inventory_peer_proposals',$id,['request_id'=>$request['request_id'],'reason'=>trim($reason)]);
             $c->commit();
@@ -186,6 +203,11 @@ trait StockRequestPeerWorkflow
             if ($after) {
                 $state=$receiving?'completed':'dispatched';
                 $c->prepare('UPDATE inventory_peer_proposals SET state=? WHERE company_id=? AND proposal_id=?')->execute([$state,$company,$p['proposal_id']]);
+                if(!$receiving) {
+                    (new UserNotificationService($c))->notify($company,(int)$p['destination_owner_user_id'],
+                        'peer.dispatched','Peer transfer ready to receive','Receive the dispatched peer stock transfer.',
+                        'transfer',$transfer,'/inventory/transfers/'.$transfer,'peer-proposal:'.$p['proposal_id'].':dispatched');
+                }
                 $this->audit($actor,$receiving?'peer.received_completed':'peer.dispatched','inventory_peer_proposals',(int)$p['proposal_id'],['transfer_id'=>$transfer,'quantity'=>(float)$p['quantity'],'state'=>$state]);
             }
         }
