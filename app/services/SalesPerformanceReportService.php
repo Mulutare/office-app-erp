@@ -16,10 +16,12 @@ final class SalesPerformanceReportService
         $scope = new SalesHierarchyScope();
         $isAgent = $scope->isAgent($companyId, $actorId);
         $companyWide = $scope->hasCompanyWideAccess($companyId, $actorId);
-        $userIds = $companyWide ? [] : $scope->userIds($companyId, $actorId);
-        $warehouseIds = $companyWide
-            ? []
-            : (new InventoryReadScope())->warehouseIds($companyId, $actorId);
+        $warehouseIds = $this->visibleWarehouseIds(
+            $companyId,
+            $actorId,
+            $companyWide,
+            $isAgent
+        );
 
         $period = in_array(($input['period'] ?? ''), ['daily', 'weekly', 'monthly', 'yearly'], true)
             ? (string) $input['period']
@@ -30,8 +32,19 @@ final class SalesPerformanceReportService
             ? (string) $input['view_by']
             : 'product';
 
-        $scopeSql = $this->scopeSql($userIds, $warehouseIds, $companyWide);
-        $options = $this->options($companyId, $scopeSql);
+        $scopeSql = $this->scopeSql(
+            $warehouseIds,
+            $companyWide,
+            $isAgent,
+            $actorId
+        );
+        $options = $this->options(
+            $companyId,
+            $actorId,
+            $warehouseIds,
+            $companyWide,
+            $isAgent
+        );
         $productId = $this->scopedId($input['product_id'] ?? null, $options['products'], 'product_id');
         $employeeId = $this->scopedId($input['employee_id'] ?? null, $options['employees'], 'user_id');
         $shopId = $this->scopedId($input['shop_id'] ?? null, $options['shops'], 'warehouse_id');
@@ -119,17 +132,150 @@ final class SalesPerformanceReportService
         ];
     }
 
-    /** @param list<int> $userIds @param list<int> $warehouseIds */
-    private function scopeSql(array $userIds, array $warehouseIds, bool $companyWide): string
-    {
+    /** @param list<int> $warehouseIds */
+    private function scopeSql(
+        array $warehouseIds,
+        bool $companyWide,
+        bool $isAgent,
+        int $actorId
+    ): string {
         if ($companyWide) {
             return '';
         }
-        if ($userIds === [] || $warehouseIds === []) {
+        if ($isAgent) {
+            return ' AND quick_sales.user_id = ' . (int) $actorId;
+        }
+        if ($warehouseIds === []) {
             return ' AND 1=0';
         }
-        return ' AND quick_sales.user_id IN (' . implode(',', array_map('intval', $userIds)) . ')'
-            . ' AND quick_sales.origin_warehouse_id IN (' . implode(',', array_map('intval', $warehouseIds)) . ')';
+        return ' AND quick_sales.origin_warehouse_id IN ('
+            . implode(',', array_map('intval', $warehouseIds))
+            . ')';
+    }
+
+    /** @return list<int> */
+    private function visibleWarehouseIds(
+        int $companyId,
+        int $actorId,
+        bool $companyWide,
+        bool $isAgent
+    ): array {
+        if ($companyWide) {
+            return [];
+        }
+
+        $connection = \db();
+        if ($isAgent) {
+            $statement = $connection->prepare(
+                "SELECT DISTINCT access.warehouse_id
+                 FROM inventory_user_warehouse_access access
+                 INNER JOIN inventory_warehouses warehouses
+                   ON warehouses.company_id=access.company_id
+                  AND warehouses.warehouse_id=access.warehouse_id
+                  AND warehouses.active=TRUE
+                  AND warehouses.deleted_at IS NULL
+                 WHERE access.company_id=:company_id
+                   AND access.user_id=:user_id
+                   AND access.active=TRUE"
+            );
+            $statement->execute([
+                'company_id' => $companyId,
+                'user_id' => $actorId,
+            ]);
+            $ids = array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
+            if ($ids !== []) {
+                sort($ids);
+                return array_values(array_unique($ids));
+            }
+
+            $fallback = (new InventoryReadScope())->warehouseIds($companyId, $actorId);
+            sort($fallback);
+            return array_values(array_unique(array_map('intval', $fallback)));
+        }
+
+        $statement = $connection->prepare(
+            "SELECT DISTINCT authority.warehouse_id
+             FROM inventory_stock_authorities authority
+             INNER JOIN inventory_warehouses warehouses
+               ON warehouses.company_id=authority.company_id
+              AND warehouses.warehouse_id=authority.warehouse_id
+              AND warehouses.active=TRUE
+              AND warehouses.deleted_at IS NULL
+             WHERE authority.company_id=:company_id
+               AND authority.user_id=:user_id
+               AND authority.active=TRUE"
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'user_id' => $actorId,
+        ]);
+        $roots = array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
+
+        if ($roots === []) {
+            $roots = array_map(
+                'intval',
+                (new InventoryReadScope())->warehouseIds($companyId, $actorId)
+            );
+        }
+
+        return $this->descendantWarehouseIds($companyId, $roots);
+    }
+
+    /** @param list<int> $rootIds @return list<int> */
+    private function descendantWarehouseIds(int $companyId, array $rootIds): array
+    {
+        $rootIds = array_values(array_unique(array_filter(
+            array_map('intval', $rootIds),
+            static fn (int $id): bool => $id > 0
+        )));
+        if ($rootIds === []) {
+            return [];
+        }
+
+        $statement = \db()->prepare(
+            "SELECT warehouse_id,parent_warehouse_id
+             FROM inventory_warehouses
+             WHERE company_id=:company_id
+               AND active=TRUE
+               AND deleted_at IS NULL"
+        );
+        $statement->execute(['company_id' => $companyId]);
+
+        $children = [];
+        $active = [];
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $warehouse) {
+            $warehouseId = (int) ($warehouse['warehouse_id'] ?? 0);
+            if ($warehouseId < 1) {
+                continue;
+            }
+            $active[$warehouseId] = true;
+            $parentId = (int) ($warehouse['parent_warehouse_id'] ?? 0);
+            if ($parentId > 0) {
+                $children[$parentId][] = $warehouseId;
+            }
+        }
+
+        $visible = [];
+        $queue = [];
+        foreach ($rootIds as $rootId) {
+            if (isset($active[$rootId]) && !isset($visible[$rootId])) {
+                $visible[$rootId] = true;
+                $queue[] = $rootId;
+            }
+        }
+
+        for ($i = 0; $i < count($queue); $i++) {
+            foreach ($children[$queue[$i]] ?? [] as $childId) {
+                if (!isset($visible[$childId])) {
+                    $visible[$childId] = true;
+                    $queue[] = $childId;
+                }
+            }
+        }
+
+        $ids = array_map('intval', array_keys($visible));
+        sort($ids);
+        return $ids;
     }
 
     private function baseSql(string $scopeSql, string $filters): string
@@ -200,45 +346,110 @@ final class SalesPerformanceReportService
     }
 
     /** @return array{products:list<array<string,mixed>>,employees:list<array<string,mixed>>,shops:list<array<string,mixed>>} */
-    private function options(int $companyId, string $scopeSql): array
-    {
+    private function options(
+        int $companyId,
+        int $actorId,
+        array $warehouseIds,
+        bool $companyWide,
+        bool $isAgent
+    ): array {
         $connection = \db();
-        $from = " FROM sales_quick_sale_reports reports
-                  INNER JOIN sales_quick_sales quick_sales
-                    ON quick_sales.company_id=reports.company_id
-                   AND quick_sales.quick_sale_id=reports.quick_sale_id
-                   AND quick_sales.status='closed'
-                  INNER JOIN sales_quick_sale_report_lines report_lines
-                    ON report_lines.company_id=reports.company_id
-                   AND report_lines.report_id=reports.report_id
-                  INNER JOIN users employee ON employee.user_id=quick_sales.user_id
-                  INNER JOIN inventory_warehouses shops
-                    ON shops.company_id=quick_sales.company_id
-                   AND shops.warehouse_id=quick_sales.origin_warehouse_id
-                  INNER JOIN sales_products products
-                    ON products.company_id=report_lines.company_id
-                   AND products.product_id=report_lines.product_id
-                  WHERE reports.company_id=:company_id
-                    AND reports.status='confirmed'
-                    AND reports.report_id=(
-                        SELECT MAX(latest_report.report_id)
-                        FROM sales_quick_sale_reports latest_report
-                        WHERE latest_report.company_id=reports.company_id
-                          AND latest_report.quick_sale_id=reports.quick_sale_id
-                    ) {$scopeSql}";
-        $queries = [
-            'products' => 'SELECT DISTINCT products.product_id, products.sku, products.name' . $from . ' ORDER BY products.name, products.sku',
-            'employees' => 'SELECT DISTINCT quick_sales.user_id, employee.display_name' . $from . ' ORDER BY employee.display_name',
-            'shops' => 'SELECT DISTINCT quick_sales.origin_warehouse_id warehouse_id, shops.name' . $from . ' ORDER BY shops.name',
-        ];
-        $result = [];
-        foreach ($queries as $key => $sql) {
-            $statement = $connection->prepare($sql);
-            $statement->execute(['company_id' => $companyId]);
-            $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
-            $result[$key] = is_array($rows) ? array_values($rows) : [];
+
+        $productStatement = $connection->prepare(
+            "SELECT product_id,sku,name
+             FROM sales_products
+             WHERE company_id=:company_id
+               AND active=TRUE
+               AND deleted_at IS NULL
+             ORDER BY name,sku"
+        );
+        $productStatement->execute(['company_id' => $companyId]);
+        $products = $productStatement->fetchAll(PDO::FETCH_ASSOC);
+
+        $employeeParams = ['company_id' => $companyId];
+        $employeeJoin = '';
+        $employeeScope = '';
+        if ($isAgent) {
+            $employeeScope = ' AND users.user_id=:actor_id';
+            $employeeParams['actor_id'] = $actorId;
+        } elseif (!$companyWide) {
+            if ($warehouseIds === []) {
+                $employeeScope = ' AND 1=0';
+            } else {
+                $employeeJoin = "\n             INNER JOIN inventory_user_warehouse_access access\n"
+                    . "               ON access.company_id=employees.company_id\n"
+                    . "              AND access.user_id=employees.user_id\n"
+                    . "              AND access.active=TRUE";
+                $employeeScope = ' AND access.warehouse_id IN ('
+                    . implode(',', array_map('intval', $warehouseIds))
+                    . ')';
+            }
         }
-        return $result;
+
+        $employeeStatement = $connection->prepare(
+            "SELECT DISTINCT users.user_id,users.display_name
+             FROM sales_agents agents
+             INNER JOIN hr_employees employees
+               ON employees.company_id=agents.company_id
+              AND employees.employee_id=agents.employee_id
+              AND employees.user_id IS NOT NULL
+              AND employees.deleted_at IS NULL
+             INNER JOIN users users
+               ON users.user_id=employees.user_id
+              AND users.active=TRUE
+              AND users.deleted_at IS NULL
+             INNER JOIN company_users memberships
+               ON memberships.company_id=employees.company_id
+              AND memberships.user_id=employees.user_id
+              AND memberships.active=TRUE{$employeeJoin}
+             WHERE agents.company_id=:company_id
+               AND agents.active=TRUE
+               AND agents.deleted_at IS NULL
+               AND UPPER(TRIM(agents.agent_type)) IN ('DSA','DSP'){$employeeScope}
+             ORDER BY users.display_name"
+        );
+        $employeeStatement->execute($employeeParams);
+        $employees = $employeeStatement->fetchAll(PDO::FETCH_ASSOC);
+
+        $shopParams = ['company_id' => $companyId];
+        $shopScope = '';
+        if (!$companyWide) {
+            if ($warehouseIds === []) {
+                $shopScope = ' AND 1=0';
+            } else {
+                $shopScope = ' AND warehouses.warehouse_id IN ('
+                    . implode(',', array_map('intval', $warehouseIds))
+                    . ')';
+            }
+        }
+
+        $shopLevelFilter = $isAgent
+            ? ''
+            : " AND EXISTS (
+                    SELECT 1
+                    FROM inventory_stock_authorities authority
+                    WHERE authority.company_id=warehouses.company_id
+                      AND authority.warehouse_id=warehouses.warehouse_id
+                      AND authority.authority_level='shop'
+                      AND authority.active=TRUE
+                )";
+
+        $shopStatement = $connection->prepare(
+            "SELECT warehouses.warehouse_id,warehouses.name
+             FROM inventory_warehouses warehouses
+             WHERE warehouses.company_id=:company_id
+               AND warehouses.active=TRUE
+               AND warehouses.deleted_at IS NULL{$shopScope}{$shopLevelFilter}
+             ORDER BY warehouses.name"
+        );
+        $shopStatement->execute($shopParams);
+        $shops = $shopStatement->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'products' => is_array($products) ? array_values($products) : [],
+            'employees' => is_array($employees) ? array_values($employees) : [],
+            'shops' => is_array($shops) ? array_values($shops) : [],
+        ];
     }
 
     /** @param list<array<string,mixed>> $options */
