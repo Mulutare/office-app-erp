@@ -25,6 +25,7 @@ use App\Controllers\ProcurementController;
 use App\Controllers\WarehouseController;
 use App\Controllers\WarehouseLocationController;
 use App\Controllers\SalesController;
+use App\Controllers\SalesReportController;
 use App\Controllers\SalesSettlementController;
 use App\Controllers\CommercialDocumentController;
 use App\Controllers\IntegrationEventController;
@@ -80,6 +81,7 @@ $warehouseController = new WarehouseController();
 $warehouseLocationController =
     new WarehouseLocationController();
 $salesController = new SalesController();
+$salesReportController = new SalesReportController();
 $salesSettlementController = new SalesSettlementController();
 $commercialDocumentController = new CommercialDocumentController();
 $integrationEventController = new IntegrationEventController();
@@ -385,6 +387,7 @@ $router->get('/sales/customers/{id}', [$salesController, 'showCustomer']);
 $router->get('/sales/products/{id}', [$salesController, 'showProduct']);
 $router->get('/sales/quotations', [$salesController, 'quotations']);
 $router->get('/sales/quick-sale', [$salesController, 'quickSale']);
+$router->get('/sales/dsa-dsp-report', [$salesReportController, 'index']);
 $router->post('/sales/quick-sale', [$salesController, 'storeQuickSale']);
 $router->post(
     '/sales/quick-sale/{id}/reports/{reportId}/confirm',

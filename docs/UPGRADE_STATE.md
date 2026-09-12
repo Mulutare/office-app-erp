@@ -334,7 +334,7 @@ Update this document with:
 
 ## 9. Current Next Action
 
-Define the exact scope of the next requested business upgrade before editing.
+Current scoped upgrade: DSA/DSP Sales Summary and Reporting.
 The pending end-to-end verification of the notification/rejection-resubmit
 upgrade remains recorded as pending; it does not block separately requested
 future work. Do not mix that pending verification with unrelated future upgrades.
@@ -345,6 +345,7 @@ future work. Do not mix that pending verification with unrelated future upgrades
 - Quick Sale: reporting, multiple evidence files, correction, and existing finance/settlement integration are documented in section 5.
 - Action Required: the existing source of truth for pending business actions; see section 5.
 - Notifications and rejected edit/resubmit: DEPLOYED / DATABASE VERIFIED / BASIC UI VERIFIED / END-TO-END WORKFLOW VERIFICATION PENDING; see sections 7 and 17.
+- DSA/DSP Sales Summary and Reporting: implemented locally as read-only analytics; not deployed and runtime verification not performed; see section 18.
 - Other module/integration status: Not currently documented — verify before changing this area.
 
 ## 11. Production-specific Deployment Notes
@@ -554,5 +555,68 @@ unchanged Quick Sale correction/evidence, and unchanged stock/peer behavior.
 
 Do not interpret verified deployment, database state, or basic UI rendering as
 full end-to-end workflow verification.
+
+## 18. DSA/DSP Sales Summary and Reporting Upgrade
+
+Status: IMPLEMENTED LOCALLY / NOT DEPLOYED / RUNTIME VERIFICATION PENDING.
+
+This scoped read-only upgrade adds `Sales > DSA/DSP Sales Report` with daily,
+weekly, monthly, and yearly periods; product, employee, and authorized-shop
+filters; and Product, Employee, or Product + Employee grouping. Summary cards
+show total finalized sales amount, sold quantity, returned quantity, and
+finalized report count. The shop filter is shown only when the scoped finalized
+data contains more than one authorized origin shop.
+
+The reporting source of truth is the latest confirmed
+`sales_quick_sale_reports` record for each closed Quick Sale, joined to its
+immutable `sales_quick_sale_report_lines`. The business reporting date is the
+first report `created_at` timestamp for that Quick Sale. The workflow has no
+separate sale-date field: quotation date can precede the actual sale, while
+`reviewed_at` is a later manager action that could move a sale across daily,
+weekly, monthly, or yearly boundaries. The first report submission is the
+closest authoritative submitted-sales timestamp and remains stable when a
+correction creates a later report.
+
+Sold and returned quantities remain independent. Monetary totals use only the
+Finance invoice lines linked by the confirmed report's exact
+`finance_invoice_id`, pre-aggregated per invoice and product before joining to
+report quantities. Sold reports use the linked Finance invoice currency, while
+all-return reports fall back to the Quick Sale quotation currency with a zero
+amount. Amounts remain separated by currency. Only the latest report
+may count and it must be confirmed while its Quick Sale is closed; superseded
+`correction_required`, submitted, non-latest, and other non-confirmed reports
+are excluded, preventing corrected submissions from being double-counted.
+
+Access requires the existing `sales.view` permission and reuses
+`SalesHierarchyScope` together with `InventoryReadScope`. Non-company-wide users
+are restricted by both authorized hierarchy user IDs and authorized origin
+warehouse IDs. DSA/DSP users therefore see only their own sales; managers see
+only employees and shops in their existing hierarchy. Company ID comes only
+from the authenticated tenant session. Product, employee, and shop filters are
+accepted only when present in server-generated options already limited to that
+scope. A supplied invalid or out-of-scope ID produces no matching data rather
+than falling back to an unfiltered report.
+
+No migration was required. Migration 083 remains unchanged and immutable. No
+duplicate reporting ledger, reporting hierarchy, charting, export, queue, BI
+projection, or domain write was added. Quick Sale creation, allocation,
+report/correction/confirmation, Finance handoff, settlement, stock hierarchy,
+Central reconciliation, peer source approval, notifications, rejected document
+resubmission, and Action Required behavior remain unchanged.
+
+Files created:
+
+- `app/controllers/SalesReportController.php`
+- `app/services/SalesPerformanceReportService.php`
+- `resources/views/sales/dsa-dsp-report.php`
+
+Files modified:
+
+- `routes/web.php`
+- `resources/views/layouts/module-navigation.php`
+- `docs/UPGRADE_STATE.md`
+
+Verification status: static review completed. No tests or builds were run; the
+upgrade has not been deployed or runtime verified.
 
 End of baseline state.

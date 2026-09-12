@@ -22,6 +22,7 @@ if ($module === '') {
 $definitions = [
     'sales' => [
         'quick_sale' => ['Quick Sale', '/sales/quick-sale'],
+        'dsa_dsp_report' => ['DSA/DSP Sales Report', '/sales/dsa-dsp-report', 'sales.view'],
         'orders' => ['Sales Orders', '/sales/orders'],
         'quotations' => ['Quotations', '/sales/quotations'],
         'customers' => ['Customers', '/sales/customers'],
@@ -80,15 +81,21 @@ if (
             'Quick Sale',
             '/sales/quick-sale',
         ],
+        'dsa_dsp_report' => [
+            'Sales Report',
+            '/sales/dsa-dsp-report',
+            'sales.view',
+        ],
     ];
 
-    $section = 'quick_sale';
+    $section = $section !== '' ? $section : 'quick_sale';
 }
 if ($section === '') {
     if ($module === 'sales') {
-        foreach (['quotations', 'orders', 'customers', 'products', 'pricelists', 'teams', 'deliveries', 'settlements'] as $candidate) {
+        foreach (['dsa-dsp-report', 'quotations', 'orders', 'customers', 'products', 'pricelists', 'teams', 'deliveries', 'settlements'] as $candidate) {
             if (str_contains($requestPath, '/sales/' . $candidate)) { $section = $candidate; break; }
         }
+        if ($section === 'dsa-dsp-report') $section = 'dsa_dsp_report';
         $section = $section ?: 'orders';
     } elseif ($module === 'inventory') {
         foreach (['stock-requests', 'receipts', 'warehouses', 'locations'] as $candidate) {
