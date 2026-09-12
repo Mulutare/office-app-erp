@@ -16,10 +16,10 @@
 - Where deployment is involved, always check the current migration baseline from both repository files and production migration records.
 
 Application functional baseline:
-`8798d7026b6b1f21daa7ad5cab4af95fa4a06f12`
-(Fix Regional Central replenishment reconciliation)
+`42cb8a2`
+(Add notifications and rejected document resubmission)
 
-The documentation/state file was introduced immediately afterward and is part of the development baseline.
+This documentation/state file predates the current application functional baseline and remains part of the development baseline.
 Do not store a "current documentation commit" as a permanent fixed value: committing an edit to this file itself creates a newer commit.
 The application functional baseline identifies the recorded application behavior; it is not a substitute for checking current HEAD.
 
@@ -69,29 +69,26 @@ Branch:
 main
 
 Application functional baseline commit:
-8798d7026b6b1f21daa7ad5cab4af95fa4a06f12
+42cb8a2
 
 Short commit:
-8798d70
+42cb8a2
 
 Remote state:
-origin/main is aligned with 8798d70.
+`origin/main` is aligned with `42cb8a2`. Commit `42cb8a2` was deployed to
+production.
 
-Latest commits:
+Latest deployed application commit:
 
-8798d70 Fix Regional Central replenishment reconciliation
-f7fc40f Add stock hierarchy replenishment and Quick Sale reporting upgrade
-d65f473 Sync production stock hierarchy through migration 080
-0014857 Harden Quick Sale hierarchy, routing, finance handoff and settlement controls
-d340e7b Complete Quick Sale workflow and settlement integration
+42cb8a2 Add notifications and rejected document resubmission
 
 ## 3. Current Migration Baseline
 
-Latest migration in repository (local development, not deployed):
+Latest migration in repository and production:
 
 083_user_notifications_and_rejection_resubmit.php
 
-Production remains recorded through 082. Migration 083 has not been run.
+Production is recorded through 083. Migration 083 was applied successfully.
 
 Recent migration sequence:
 
@@ -105,13 +102,14 @@ Recent migration sequence:
 080_quick_sale_staged_fulfilment.php
 081_manager_peer_replenishment_and_evidence.php
 082_stock_hierarchy_manager_role.php
+083_user_notifications_and_rejection_resubmit.php
 
 Next migration number must NOT be assumed permanently.
 Always inspect the repository before creating the next migration.
 
-At the application functional baseline, 083 was the next candidate.
-Migration 083 now exists locally for this scoped upgrade. Inspect repository
-files and deployment migration records again before allocating another number.
+Migration 083 is already applied in production and must not be edited or reapplied.
+Do not assume that 084 is the next migration: inspect repository files and
+deployment migration records before allocating another number.
 
 ## 4. Production Baseline
 
@@ -121,13 +119,22 @@ passiontech_officeapp
 Production application:
 office-app-erp
 
-Production has already been upgraded through migrations 081 and 082.
+Production has already been upgraded through migration 083.
 
 Migration 081:
 manager peer replenishment and multiple Quick Sale evidence
 
 Migration 082:
 Stock Hierarchy Manager role
+
+Migration 083:
+In-app user notifications and rejected document correction history
+
+Production `schema_migrations` records version `083` with checksum
+`516f6f10c6178ad605ab1b3a77a4ca089e72113e1b2abf5e1d3cd4884a8666ad`.
+Production contains `user_notifications` and
+`purchase_requisition_status_history`. `schema_migration_steps` contains no
+remaining rows for 083.
 
 Regional Central replenishment reconciliation fix from commit 8798d70
 has also been deployed.
@@ -221,16 +228,16 @@ Do not stage them automatically.
 Use explicit paths with `git add -- <files>` when an upgrade is ready
 to commit.
 
-## 7. Next Planned Upgrade
+## 7. Latest Deployed Upgrade
 
 Status:
-IMPLEMENTED LOCALLY / NOT DEPLOYED / RUNTIME VERIFICATION PENDING
+DEPLOYED / DATABASE VERIFIED / BASIC UI VERIFIED / END-TO-END WORKFLOW VERIFICATION PENDING
 
 Scope:
 
 In-app user notifications plus rejected-edit-resubmit support.
 
-This must be implemented as ONE SCOPED UPGRADE.
+This was implemented as ONE SCOPED UPGRADE.
 
 Primary functionality:
 
@@ -265,11 +272,16 @@ Stock hierarchy:
 
 DO NOT modify replenishment/routing logic as part of this upgrade.
 
-Migration created after inspecting repository state:
+Migration applied after inspecting repository and production state:
 083_user_notifications_and_rejection_resubmit.php
 
-082 was the latest numbered MySQL migration before editing. No migration
-was applied in this session; production migration records were not queried.
+Migration 083 was applied to production and its production database state is
+recorded in section 4. It does not alter `sales_orders` and does not add or
+replace a Sales Order status CHECK constraint; an earlier invalid ALTER
+statement was removed before the finalized migration was applied.
+
+The next scoped upgrade is not yet recorded. It will be defined by the next
+requested business functionality.
 
 ## 8. Upgrade Completion Procedure
 
@@ -322,30 +334,29 @@ Update this document with:
 
 ## 9. Current Next Action
 
-Review the local scoped notification + rejected edit/resubmit upgrade.
-Tests/builds, staging, committing, pushing and deployment require a separate
-explicit request. Before deployment, verify production migration records,
-apply the reviewed migration using the established migration procedure, and
-verify the behaviors described in section 17.
-
-Do not combine it with any other ERP improvement.
+Define the exact scope of the next requested business upgrade before editing.
+The pending end-to-end verification of the notification/rejection-resubmit
+upgrade remains recorded as pending; it does not block separately requested
+future work. Do not mix that pending verification with unrelated future upgrades.
 
 ## 10. Module / Integration Status
 
 - Stock hierarchy and manager replenishment: existing behavior is documented in section 5; Regional Central reconciliation is recorded as deployed in section 4.
 - Quick Sale: reporting, multiple evidence files, correction, and existing finance/settlement integration are documented in section 5.
 - Action Required: the existing source of truth for pending business actions; see section 5.
-- Notifications and rejected edit/resubmit: implemented locally, runtime verification pending, NOT DEPLOYED; see sections 7 and 17.
+- Notifications and rejected edit/resubmit: DEPLOYED / DATABASE VERIFIED / BASIC UI VERIFIED / END-TO-END WORKFLOW VERIFICATION PENDING; see sections 7 and 17.
 - Other module/integration status: Not currently documented — verify before changing this area.
 
 ## 11. Production-specific Deployment Notes
 
 The recorded production application is `office-app-erp`, using database `passiontech_officeapp`.
-Migrations 081 and 082 and the Regional Central reconciliation fix are recorded as deployed in section 4.
+Migrations 081, 082, and 083 and application commit `42cb8a2` are recorded as deployed in section 4.
 Do not reapply old migrations or recreate already-completed production configuration.
 
 Additional production-specific deployment details:
-Not currently documented — verify before changing this area.
+Migration 083 and its basic post-deployment verification are documented in
+sections 4, 7, 16, and 17. Verify any additional production-specific detail
+before relying on it.
 
 ## 12. Known Production / Local Differences
 
@@ -361,22 +372,26 @@ Recorded completed production upgrades:
 - Migration 081: manager peer replenishment and multiple Quick Sale evidence.
 - Migration 082: Stock Hierarchy Manager role.
 - Application commit `8798d70`: Regional Central replenishment reconciliation fix.
+- Migration 083: In-app user notifications and rejected document correction history.
+- Application commit `42cb8a2`: notifications and rejected document resubmission.
 
 The application commit history at the functional baseline is retained in section 2.
-This state document was introduced afterward as part of the development baseline; documentation changes do not imply an application deployment.
+This state document predates the current `42cb8a2` functional baseline;
+documentation changes do not imply an application deployment. Always check
+current HEAD independently.
 
 ## 14. Current Unresolved Issues
 
-For the local notification/correction upgrade: runtime behavior and migration
-execution are unverified because tests/builds and deployment were not requested.
-Production migration records and production/local compatibility must be checked
-before deployment. See section 17 for deliberate correction-field limits.
+For the notification/correction upgrade, full end-to-end production workflow
+verification remains pending. Database deployment and basic notification UI are
+verified, but rejection/resubmission and notification-event workflows must not be
+described as fully runtime verified. See section 17 for deliberate correction-field limits.
 
 Other issues: Not currently documented — verify before changing this area.
 
 ## 15. Explicit Out-of-scope Items
 
-For the next planned upgrade in section 7:
+For upgrades following the latest deployed upgrade recorded in section 7:
 
 - No full-system redesign, cutover, or repository-wide refactor.
 - No unrelated ERP improvements, cleanup, or schema changes.
@@ -387,27 +402,44 @@ For the next planned upgrade in section 7:
 
 ## 16. Post-deployment Verification / Status
 
-Section 4 records the deployed baseline. Detailed post-deployment verification results and evidence:
-Not currently documented — verify before changing this area.
+Status: DEPLOYED / DATABASE VERIFIED / BASIC UI VERIFIED / END-TO-END WORKFLOW VERIFICATION PENDING.
 
-After each deployment, record the deployed application baseline, migration status, completed scope, verification performed and its results, unresolved issues, and next planned upgrade.
+Verified after deployment:
+
+- Commit `42cb8a2` was pushed to main and deployed to production.
+- Migration 083 is recorded in production with the version, description, and
+  checksum shown in section 4.
+- Production contains `user_notifications` and
+  `purchase_requisition_status_history`.
+- `schema_migration_steps` has no remaining rows for 083.
+- The notification bell rendered successfully beside Sign out.
+- The empty notification state rendered correctly.
+
+Still pending: full end-to-end runtime verification of rejection/resubmit and
+notification events. Do not infer that these workflows are fully verified from
+the successful deployment, database checks, or basic UI checks.
+
+After each deployment, record the deployed application baseline, migration status, completed scope, verification performed and its results, unresolved issues, and whether the next scoped business upgrade has been defined.
 Distinguish recorded deployment status from checks actually performed; do not infer successful verification from this document alone.
 Follow the completion procedure in section 8.
 
-## 17. Local Notification and Rejected Correction Upgrade
+## 17. Notification and Rejected Correction Upgrade
 
-Implementation status: IMPLEMENTED LOCALLY; runtime verification pending.
-Deployment status: NOT DEPLOYED.
-Observed starting branch: main.
-Observed starting HEAD: 977605ac301f4f663dade1e4a8b5ae4c05869baf.
-This records the starting point only; always check current HEAD independently.
+Overall status: DEPLOYED / DATABASE VERIFIED / BASIC UI VERIFIED / END-TO-END WORKFLOW VERIFICATION PENDING.
+Implementation status: deployed from commit `42cb8a2` on main.
+Deployment status: DEPLOYED.
+Historical start-of-upgrade branch: main.
+Historical start-of-upgrade HEAD: 977605ac301f4f663dade1e4a8b5ae4c05869baf.
+These are historical starting values only; always check current HEAD independently.
 
 ### Migration and notification functionality
 
 Migration 083 adds user_notifications with company/user membership isolation,
 per-recipient deterministic event uniqueness, read state, and newest-first/unread
-indexes. It adds purchase_requisition_status_history and extends the existing
-Sales Order status constraint to include rejected while retaining every old state.
+indexes. It adds purchase_requisition_status_history. It does not alter
+`sales_orders` and does not add or replace a Sales Order status CHECK constraint.
+An earlier invalid ALTER statement was removed before the finalized migration
+was applied.
 Previously applied migrations are unchanged.
 
 The shared UserNotificationService owns notification writes and read operations.
@@ -423,15 +455,17 @@ Reading notifications never changes domain work state.
 Events are written inside the associated domain transaction:
 
 - Sales Order rejection -> original creator, keyed by status-history ID.
-- Requisition rejection -> original requester, keyed by new status-history ID.
+- Procurement Requisition rejection -> original requester, keyed by new
+  status-history ID.
 - Quick Sale report submission, including corrected reports -> assigned manager,
   keyed by report ID.
 - Quick Sale correction required -> original report submitter, keyed by report ID.
-- Stock request creation and transfer receipt/cancellation handback -> recorded
-  current handler when pending review, keyed by request/user and creation or
+- Stock request creation and transfer receipt/cancellation handoff -> exact
+  current handler when applicable, keyed by request/user and creation or
   transfer event identity.
 - Peer proposal -> exact source owner, keyed by proposal ID.
-- Dispatched peer transfer -> exact destination owner, keyed by proposal ID.
+- Peer proposal rejection -> exact proposing manager, keyed by proposal ID.
+- Peer transfer dispatch -> exact destination owner, keyed by proposal ID.
 
 No company-wide recipient broadcast, rendering-triggered notification creation,
 email, push, queues, WebSockets or external notification service was added.
@@ -464,7 +498,8 @@ validation and line validation are reused. Justification, required-by date,
 descriptions, quantities and positive estimated prices are editable.
 Product, department, warehouse and line IDs remain fixed; linked replenishment
 quantities remain fixed. Converted/approved records cannot use this path.
-History/audit retain previous rejection reasons. Approval is required again.
+Resubmission clears the live `rejection_reason` while history/audit retain the
+prior rejection reason. Approval is required again.
 
 Action Required adds owner tasks: Correct and resubmit order and Correct and
 resubmit requisition. Rejected records do not become approver work until
@@ -478,11 +513,16 @@ Stock hierarchy, manager routing, Central replenishment, peer source approval,
 finance integrations and unrelated modules remain unchanged. Stock/peer changes
 are notification calls only.
 
-No tests, builds, migration execution or deployment were run. Static source/diff
-review was performed. Before a separately authorized deployment, verify migration
-083 against the actual production ledger and verify tenant/user read isolation,
-CSRF, notification deduplication and rollback, owner-only correction, repeated
-rejection/resubmission history, source/credit validation, exact record links,
+Commit `42cb8a2` was pushed to main and deployed. Migration 083 was applied and
+its database state is verified as recorded in sections 4 and 16. The notification
+bell rendered successfully beside Sign out, and the empty notification state
+rendered correctly.
+
+Full end-to-end workflow runtime verification remains pending. Verify tenant/user
+read isolation, CSRF, notification deduplication and rollback, owner-only
+correction, repeated rejection/resubmission history, procurement clearing of the
+live rejection reason while preserving history, source/credit validation, exact
+record links, exact proposing-manager notification on peer proposal rejection,
 unchanged Quick Sale correction/evidence, and unchanged stock/peer behavior.
 
 ### Files created
@@ -512,7 +552,7 @@ unchanged Quick Sale correction/evidence, and unchanged stock/peer behavior.
 - `routes/web.php`
 - `docs/UPGRADE_STATE.md`
 
-After actual deployment, update the production baseline and verification evidence.
-Do not interpret this local implementation record as production upgrade evidence.
+Do not interpret verified deployment, database state, or basic UI rendering as
+full end-to-end workflow verification.
 
 End of baseline state.
