@@ -619,4 +619,33 @@ Files modified:
 Verification status: static review completed. No tests or builds were run; the
 upgrade has not been deployed or runtime verified.
 
+
+## Next planned upgrade — Finance Operations Expansion
+
+Status: **PLANNED / NOT IMPLEMENTED**
+
+Detailed design and tracking document:
+
+- `docs/FINANCE_NEXT_UPGRADE_PLAN.md`
+
+Planned scope includes:
+
+- Staff Loans & Advances with installment schedules, partial repayments,
+  outstanding balances, due dates, overdue tracking, and expected completion
+  dates.
+- Consolidated Accounts Receivable workspace and aging/reconciliation.
+- Consolidated Accounts Payable workspace and aging/reconciliation.
+- Audit and completion of the existing Expense Requests workflow, including
+  approval, reimbursement/company-paid expenses, petty cash, attachments, and
+  GL posting where gaps are proven.
+- Cash/Bank, Finance reporting, subledger-to-GL reconciliation, and controlled
+  tax/accounting configuration.
+- Finance organization familiar to Sage 50 / Peachtree users while preserving
+  the existing OfficeApp ERP architecture and accounting source of truth.
+
+The first action for this upgrade is **audit only**. Existing Finance, Sales,
+Procurement, HR, chart-of-accounts, journal, payment, and permission logic must
+be inspected before designing any new schema. No migration number is reserved
+until that audit establishes the actual gaps. Existing production-applied
+migrations remain immutable.
 End of baseline state.
