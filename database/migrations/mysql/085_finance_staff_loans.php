@@ -1,0 +1,138 @@
+<?php
+declare(strict_types=1);
+
+return [
+    'version' => '085',
+    'description' => 'Company-scoped staff loan subledger and immutable installment terms',
+    'statements' => [
+        <<<'SQL'
+CREATE TABLE finance_staff_loans (
+ loan_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ company_id BIGINT UNSIGNED NOT NULL,
+ employee_id BIGINT UNSIGNED NOT NULL,
+ loan_number VARCHAR(60) NOT NULL,
+ loan_type VARCHAR(30) NOT NULL,
+ purpose VARCHAR(500) NOT NULL,
+ currency CHAR(3) NOT NULL,
+ principal_amount DECIMAL(18,2) NOT NULL,
+ interest_rate DECIMAL(9,4) NULL,
+ interest_method VARCHAR(30) NULL,
+ request_date DATE NOT NULL,
+ approval_date DATE NULL,
+ disbursement_date DATE NULL,
+ installment_frequency VARCHAR(20) NOT NULL,
+ installment_count SMALLINT UNSIGNED NOT NULL,
+ first_due_date DATE NOT NULL,
+ planned_completion_date DATE NULL,
+ amount_paid DECIMAL(18,2) NOT NULL DEFAULT 0,
+ outstanding_principal DECIMAL(18,2) NOT NULL,
+ outstanding_interest DECIMAL(18,2) NOT NULL DEFAULT 0,
+ next_due_date DATE NULL,
+ status VARCHAR(20) NOT NULL DEFAULT 'draft',
+ created_by BIGINT UNSIGNED NOT NULL,
+ approved_by BIGINT UNSIGNED NULL,
+ disbursed_by BIGINT UNSIGNED NULL,
+ disbursement_journal_id BIGINT UNSIGNED NULL,
+ disbursement_batch_id BIGINT UNSIGNED NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ CONSTRAINT uq_staff_loan_company_id UNIQUE(company_id,loan_id),
+ CONSTRAINT uq_staff_loan_number UNIQUE(company_id,loan_number),
+ CONSTRAINT fk_staff_loan_company FOREIGN KEY(company_id) REFERENCES companies(company_id),
+ CONSTRAINT fk_staff_loan_employee FOREIGN KEY(company_id,employee_id) REFERENCES hr_employees(company_id,employee_id),
+ CONSTRAINT fk_staff_loan_creator FOREIGN KEY(created_by) REFERENCES users(user_id),
+ CONSTRAINT fk_staff_loan_approver FOREIGN KEY(approved_by) REFERENCES users(user_id),
+ CONSTRAINT fk_staff_loan_disburser FOREIGN KEY(disbursed_by) REFERENCES users(user_id),
+ CONSTRAINT fk_staff_loan_cash_journal FOREIGN KEY(company_id,disbursement_journal_id) REFERENCES finance_journals(company_id,journal_id),
+ CONSTRAINT fk_staff_loan_disbursement_batch FOREIGN KEY(company_id,disbursement_batch_id) REFERENCES finance_journal_batches(company_id,journal_batch_id),
+ CONSTRAINT ck_staff_loan_status CHECK(status IN('draft','submitted','approved','rejected','disbursed','active','paid','cancelled')),
+ CONSTRAINT ck_staff_loan_frequency CHECK(installment_frequency IN('weekly','monthly')),
+ CONSTRAINT ck_staff_loan_interest CHECK((interest_rate IS NULL OR interest_rate>=0) AND (interest_method IS NULL OR interest_method='simple_annual')),
+ CONSTRAINT ck_staff_loan_amounts CHECK(principal_amount>0 AND outstanding_principal>=0 AND outstanding_interest>=0 AND amount_paid>=0),
+ INDEX ix_staff_loans_company_status(company_id,status,next_due_date),
+ INDEX ix_staff_loans_employee(company_id,employee_id,loan_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+        <<<'SQL'
+CREATE TABLE finance_staff_loan_installments (
+ installment_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ company_id BIGINT UNSIGNED NOT NULL,
+ loan_id BIGINT UNSIGNED NOT NULL,
+ installment_number SMALLINT UNSIGNED NOT NULL,
+ due_date DATE NOT NULL,
+ opening_balance DECIMAL(18,2) NOT NULL,
+ principal_due DECIMAL(18,2) NOT NULL,
+ interest_due DECIMAL(18,2) NOT NULL DEFAULT 0,
+ total_due DECIMAL(18,2) NOT NULL,
+ amount_paid DECIMAL(18,2) NOT NULL DEFAULT 0,
+ remaining_due DECIMAL(18,2) NOT NULL,
+ paid_at DATETIME NULL,
+ status VARCHAR(20) NOT NULL DEFAULT 'upcoming',
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ CONSTRAINT uq_staff_installment_identity UNIQUE(company_id,installment_id),
+ CONSTRAINT uq_staff_installment_sequence UNIQUE(company_id,loan_id,installment_number),
+ CONSTRAINT fk_staff_installment_loan FOREIGN KEY(company_id,loan_id) REFERENCES finance_staff_loans(company_id,loan_id),
+ CONSTRAINT ck_staff_installment_status CHECK(status IN('upcoming','due','partially_paid','paid','overdue')),
+ CONSTRAINT ck_staff_installment_amounts CHECK(principal_due>=0 AND interest_due>=0 AND total_due=principal_due+interest_due AND amount_paid>=0 AND remaining_due>=0),
+ INDEX ix_staff_installment_due(company_id,due_date,status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+        <<<'SQL'
+CREATE TABLE finance_staff_loan_payments (
+ loan_payment_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ company_id BIGINT UNSIGNED NOT NULL,
+ loan_id BIGINT UNSIGNED NOT NULL,
+ payment_number VARCHAR(60) NOT NULL,
+ payment_date DATE NOT NULL,
+ amount DECIMAL(18,2) NOT NULL,
+ principal_amount DECIMAL(18,2) NOT NULL,
+ interest_amount DECIMAL(18,2) NOT NULL,
+ journal_id BIGINT UNSIGNED NOT NULL,
+ journal_batch_id BIGINT UNSIGNED NOT NULL,
+ idempotency_key VARCHAR(190) NOT NULL,
+ reference_number VARCHAR(120) NULL,
+ posted_by BIGINT UNSIGNED NOT NULL,
+ posted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ CONSTRAINT uq_staff_payment_identity UNIQUE(company_id,loan_payment_id),
+ CONSTRAINT uq_staff_payment_number UNIQUE(company_id,payment_number),
+ CONSTRAINT uq_staff_payment_retry UNIQUE(company_id,idempotency_key),
+ CONSTRAINT fk_staff_payment_loan FOREIGN KEY(company_id,loan_id) REFERENCES finance_staff_loans(company_id,loan_id),
+ CONSTRAINT fk_staff_payment_journal FOREIGN KEY(company_id,journal_id) REFERENCES finance_journals(company_id,journal_id),
+ CONSTRAINT fk_staff_payment_batch FOREIGN KEY(company_id,journal_batch_id) REFERENCES finance_journal_batches(company_id,journal_batch_id),
+ CONSTRAINT fk_staff_payment_actor FOREIGN KEY(posted_by) REFERENCES users(user_id),
+ CONSTRAINT ck_staff_payment_amounts CHECK(amount>0 AND principal_amount>=0 AND interest_amount>=0 AND amount=principal_amount+interest_amount),
+ INDEX ix_staff_payment_loan(company_id,loan_id,payment_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+        <<<'SQL'
+CREATE TABLE finance_staff_loan_allocations (
+ allocation_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ company_id BIGINT UNSIGNED NOT NULL,
+ loan_payment_id BIGINT UNSIGNED NOT NULL,
+ installment_id BIGINT UNSIGNED NOT NULL,
+ principal_amount DECIMAL(18,2) NOT NULL,
+ interest_amount DECIMAL(18,2) NOT NULL,
+ CONSTRAINT uq_staff_payment_installment UNIQUE(company_id,loan_payment_id,installment_id),
+ CONSTRAINT fk_staff_allocation_payment FOREIGN KEY(company_id,loan_payment_id) REFERENCES finance_staff_loan_payments(company_id,loan_payment_id),
+ CONSTRAINT fk_staff_allocation_installment FOREIGN KEY(company_id,installment_id) REFERENCES finance_staff_loan_installments(company_id,installment_id),
+ CONSTRAINT ck_staff_allocation_amount CHECK(principal_amount>=0 AND interest_amount>=0 AND principal_amount+interest_amount>0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+        <<<'SQL'
+CREATE TABLE finance_staff_loan_history (
+ history_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ company_id BIGINT UNSIGNED NOT NULL,
+ loan_id BIGINT UNSIGNED NOT NULL,
+ action VARCHAR(30) NOT NULL,
+ from_status VARCHAR(20) NULL,
+ to_status VARCHAR(20) NOT NULL,
+ reason VARCHAR(500) NULL,
+ actor_id BIGINT UNSIGNED NOT NULL,
+ occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ CONSTRAINT fk_staff_history_loan FOREIGN KEY(company_id,loan_id) REFERENCES finance_staff_loans(company_id,loan_id),
+ CONSTRAINT fk_staff_history_actor FOREIGN KEY(actor_id) REFERENCES users(user_id),
+ INDEX ix_staff_history(company_id,loan_id,history_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+    ],
+];

@@ -31,7 +31,8 @@ class ExpenseRequestRepository extends MySqlRepository
                 ) AS paid,
                 SUM(
                     status = \'cancelled\'
-                ) AS cancelled
+                ) AS cancelled,
+                SUM(status = \'reversed\') AS reversed
              FROM finance_expense_requests
              WHERE company_id = :company_id
                AND deleted_at IS NULL'
@@ -53,6 +54,7 @@ class ExpenseRequestRepository extends MySqlRepository
                 'rejected',
                 'paid',
                 'cancelled',
+                'reversed',
             ] as $key
         ) {
             $result[$key] = (int) (

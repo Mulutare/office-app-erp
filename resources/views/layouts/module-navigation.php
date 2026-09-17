@@ -43,13 +43,21 @@ $definitions = [
         'returns' => ['Returns', '/procurement?section=returns', 'procurement.returns.post'],
     ],
     'finance' => [
+        'dashboard' => ['Dashboard', '/finance'],
         'receivables' => ['Receivables', '/finance?section=receivables'],
         'invoices' => ['Customer Invoices', '/finance/customer-invoices'],
-        'journals' => ['Journals', '/finance?section=journals'],
         'receipts' => ['Receipts', '/finance?section=receipts'],
         'settlements' => ['Settlement Reconciliation', '/finance/settlements', 'finance.settlements.view'],
-        'expenses' => ['Expenses', '/finance?section=expenses'],
+        'payables' => ['Payables', '/finance/accounting/payables', 'finance.records.view'],
+        'expenses' => ['Expenses', '/finance/expenses', 'finance.records.view'],
+        'legacy-expenses' => ['Expense History', '/finance?section=expenses'],
+        'staff-loans' => ['Staff Loans & Advances', '/finance/staff-loans', 'finance.records.view'],
+        'cash-bank' => ['Cash & Bank', '/finance/accounting/cash-bank', 'finance.records.view'],
+        'accounts' => ['Chart of Accounts', '/finance/accounting/accounts', 'finance.records.view'],
+        'journals' => ['Journals', '/finance?section=journals'],
+        'ledger' => ['General Ledger', '/finance/accounting/ledger', 'finance.records.view'],
         'periods' => ['Accounting Periods', '/finance/accounting-periods', 'finance.period.view'],
+        'reports' => ['Reports', '/finance/accounting/reports', 'finance.records.view'],
     ],
     'inventory' => [
         'stock' => ['Current Stock', '/inventory?section=stock'],
@@ -103,7 +111,22 @@ if ($section === '') {
         }
         $section = $section ?: (string) ($_GET['section'] ?? 'stock');
     } elseif ($module === 'finance') {
-        $section = str_contains($requestPath, '/finance/accounting-periods') ? 'periods' : (str_contains($requestPath, '/finance/settlements') ? 'settlements' : (str_contains($requestPath, '/finance/customer-invoices') ? 'invoices' : (string) ($_GET['section'] ?? 'receivables')));
+        if (str_contains($requestPath, '/finance/accounting-periods')) {
+            $section = 'periods';
+        } elseif (str_contains($requestPath, '/finance/staff-loans')) {
+            $section = 'staff-loans';
+        } elseif (str_contains($requestPath, '/finance/expenses')) {
+            $section = 'expenses';
+        } elseif (str_contains($requestPath, '/finance/settlements')) {
+            $section = 'settlements';
+        } elseif (str_contains($requestPath, '/finance/customer-invoices')) {
+            $section = 'invoices';
+        } elseif (preg_match('~/finance/accounting/([^/?]+)~', $requestPath, $matches)) {
+            $section = $matches[1];
+        } else {
+            $section = (string) ($_GET['section'] ?? 'dashboard');
+            if ($section === 'expenses') $section = 'legacy-expenses';
+        }
     } elseif ($module === 'procurement') {
         $section = (string) ($moduleContext['section'] ?? $_GET['section'] ?? (preg_match('~/procurement/\d+~', $requestPath) ? 'orders' : 'overview'));
     } elseif ($module === 'assets') {
@@ -117,7 +140,7 @@ if ($module === 'assets' && !in_array($section, ['register', 'direct', 'categori
 $items = $definitions[$module] ?? [];
 if ($items !== []):
 ?>
-<nav class="module-tabs" aria-label="<?= e(ucfirst($module)) ?> sections">
+<nav class="module-tabs<?= $module === 'finance' ? ' finance-module-tabs' : '' ?>" aria-label="<?= e(ucfirst($module)) ?> sections">
     <?php foreach ($items as $key => $item): ?>
         <?php [$label, $path] = $item; $permission = $item[2] ?? null; ?>
         <?php if ($permission !== null && !$can($permission) && !($permission === 'inventory.warehouses.view' && $can('inventory.warehouses.manage'))) continue; ?>

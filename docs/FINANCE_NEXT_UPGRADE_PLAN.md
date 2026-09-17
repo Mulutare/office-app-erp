@@ -1,6 +1,6 @@
 # Finance Next Upgrade Plan
 
-**Status:** PLANNED / NOT IMPLEMENTED
+**Status:** PARTIAL / LOCAL IMPLEMENTATION
 **Target area:** Finance + HR integration
 **Tracking date:** 2026-09-16
 
@@ -343,6 +343,38 @@ Before production cutover verify:
 
 ## Next development action
 
-**Audit only. No schema or UI implementation yet.**
+Complete and review the remaining Finance workflows before any production deployment.
 
-The next development session should inspect the current repository and database-facing Finance code, especially Expense Requests, AR/AP, journal/account mappings, and permissions. It should then update this plan with a precise gap matrix and propose the smallest safe migration number after the current production migration baseline.
+## Local implementation and gap matrix (2026-09-17)
+
+Current branch at the start of this upgrade: `main`. Starting HEAD: `1e18e25af67c3f65fa6b72225815549e169e5939`. Repository migrations end at 083; migration 084 is new and local. No production database inspection, migration application, runtime test, build or deployment was performed.
+
+| Area | Status | Source and remaining work |
+| --- | --- | --- |
+| Chart of Accounts | PARTIAL | Existing `finance_accounts` exposed read-only with code, type, normal balance, currency and system key. Account maintenance, hierarchy presentation and reconciliation configuration remain. |
+| General Ledger / journals | PARTIAL | Posted `finance_journal_batches` and `finance_journal_entries` exposed with date, reference, source and debit/credit. Register is capped at 500 rows and needs pagination, drill-down, actor filters and controlled reversal UI. |
+| Accounting periods | IMPLEMENTED | Existing period lifecycle and posting-date validation reused. No period rules were changed. |
+| Customer invoices / payments | IMPLEMENTED | Existing `finance_invoices`, `finance_payments`, allocations and posting retained. |
+| AR workspace / aging | PARTIAL | Read-only posted customer invoice residual register with aging bucket. Customer statement and AR control reconciliation are now available from posted records. Summary queues, inline credit visibility and pagination remain. Existing Sales receivable projection remains available on the Finance dashboard. |
+| Supplier bills / payments | IMPLEMENTED | Procurement remains authoritative for bill creation, posting, payment, return and reversal. |
+| AP workspace / aging | PARTIAL | Read-only posted vendor bill residual register with supplier and PO references. Supplier statement and AP control reconciliation now use posted bills, reversals and allocated payments. Due queues and pagination remain. |
+| Expense workflow | PARTIAL | Existing expense table extended by local migration 084. Draft create/edit/cancel, submit, independent approval/rejection, and paid posting are implemented. Approved employee reimbursement can first recognize DR expense / recoverable tax and CR Employee Payable, then settle DR Employee Payable / CR Cash or Bank. Company-paid and petty cash expenses post directly. Paid expense reversal requires `finance.requests.approve` by someone other than the payment processor, creates opposite posted journal entries, links both reversed batches where applicable, stores actor/date/reason and blocks a second reversal. Existing balanced posting, open-period and idempotency controls apply. Receipt upload, separate payment approval, branch/department allocation and expense analysis remain. Evidence is a reference field only. Existing approved requests lacking an expense account need a controlled remediation path. |
+| Staff loans & advances | IMPLEMENTED LOCALLY | Migration 085 creates company-scoped loans, installments, repayments, allocations and history linked to `hr_employees`. Draft, submitted, approved, rejected, disbursed, active, paid and cancelled states are controlled. Approval creates a fixed weekly or monthly schedule with zero interest or simple annual interest on declining principal. Payments allocate oldest installment first, interest then principal, and support partial, multi-installment and early full-schedule payoff. Disbursement posts DR Staff Loans Receivable / CR Cash or Bank; repayment posts DR Cash or Bank / CR Staff Loans Receivable and Interest Income when applicable. Register, detail, schedule, repayment and overdue views are present. Payroll deductions, restructuring, write-off and early-payoff interest rebate are deferred. |
+| Cash & Bank | PARTIAL | Posted cash control-account movements exposed read-only; existing cash/bank journals and settlement reconciliation retained. Bank account-specific running balances and additional cash accounts need verified mapping. |
+| Trial Balance | IMPLEMENTED LOCALLY | Posted journal-line debit, credit and net by account/currency with date filters and debit/credit totals. Opening balance and comparison periods remain optional enhancements. |
+| Profit & Loss | IMPLEMENTED LOCALLY | Posted revenue and expense account activity and per-currency revenue, expense and profit/loss totals for the selected dates. |
+| Balance Sheet | IMPLEMENTED LOCALLY | Posted asset, liability and equity balances through the as-of date, plus unclosed current earnings and a displayed balancing difference, separated by currency. |
+| Cash Flow | NOT IMPLEMENTED | Current ledger lacks reliable operating/investing/financing classification. A derived cash-flow statement would be misleading. |
+| Tax/VAT | PARTIAL | Expense posting can debit a selected asset tax account. Existing invoice and Procurement tax behavior is unchanged. Sales and purchase tax accounts need a verified configuration and tax-period report; no tax compliance claim is made. |
+| Statements and control reconciliations | IMPLEMENTED LOCALLY | Customer and supplier statements use posted invoices, credits, bill reversals and allocated payments with opening/running balance by currency. Read-only AR, AP and Staff Loan subledger totals are compared with mapped posted GL control-account lines and show MATCHED or DIFFERENCE. No automatic adjustment is made. |
+| Expense/loan report expansion | PARTIAL | Loan register, schedule, repayment history and overdue totals exist. Expanded expense analysis, period trend and loan aging exports remain. |
+
+Migration 084 remains expense-only. Migration 085 contains only Staff Loan schema. No duplicate AR/AP or GL table is created. No Finance permission code was added: `finance.records.view`, `finance.records.manage` and `finance.requests.approve` are reused. All new reads and writes derive `company_id` from `TenantContext`; loan and expense financial mutations are transactional.
+
+## Local runtime verification (2026-09-17)
+
+The Docker development database recorded 083 as its latest applied migration, with 084 and 085 as its only pending files. Both migrations applied locally; 69 prior migration records were unchanged. No production migration was applied.
+
+Company 2 local service checks completed a company-paid expense through reversal, an employee reimbursement through recognition and payment, and a zero-interest staff loan through three installments and full payoff. Posting retries did not create duplicate journals. Maker/checker and expired first-due-date attempts were rejected. Local Trial Balance debit and credit totals matched. AR and AP have no posted local documents to verify their full reporting and reconciliation paths.
+
+Browser verification used a newly authorized local-only `finance.verify.local` account with Finance Officer and Finance Approver roles in company 2. The Finance dashboard, all ten Finance navigation destinations, customer/supplier statements, reconciliation, and staff-loan detail rendered. The original local `admin` (user 2) is a platform administrator; existing login rules restrict that account to Default Company, where Finance is unavailable. This role boundary was not changed. Cash Flow classification, receipt/file upload, expanded expense analysis, payroll deductions, loan restructuring, loan write-off, and early-payoff interest rebate remain PARTIAL / DEFERRED.

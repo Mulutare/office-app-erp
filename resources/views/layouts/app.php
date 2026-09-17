@@ -50,7 +50,7 @@ if ($taskModule === '') {
 if ($taskSection === '') {
     if ($taskModule === 'sales') $taskSection = (string) ($data['salesSection'] ?? (preg_match('~/sales/(quotations|orders|deliveries|settlements)~', $requestPath, $match) ? $match[1] : 'orders'));
     elseif ($taskModule === 'procurement') $taskSection = (string) ($_GET['section'] ?? (preg_match('~/procurement/\d+~', $requestPath) ? 'orders' : 'overview'));
-    elseif ($taskModule === 'finance') $taskSection = str_contains($requestPath, '/customer-invoices') ? 'invoices' : (str_contains($requestPath, '/settlements') ? 'settlements' : (string) ($_GET['section'] ?? 'receivables'));
+    elseif ($taskModule === 'finance') $taskSection = str_contains($requestPath, '/staff-loans') ? 'staff-loans' : (str_contains($requestPath, '/expenses') ? 'expenses' : (str_contains($requestPath, '/customer-invoices') ? 'invoices' : (str_contains($requestPath, '/settlements') ? 'settlements' : (string) ($_GET['section'] ?? 'receivables'))));
     elseif ($taskModule === 'inventory') $taskSection = str_contains($requestPath, '/receipts') ? 'receipts' : (string) ($_GET['section'] ?? 'stock');
     elseif ($taskModule === 'assets') $taskSection = (string) ($_GET['section'] ?? 'register');
     elseif ($taskModule === 'hr') $taskSection = str_contains($requestPath, '/leave') ? 'leave' : '';

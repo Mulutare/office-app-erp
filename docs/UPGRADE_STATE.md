@@ -649,3 +649,31 @@ be inspected before designing any new schema. No migration number is reserved
 until that audit establishes the actual gaps. Existing production-applied
 migrations remain immutable.
 End of baseline state.
+
+## 19. Finance accounting workspace and expense workflow (local, incomplete)
+
+Status: PARTIAL / LOCAL IMPLEMENTATION / NOT DEPLOYED. Starting HEAD `1e18e25af67c3f65fa6b72225815549e169e5939` on `main`. Repository migrations ended at 083 before this work; new migration `084_finance_expense_workflow.php` is local and has not been applied. No tests, builds or deployment were run.
+
+At this earlier local pass, read-only Finance workspaces exposed the existing Chart of Accounts, posted General Ledger lines, customer invoice AR residuals and aging, Procurement vendor bill AP residuals and aging, cash control-account movements, and posted journal-line report movements. Existing AR and AP posting/payment engines, settlement reconciliation, and accounting periods remained the sources of truth. The follow-on work in section 20 adds Staff Loans, statements and control reconciliations. See `docs/FINANCE_NEXT_UPGRADE_PLAN.md` for the current gap matrix.
+
+That pass added a local expense create/edit/submit/approve/reject/pay flow, with creator/reviewer separation and rejection history. Later reimbursement recognition and expense reversal are described in section 20. Petty cash remains limited to cash journals, and supplier invoice expenses still use Procurement/AP.
+
+Existing permissions reused: `finance.records.view` for accounting and expense reads; `finance.records.manage` for expense creation, editing and payment; `finance.requests.approve` for independent expense review. No new permission was added. Do not deploy migration 084 or describe this as a complete Finance upgrade without further review and completion of the deferred accounting work.
+
+## 20. Finance core completion pass (local, not deployed)
+
+Migration 085 adds Staff Loans & Advances as a company-scoped HR-linked subledger with loan headers, immutable installment terms, payment/allocation rows and status history. Approval generates weekly or monthly installments using zero interest or simple annual interest on declining principal. Disbursement, partial and multi-installment repayments, and full-schedule early payoff use existing balanced Finance journals and open-period validation. Staff Loans Receivable and Interest Income use company system-key control-account mappings. The Finance register and loan detail show outstanding, due, overdue, next installment, expected completion, schedule, payments and audit history. `finance.records.manage` performs creation/disbursement/repayment; `finance.requests.approve` approves independently of the creator; `finance.records.view` reads.
+
+Migration 084 remains limited to Expenses and is still unapplied. Employee reimbursement now recognizes DR Expense and optional Recoverable Tax / CR Employee Payable, then reimburses DR Employee Payable / CR Cash or Bank. Company-paid and petty cash expense payment remains direct. Paid expense reversal posts opposite entries for payment and any prior recognition, links the original batches, records actor/date/reason and prevents duplicate reversal. Posted source batches are not edited or deleted.
+
+Customer and supplier statements are read-only views of posted invoices, credits, bill reversals and allocated payments with currency-separated opening/running balances. Read-only AR, AP and Staff Loan reconciliation compares subledger totals with posted control-account lines, showing MATCHED or DIFFERENCE without adjustment. Trial Balance, Profit & Loss and Balance Sheet totals are derived from posted journal entries. Cash Flow remains PARTIAL because operating/investing/financing classification is not reliably present. Receipt uploads, expanded expense analysis, payroll deductions, loan restructuring/write-off and early-payoff interest rebate remain PARTIAL/deferred. See the updated gap matrix in `docs/FINANCE_NEXT_UPGRADE_PLAN.md`.
+
+Status: IMPLEMENTED LOCALLY / NOT DEPLOYED / RUNTIME VERIFICATION PENDING. No tests or builds were run. Migration 084 and 085 were not applied. Existing Finance, Sales and Procurement posting engines and period controls remain authoritative.
+
+### Local Finance runtime follow-up (2026-09-17)
+
+The preceding status records the earlier implementation pass. In the later local-only Docker verification, migration 084 and 085 applied successfully after confirming 083 was the latest applied local migration and the only pending files were 084 and 085. No production database was touched.
+
+Local company 2 service checks completed direct expense payment and reversal, reimbursement recognition and settlement, and a zero-interest staff loan through disbursement, partial/multiple-installment repayment and full payoff. Maker/checker, posting retries and the first-due-date rule were exercised. Trial Balance totals matched for posted ETB journal data. AR/AP full paths remain unverified because the local database has no posted customer invoice or vendor bill.
+
+Browser Finance page verification succeeded through a newly authorized local-only `finance.verify.local` user in company 2: the Finance dashboard, ten navigation destinations, customer/supplier statements, reconciliation and loan detail rendered. Local `admin` (user 2) remains a platform administrator whose existing authentication rules allow only the Default Company; Finance is not enabled there. Cash Flow classification, expense receipt upload and expanded analysis, payroll loan deductions, restructuring, write-off and early-payoff interest rebate remain PARTIAL / DEFERRED. This local follow-up does not change deployment status.

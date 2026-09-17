@@ -20,6 +20,7 @@ final class FinanceDashboardService
         'rejected' => 'Rejected',
         'paid' => 'Paid',
         'cancelled' => 'Cancelled',
+        'reversed' => 'Reversed',
     ];
 
     private const RECEIVABLE_STATUSES = [
@@ -270,7 +271,7 @@ final class FinanceDashboardService
     {
         return match ($status) {
             'approved', 'paid' => 'success',
-            'rejected', 'cancelled' => 'danger',
+            'rejected', 'cancelled', 'reversed' => 'danger',
             'submitted' => 'warning',
             default => 'muted',
         };

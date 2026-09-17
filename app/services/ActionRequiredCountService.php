@@ -412,7 +412,8 @@ SELECT
  (SELECT COUNT(*) FROM sales_settlements WHERE company_id=:c5 AND workflow_status IN('submitted','supervisor_reviewed') AND reconciliation_status='awaiting_confirmation') confirm_settlements
 SQL, ['c1'=>$companyId,'c2'=>$companyId,'c3'=>$companyId,'c4'=>$companyId,'actor'=>$userId,'c5'=>$companyId]);
         $counts['finance']['invoices'] = $can('finance.records.manage') ? $finance['invoices'] : 0;
-        $counts['finance']['expenses'] = $can('finance.requests.approve') ? $finance['expenses'] : 0;
+        $counts['finance']['expenses'] = count($this->itemsFor($companyId,$userId,$permissions,'finance','expenses'));
+        $counts['finance']['staff-loans'] = count($this->itemsFor($companyId,$userId,$permissions,'finance','staff-loans'));
         $counts['finance']['settlements'] = ($can('finance.settlements.reconcile') ? $finance['reconcile_settlements'] : 0)
             + ($can('finance.settlements.approve') ? $finance['approve_settlements'] : 0)
             + ($can('finance.bank_confirmations.create') ? $finance['confirm_settlements'] : 0);
@@ -547,7 +548,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
         return [
             'dashboard'=>['total'=>0],
             'hr'=>['leave'=>0,'total'=>0],
-            'finance'=>['receivables'=>0,'invoices'=>0,'journals'=>0,'receipts'=>0,'settlements'=>0,'expenses'=>0,'periods'=>0,'total'=>0],
+            'finance'=>['receivables'=>0,'invoices'=>0,'journals'=>0,'receipts'=>0,'settlements'=>0,'expenses'=>0,'staff-loans'=>0,'periods'=>0,'total'=>0],
             'procurement'=>['requisitions'=>0,'orders'=>0,'receipts'=>0,'bills'=>0,'payments'=>0,'returns'=>0,'total'=>0],
             'inventory'=>['stock'=>0,'movements'=>0,'receipts'=>0,'warehouses'=>0,'locations'=>0,'total'=>0],
             'assets'=>['register'=>0,'direct'=>0,'categories'=>0,'capitalization'=>0,'total'=>0],
@@ -605,8 +606,13 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
         if ($section === 'invoices' && $can('finance.records.manage')) {
             $add("SELECT invoice_id id,invoice_number reference FROM finance_invoices WHERE company_id=:company_id AND document_type='customer_invoice' AND status='draft'", $parameters, 'customer_invoice', 'Post customer invoice', 'post_customer_invoice', '/finance/customer-invoices/{id}');
             $add("SELECT invoice_id id,invoice_number reference FROM finance_invoices WHERE company_id=:company_id AND document_type='customer_invoice' AND status='posted' AND residual_amount>0", $parameters, 'customer_invoice', 'Record customer payment', 'record_customer_payment', '/finance/customer-invoices/{id}');
-        } elseif ($section === 'expenses' && $can('finance.requests.approve')) {
-            $add("SELECT expense_request_id id,CONCAT('Expense #',expense_request_id) reference FROM finance_expense_requests WHERE company_id=:company_id AND status='submitted' AND deleted_at IS NULL", $parameters, 'expense', 'Approve expense', 'approve_expense', '/finance?section=expenses');
+        } elseif ($section === 'expenses') {
+            if ($can('finance.requests.approve')) $add("SELECT expense_request_id id,request_number reference FROM finance_expense_requests WHERE company_id=:company_id AND status='submitted' AND created_by<>:user_id AND deleted_at IS NULL", $parameters, 'expense', 'Review expense', 'approve_expense', '/finance/expenses#expense-{id}');
+            if ($can('finance.records.manage')) $add("SELECT expense_request_id id,request_number reference FROM finance_expense_requests WHERE company_id=:company_id AND status='approved' AND expense_kind='reimbursement' AND recognition_batch_id IS NULL AND deleted_at IS NULL", $parameters, 'expense', 'Recognize employee payable', 'recognize_expense', '/finance/expenses#expense-{id}');
+            if ($can('finance.records.manage')) $add("SELECT expense_request_id id,request_number reference FROM finance_expense_requests WHERE company_id=:company_id AND status='approved' AND (expense_kind<>'reimbursement' OR recognition_batch_id IS NOT NULL) AND deleted_at IS NULL", $parameters, 'expense', 'Pay approved expense', 'pay_expense', '/finance/expenses#expense-{id}');
+        } elseif ($section === 'staff-loans') {
+            if ($can('finance.requests.approve')) $add("SELECT loan_id id,loan_number reference FROM finance_staff_loans WHERE company_id=:company_id AND status='submitted' AND created_by<>:user_id", $parameters, 'staff_loan', 'Review staff loan', 'approve_staff_loan', '/finance/staff-loans/{id}');
+            if ($can('finance.records.manage')) $add("SELECT loan_id id,loan_number reference FROM finance_staff_loans WHERE company_id=:company_id AND status='approved' AND approved_by<>:user_id", $parameters, 'staff_loan', 'Disburse approved staff loan', 'disburse_staff_loan', '/finance/staff-loans/{id}');
         } elseif ($section === 'settlements') {
             if ($can('finance.bank_confirmations.create')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status IN('submitted','supervisor_reviewed') AND reconciliation_status='awaiting_confirmation'", $parameters, 'settlement', 'Add bank confirmation', 'add_bank_confirmation', '/sales/settlements/{id}');
             if ($can('finance.settlements.reconcile')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='supervisor_reviewed' AND reconciliation_status IN('matched','partial','mismatch','review_required')", $parameters, 'settlement', 'Reconcile settlement', 'reconcile_settlement', '/sales/settlements/{id}');
@@ -634,7 +640,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'post_supplier_bill' => '/procurement?section=bills',
             'post_supplier_payment' => '/procurement?section=payments',
             'post_customer_invoice', 'record_customer_payment' => '/finance/customer-invoices/{id}',
-            'approve_expense' => '/finance?section=expenses',
+            'approve_expense', 'recognize_expense', 'pay_expense' => '/finance/expenses#expense-{id}',
+            'approve_staff_loan', 'disburse_staff_loan' => '/finance/staff-loans/{id}',
             'process_movement' => '/inventory?section=movements',
             'activate_asset', 'post_asset_depreciation' => '/assets-management/{id}',
             'open_asset_depreciation_period' => '/finance/accounting-periods',

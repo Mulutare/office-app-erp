@@ -39,19 +39,6 @@ final class FinanceController
             'customer' => $this->queryString('customer'),
         ];
         $allInvoices = $this->operations->customerInvoices();
-        $quickSaleEvidence = null;
-        foreach (
-            (new \App\Services\SalesQuickSaleService())->financeQueue($this->actor())
-            as $task
-        ) {
-            if (
-                (int) ($task['invoice_id'] ?? 0)
-                === (int) $invoice['invoice_id']
-            ) {
-                $quickSaleEvidence = $task;
-                break;
-            }
-        }
 
         \view('layouts.app', [
             'applicationName' => \config('name', 'OfficeApp ERP'),
