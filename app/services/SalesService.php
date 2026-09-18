@@ -526,7 +526,7 @@ final class SalesService
             'category' => $this->nullable($input['category'] ?? null),
             'product_type' => trim((string) ($input['product_type'] ?? 'telecom_product')),
             'unit_of_measure' => trim((string) ($input['unit_of_measure'] ?? 'unit')),
-            'unit_price' => $this->money($input['unit_price'] ?? 0),
+            'unit_price' => 0.0,
             'commission_rate' => $this->money($input['commission_rate'] ?? 0),
             'serial_tracking' => !empty($input['serial_tracking']) ? 1 : 0,
         ];
@@ -536,9 +536,6 @@ final class SalesService
         }
         if ($values['name'] === '' || strlen($values['name']) > 160) {
             $errors['name'] = 'Enter a product name of up to 160 characters.';
-        }
-        if ($values['unit_price'] < 0) {
-            $errors['unit_price'] = 'Unit price cannot be negative.';
         }
         if ($values['commission_rate'] < 0 || $values['commission_rate'] > 100) {
             $errors['commission_rate'] = 'Commission rate must be between 0 and 100.';
@@ -552,7 +549,7 @@ final class SalesService
 
     public function product(int $id): ?array{return $this->sales->product($this->tenant->companyId(),$id);}
     public function updateProduct(int $id,array $input,int $actorId): array
-    {$values=['sku'=>strtoupper(trim((string)($input['sku']??''))),'name'=>trim((string)($input['name']??'')),'category'=>$this->nullable($input['category']??null),'product_type'=>trim((string)($input['product_type']??'service')),'unit_of_measure'=>trim((string)($input['unit_of_measure']??'unit')),'unit_price'=>$this->money($input['unit_price']??0),'commission_rate'=>$this->money($input['commission_rate']??0),'serial_tracking'=>!empty($input['serial_tracking'])?1:0];$errors=[];if($values['sku']===''||strlen($values['sku'])>60)$errors['sku']='Enter an SKU of up to 60 characters.';if($values['name']===''||strlen($values['name'])>160)$errors['name']='Enter a product name of up to 160 characters.';if(!in_array($values['product_type'],['stockable','service','telecom_product'],true))$errors['product_type']='Select stockable or service semantics.';if($values['unit_price']<0)$errors['unit_price']='Sales price cannot be negative.';if($values['commission_rate']<0||$values['commission_rate']>100)$errors['commission_rate']='Commission rate must be between 0 and 100.';if($errors!==[])return['successful'=>false,'errors'=>$errors];try{$this->sales->updateProduct($this->tenant->companyId(),$id,$values,$actorId);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
+    {$values=['sku'=>strtoupper(trim((string)($input['sku']??''))),'name'=>trim((string)($input['name']??'')),'category'=>$this->nullable($input['category']??null),'product_type'=>trim((string)($input['product_type']??'service')),'unit_of_measure'=>trim((string)($input['unit_of_measure']??'unit')),'commission_rate'=>$this->money($input['commission_rate']??0),'serial_tracking'=>!empty($input['serial_tracking'])?1:0];$errors=[];if($values['sku']===''||strlen($values['sku'])>60)$errors['sku']='Enter an SKU of up to 60 characters.';if($values['name']===''||strlen($values['name'])>160)$errors['name']='Enter a product name of up to 160 characters.';if(!in_array($values['product_type'],['stockable','service','telecom_product'],true))$errors['product_type']='Select stockable or service semantics.';if($values['commission_rate']<0||$values['commission_rate']>100)$errors['commission_rate']='Commission rate must be between 0 and 100.';if($errors!==[])return['successful'=>false,'errors'=>$errors];try{$this->sales->updateProduct($this->tenant->companyId(),$id,$values,$actorId);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
     public function setProductActive(int $id,bool $active,int $actorId): array{try{$this->sales->setProductActive($this->tenant->companyId(),$id,$active,$actorId);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
 
     /** @param array<string, mixed> $input @return array<string, mixed> */
@@ -671,13 +668,19 @@ final class SalesService
                 continue;
             }
             $product = $products[$productId] ?? null;
-            $lineDiscount = $this->money($submittedLine['discount_amount'] ?? 0);
+            $quoted=!empty($existing['quotation_id']);
+            $pricing=$quoted ? null : (new SalesPricingService())->effective($companyId,$productId,$orderDate,strtoupper(trim((string)($input['currency']??'ETB'))));
+            $lineDiscount=$quoted ? (float)($existing['lines'][$index]['discount_amount']??0) : round((float)$pricing['discount_per_unit']*$quantity,2);
             $taxRate = $this->money($submittedLine['tax_rate'] ?? 0);
             if (!is_array($product) || empty($product['active']) || $quantity <= 0 || $lineDiscount < 0 || $taxRate < 0 || $taxRate > 100) {
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' has an invalid product, quantity, discount or tax rate.';
                 continue;
             }
-            $unitPrice = (float) (!empty($existing['quotation_id']) ? $existing['lines'][$index]['unit_price'] : $product['unit_price']);
+            $unitPrice = (float) ($quoted ? $existing['lines'][$index]['unit_price'] : $pricing['unit_price']);
+            if (!$quoted && $unitPrice <= 0) {
+                $errors['line_' . ($index + 1)] = 'This product does not have an approved selling price.';
+                continue;
+            }
             $lineSubtotal = round($quantity * $unitPrice, 2);
             if ($lineDiscount > $lineSubtotal) {
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' discount exceeds its subtotal.';
@@ -1104,12 +1107,13 @@ final class SalesService
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' quantity must be greater than zero.';
                 continue;
             }
-            $price = $this->sales->resolvePrice($companyId, $pricelistId, $productId, $quantity, $quotationDate, (float) $product['unit_price']);
+            $pricing=$this->sales->resolvePrice($companyId,$productId,$quotationDate,$currency);
+            $price=(float)$pricing['unit_price'];
             if ($price <= 0) {
-                $errors['line_' . ($index + 1)] = $this->errorReporter->report('SAL-QUO-001',null,['entity_type'=>'quotation','product_id'=>$productId,'pricelist_id'=>$pricelistId]);
+                $errors['line_' . ($index + 1)] = 'This product does not have an approved selling price.';
                 continue;
             }
-            $discount = $this->money($submitted['discount_amount'] ?? 0);
+            $discount = round((float)$pricing['discount_per_unit'] * $quantity,2);
             $taxRate = $this->money($submitted['tax_rate'] ?? 0);
             $gross = round($quantity * $price, 2);
             if ($discount < 0 || $discount > $gross || $taxRate < 0 || $taxRate > 100) {

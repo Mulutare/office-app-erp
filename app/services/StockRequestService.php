@@ -108,6 +108,9 @@ final class StockRequestService
                 $request['lines'] = $this->requestLines($companyId, $requestId);
                 $request['allocations'] = $this->requestAllocations($companyId, $requestId);
                 $request['procurements'] = $this->requestProcurements($companyId, $requestId);
+                $events=\db()->prepare('SELECT event_type,from_status,to_status,previous_values_json,new_values_json,reason,actor_id,occurred_at FROM inventory_stock_request_events WHERE company_id=? AND request_id=? ORDER BY occurred_at,request_event_id');
+                $events->execute([$companyId,$requestId]);
+                $request['events']=$events->fetchAll(PDO::FETCH_ASSOC);
             }
         }
 
@@ -187,8 +190,9 @@ final class StockRequestService
             ? $employeeRole
             : $managerRole;
         $lines = $this->normalizeRequestInputLines($input);
-        if ($lines === []) throw new RuntimeException('Add at least one product with a positive requested quantity.');
+        if ($lines === [] || max($lines) < 1) throw new RuntimeException('Add at least one product quantity before submitting.');
         $this->assertRequestableProducts($companyId, array_keys($lines));
+        $this->assertDiscreteRequestQuantities($companyId, $lines);
         $notes = trim((string) ($input['notes'] ?? '')) ?: null;
 
         $requestKind = 'employee_issue';
@@ -282,6 +286,7 @@ final class StockRequestService
                     'notes' => null,
                 ]);
             }
+            $this->recordRequestEvent($connection,$companyId,$requestId,'submitted',null,'pending_review',null,null,['lines'=>$lines,'notes'=>$notes],$actorId);
 
             if ($requestKind === 'manager_replenishment' && $role === 'regional') {
                 $remaining = [];
@@ -329,6 +334,7 @@ final class StockRequestService
             }
             $serving = $this->authorityById($companyId, (int) $request['serving_authority_id'], true);
             if (!is_array($serving)) throw new RuntimeException('The serving stock authority is no longer active.');
+            $this->recordRequestEvent($connection,$companyId,$requestId,'reviewed',$requestStatus,$requestStatus,null,['lines'=>$this->requestLines($companyId,$requestId)],null,$actorId);
 
             if (($request['request_kind']??'employee_issue')==='employee_issue' && (int)$authority['authority_id']!==(int)$serving['authority_id']) {
                 // Finish already reserved 080 onward transfers without creating a new
@@ -1703,7 +1709,7 @@ final class StockRequestService
         foreach ($pairs as [$productRaw, $quantityRaw]) {
             if (
                 ($productRaw === null || $productRaw === '')
-                && ($quantityRaw === null || $quantityRaw === '')
+                && ($quantityRaw === null || $quantityRaw === '' || (is_scalar($quantityRaw) && is_numeric($quantityRaw) && (float) $quantityRaw === 0.0))
             ) {
                 continue;
             }
@@ -1720,16 +1726,16 @@ final class StockRequestService
             }
 
             $productId = (int) $productRaw;
-            $quantity = round((float) $quantityRaw, 3);
+            $rawQuantity=(float)$quantityRaw;
+            $quantity = round($rawQuantity, 3);
 
-            if (
-                $productId < 1
-                || $quantity <= 0
-                || $quantity > 999999999999.999
-            ) {
+            if ($productId < 1 || !is_finite($rawQuantity) || $rawQuantity < 0 || $rawQuantity > 999999999999.999 || abs($rawQuantity-$quantity)>0.0000001) {
                 throw new RuntimeException(
-                    'Select a product and enter a valid positive quantity.'
+                    'Select a product and enter a valid non-negative quantity.'
                 );
+            }
+            if ($quantity === 0.0) {
+                continue;
             }
 
             /*
@@ -1740,6 +1746,7 @@ final class StockRequestService
                 ($result[$productId] ?? 0.0) + $quantity,
                 3
             );
+            if($result[$productId]>999999999999.999)throw new RuntimeException('Requested quantity is too large.');
         }
 
         if (count($result) > 20) {
@@ -1749,6 +1756,83 @@ final class StockRequestService
         }
 
         return $result;
+    }
+
+    public function rejectRequest(int $requestId, string $reason, int $actorId): void
+    {
+        $companyId=$this->tenant->companyId();
+        if (!(new ModuleRoleService())->permissionAllowed($companyId,$actorId,'inventory.stock_requests.process')) throw new RuntimeException('Stock request review is not permitted.');
+        $reason=trim($reason);
+        if ($reason==='' || mb_strlen($reason)>1000) throw new RuntimeException('Enter a rejection reason of up to 1000 characters.');
+        $connection=\db();$connection->beginTransaction();
+        try {
+            $request=$this->requestForUpdate($connection,$companyId,$requestId);
+            if ($request['status']!=='pending_review' || $request['request_kind']!=='employee_issue' || (int)$request['current_handler_user_id']!==$actorId) throw new RuntimeException('Only the assigned Shop Manager may reject an unprocessed DSA/DSP request.');
+            $this->assertRequestHasNoExecution($connection,$companyId,$requestId);
+            $before=['lines'=>$this->requestLines($companyId,$requestId),'notes'=>$request['notes']];
+            $connection->prepare("UPDATE inventory_stock_requests SET status='rejected',rejected_by=?,rejected_at=NOW(),rejection_reason=? WHERE company_id=? AND request_id=?")->execute([$actorId,$reason,$companyId,$requestId]);
+            $this->recordRequestEvent($connection,$companyId,$requestId,'rejected','pending_review','rejected',$reason,$before,null,$actorId);
+            (new UserNotificationService($connection))->notify($companyId,(int)$request['requester_user_id'],'stock_request.rejected','Stock request needs correction',$reason,'stock_request',$requestId,'/inventory/stock-requests/'.$requestId,'stock-request:'.$requestId.':rejected');
+            $connection->commit();
+        } catch (Throwable $e) { if($connection->inTransaction())$connection->rollBack();throw $e; }
+    }
+
+    public function resubmitRejectedRequest(int $requestId, array $input, int $actorId): void
+    {
+        $companyId=$this->tenant->companyId();
+        if (!(new ModuleRoleService())->permissionAllowed($companyId,$actorId,'inventory.stock_requests.create')) throw new RuntimeException('Stock request creation is not permitted.');
+        $lines=$this->normalizeRequestInputLines($input);
+        if ($lines===[] || max($lines)<1) throw new RuntimeException('Add at least one product quantity before submitting.');
+        $this->assertRequestableProducts($companyId,array_keys($lines));
+        $this->assertDiscreteRequestQuantities($companyId,$lines);
+        $notes=trim((string)($input['notes']??'')) ?: null;
+        $connection=\db();$connection->beginTransaction();
+        try {
+            $request=$this->requestForUpdate($connection,$companyId,$requestId);
+            if ($request['status']!=='rejected' || $request['request_kind']!=='employee_issue' || (int)$request['requester_user_id']!==$actorId) throw new RuntimeException('Only the original DSA/DSP requester may correct this rejected request.');
+            $this->assertRequestHasNoExecution($connection,$companyId,$requestId);
+            $before=['lines'=>$this->requestLines($companyId,$requestId),'notes'=>$request['notes'],'rejection_reason'=>$request['rejection_reason']];
+            $connection->prepare('DELETE FROM inventory_stock_request_lines WHERE company_id=? AND request_id=?')->execute([$companyId,$requestId]);
+            $insert=$connection->prepare('INSERT INTO inventory_stock_request_lines(company_id,request_id,product_id,requested_quantity,notes) VALUES(?,?,?,?,NULL)');
+            foreach($lines as $productId=>$quantity)$insert->execute([$companyId,$requestId,$productId,$quantity]);
+            $connection->prepare("UPDATE inventory_stock_requests SET status='pending_review',notes=?,requested_at=NOW(),rejected_by=NULL,rejected_at=NULL,rejection_reason=NULL WHERE company_id=? AND request_id=?")->execute([$notes,$companyId,$requestId]);
+            $this->recordRequestEvent($connection,$companyId,$requestId,'corrected_resubmitted','rejected','pending_review',null,$before,['lines'=>$lines,'notes'=>$notes],$actorId);
+            $this->notifyCurrentHandler($connection,$companyId,$requestId,'resubmitted');
+            $connection->commit();
+        } catch (Throwable $e) { if($connection->inTransaction())$connection->rollBack();throw $e; }
+    }
+
+    private function assertRequestHasNoExecution(PDO $connection,int $companyId,int $requestId): void
+    {
+        foreach(['inventory_stock_request_allocations','inventory_stock_request_procurements'] as $table){
+            $statement=$connection->prepare("SELECT COUNT(*) FROM $table WHERE company_id=? AND request_id=?");
+            $statement->execute([$companyId,$requestId]);
+            if((int)$statement->fetchColumn()>0)throw new RuntimeException('This request already has stock or procurement execution and cannot be corrected.');
+        }
+    }
+
+    private function recordRequestEvent(PDO $connection,int $companyId,int $requestId,string $eventType,?string $fromStatus,string $toStatus,?string $reason,?array $before,?array $after,int $actorId): void
+    {
+        $connection->prepare('INSERT INTO inventory_stock_request_events(company_id,request_id,event_type,from_status,to_status,previous_values_json,new_values_json,reason,actor_id,occurred_at) VALUES(?,?,?,?,?,?,?,?,?,NOW())')
+            ->execute([$companyId,$requestId,$eventType,$fromStatus,$toStatus,$before===null?null:json_encode($before,JSON_THROW_ON_ERROR),$after===null?null:json_encode($after,JSON_THROW_ON_ERROR),$reason,$actorId]);
+    }
+
+    /** @param array<int,float> $lines */
+    private function assertDiscreteRequestQuantities(int $companyId, array $lines): void
+    {
+        if ($lines === []) return;
+        $ids = array_keys($lines);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $statement = \db()->prepare("SELECT product_id,unit_of_measure,serial_tracking FROM sales_products WHERE company_id=? AND product_id IN ($placeholders)");
+        $statement->execute(array_merge([$companyId], $ids));
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $product) {
+            $unit = strtolower(trim((string) ($product['unit_of_measure'] ?? '')));
+            $discrete = (bool) $product['serial_tracking'] || in_array($unit, ['unit','units','each','piece','pieces','pcs','pc'], true);
+            $quantity = $lines[(int) $product['product_id']];
+            if ($discrete && ($quantity < 1 || floor($quantity) !== $quantity)) {
+                throw new RuntimeException('Discrete products require a whole-number quantity of at least 1.');
+            }
+        }
     }
 
     /**

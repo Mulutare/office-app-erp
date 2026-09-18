@@ -385,7 +385,7 @@ public function showQuickSale(string $id): void
             }
 
             /*
-             * Intentionally accept ONLY product and quantity.
+             * Only SKU, quantity and classification selectors reach the service.
              * Agent/team/customer/pricelist/warehouse/tax/discount
              * are never trusted from the DSA/DSP request.
              */
@@ -394,6 +394,10 @@ public function showQuickSale(string $id): void
                     $this->scalar($line['product_id'] ?? ''),
                 'quantity' =>
                     $this->scalar($line['quantity'] ?? ''),
+                'product_family' => $this->scalar($line['product_family'] ?? ''),
+                'mifi_subtype' => $this->scalar($line['mifi_subtype'] ?? ''),
+                'brand_id' => $this->scalar($line['brand_id'] ?? ''),
+                'model_id' => $this->scalar($line['model_id'] ?? ''),
             ];
         }
 
@@ -616,12 +620,12 @@ public function showQuickSale(string $id): void
         $this->requireCsrf('product');
         $input = $this->input([
             'sku', 'name', 'category', 'product_type', 'unit_of_measure',
-            'unit_price', 'commission_rate',
+            'commission_rate',
         ]) + ['serial_tracking' => isset($_POST['serial_tracking'])];
         $this->finish($this->sales->createProduct($input, $this->actorId()), 'product', 'Product created successfully.', $input);
     }
 
-    public function updateProduct(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('product');$input=$this->input(['sku','name','category','product_type','unit_of_measure','unit_price','commission_rate'])+['serial_tracking'=>isset($_POST['serial_tracking'])];$result=$this->sales->updateProduct((int)$id,$input,$this->actorId());$this->finishTo($result,'product','Product saved.',$input,'/sales/products/'.(int)$id,'/sales/products/'.(int)$id);}
+    public function updateProduct(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('product');$input=$this->input(['sku','name','category','product_type','unit_of_measure','commission_rate'])+['serial_tracking'=>isset($_POST['serial_tracking'])];$result=$this->sales->updateProduct((int)$id,$input,$this->actorId());$this->finishTo($result,'product','Product saved.',$input,'/sales/products/'.(int)$id,'/sales/products/'.(int)$id);}
     public function toggleProduct(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('product');$result=$this->sales->setProductActive((int)$id,\postString('active')==='1',$this->actorId());$this->finishTo($result,'product','Product status updated.',[],'/sales/products/'.(int)$id,'/sales/products/'.(int)$id);}
 
     public function resubmitOrder(string $id): void

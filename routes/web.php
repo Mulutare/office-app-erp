@@ -30,6 +30,10 @@ use App\Controllers\WarehouseController;
 use App\Controllers\WarehouseLocationController;
 use App\Controllers\SalesController;
 use App\Controllers\SalesReportController;
+use App\Controllers\SalesPricingController;
+use App\Controllers\SalesProductVariantController;
+use App\Controllers\SalesIncentiveController;
+use App\Controllers\SalesStockHistoryController;
 use App\Controllers\SalesSettlementController;
 use App\Controllers\CommercialDocumentController;
 use App\Controllers\IntegrationEventController;
@@ -90,6 +94,10 @@ $warehouseLocationController =
     new WarehouseLocationController();
 $salesController = new SalesController();
 $salesReportController = new SalesReportController();
+$salesPricingController = new SalesPricingController();
+$salesProductVariantController = new SalesProductVariantController();
+$salesIncentiveController = new SalesIncentiveController();
+$salesStockHistoryController = new SalesStockHistoryController();
 $salesSettlementController = new SalesSettlementController();
 $commercialDocumentController = new CommercialDocumentController();
 $integrationEventController = new IntegrationEventController();
@@ -291,11 +299,14 @@ $router->get(
     [$inventoryController, 'index']
 );
 $router->get('/inventory/stock-requests',[$stockRequestController,'index']);
+$router->get('/inventory/stock-daily-history',[$salesStockHistoryController,'index']);
 $router->get('/inventory/stock-requests/{id}',[$stockRequestController,'show']);
 $router->post('/inventory/stock-requests',[$stockRequestController,'create']);
 $router->post('/inventory/stock-requests/{id}/peer-proposals',[$stockRequestController,'proposePeer']);
 $router->post('/inventory/peer-proposals/{id}/decision',[$stockRequestController,'decidePeer']);
 $router->post('/inventory/stock-requests/{id}/process',[$stockRequestController,'process']);
+$router->post('/inventory/stock-requests/{id}/reject',[$stockRequestController,'reject']);
+$router->post('/inventory/stock-requests/{id}/resubmit',[$stockRequestController,'resubmit']);
 $router->post('/inventory/stock-requests/{id}/issue',[$stockRequestController,'issue']);
 $router->post('/inventory/stock-requests/{id}/receive',[$stockRequestController,'receive']);
 $router->post('/inventory/stock-requests/authorities',[$stockRequestController,'saveAuthority']);
@@ -396,6 +407,19 @@ $router->get('/sales/products/{id}', [$salesController, 'showProduct']);
 $router->get('/sales/quotations', [$salesController, 'quotations']);
 $router->get('/sales/quick-sale', [$salesController, 'quickSale']);
 $router->get('/sales/dsa-dsp-report', [$salesReportController, 'index']);
+$router->get('/sales/pricing', [$salesPricingController, 'index']);
+$router->post('/sales/pricing', [$salesPricingController, 'submit']);
+$router->post('/sales/pricing/{id}/decision', [$salesPricingController, 'decide']);
+$router->get('/sales/product-variants', [$salesProductVariantController, 'index']);
+$router->post('/sales/product-variants/brands', [$salesProductVariantController, 'brand']);
+$router->post('/sales/product-variants/models', [$salesProductVariantController, 'model']);
+$router->post('/sales/product-variants/assign', [$salesProductVariantController, 'assign']);
+$router->get('/sales/incentives', [$salesIncentiveController, 'index']);
+$router->get('/sales/incentives/{id}', [$salesIncentiveController, 'show']);
+$router->post('/sales/incentives/floats', [$salesIncentiveController, 'issueFloat']);
+$router->post('/sales/incentives/claims', [$salesIncentiveController, 'submit']);
+$router->post('/sales/incentives/{id}/decision', [$salesIncentiveController, 'decide']);
+$router->post('/sales/incentives/{id}/settlements', [$salesIncentiveController, 'settle']);
 $router->post('/sales/quick-sale', [$salesController, 'storeQuickSale']);
 $router->post(
     '/sales/quick-sale/{id}/reports/{reportId}/confirm',

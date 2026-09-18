@@ -27,6 +27,70 @@
                 lines.querySelectorAll('[data-quick-line]')
             );
 
+        const productSelect = (row) => row.querySelector('[name$="[product_id]"], [data-field="product_id"]');
+        const field = (row, key) => row.querySelector(`[data-variant-${key}]`);
+        const options = (row) => Array.from(productSelect(row)?.options || []).filter((option) => option.value);
+        const unique = (values) => [...new Map(values.map(([id, label]) => [id, label])).entries()];
+        const setOptions = (select, values, placeholder) => {
+            const selected = select.value;
+            select.replaceChildren(new Option(placeholder, ''));
+            values.forEach(([value, label]) => select.add(new Option(label, value)));
+            select.value = values.some(([value]) => value === selected) ? selected : '';
+        };
+        const selectedSku = (row) => productSelect(row)?.selectedOptions?.[0];
+        const refreshPreview = (row) => {
+            const option = selectedSku(row);
+            const quantity = Number(row.querySelector('input[type="number"]')?.value || 0);
+            const unit = Number(option?.dataset.price || 0);
+            const discountUnit = Number(option?.dataset.discount || 0);
+            const put = (selector, value) => { const node = row.querySelector(selector); if (node) node.textContent = value; };
+            put('[data-quick-unit]', option?.value ? unit.toFixed(2) : '—');
+            put('[data-quick-discount-unit]', option?.value ? discountUnit.toFixed(2) : '—');
+            put('[data-quick-available]', option?.value ? (option.dataset.available || '0') : '—');
+            put('[data-quick-gross]', option?.value ? (unit * quantity).toFixed(2) : '—');
+            put('[data-quick-discount-total]', option?.value ? (discountUnit * quantity).toFixed(2) : '—');
+            put('[data-quick-net]', option?.value ? ((unit - discountUnit) * quantity).toFixed(2) : '—');
+        };
+        const refreshVariants = (row, changed = '') => {
+            const family = field(row, 'family'); const subtype = field(row, 'subtype');
+            const brand = field(row, 'brand'); const model = field(row, 'model'); const sku = productSelect(row);
+            if (!family || !subtype || !brand || !model || !sku) return;
+            if (changed === 'family') { subtype.value = ''; brand.value = ''; model.value = ''; sku.value = ''; }
+            if (changed === 'subtype') { brand.value = ''; model.value = ''; sku.value = ''; }
+            if (changed === 'brand') { model.value = ''; sku.value = ''; }
+            if (changed === 'model') sku.value = '';
+            subtype.disabled = family.value !== 'mifi';
+            const eligible = options(row).filter((option) => option.dataset.activeModel === '1'
+                && option.dataset.family === family.value
+                && (family.value !== 'mifi' || option.dataset.subtype === subtype.value));
+            setOptions(brand, unique(eligible.map((option) => [option.dataset.brandId, option.dataset.brandName])), 'Select brand');
+            setOptions(model, unique(eligible.filter((option) => option.dataset.brandId === brand.value).map((option) => [option.dataset.modelId, option.dataset.modelName])), 'Select model');
+            options(row).forEach((option) => {
+                const visible = family.value === '' ? !option.dataset.modelId
+                    : option.dataset.activeModel === '1' && option.dataset.family === family.value
+                        && (family.value !== 'mifi' || option.dataset.subtype === subtype.value)
+                        && option.dataset.brandId === brand.value && option.dataset.modelId === model.value;
+                option.disabled = !visible;
+                option.hidden = !visible;
+            });
+            if (sku.selectedOptions[0]?.disabled) sku.value = '';
+            refreshPreview(row);
+        };
+        const initialiseVariants = (row) => {
+            const selected = selectedSku(row);
+            if (selected?.value && selected.dataset.modelId) {
+                field(row, 'family').value = selected.dataset.family;
+                field(row, 'subtype').value = selected.dataset.subtype;
+                refreshVariants(row);
+                field(row, 'brand').value = selected.dataset.brandId;
+                refreshVariants(row);
+                field(row, 'model').value = selected.dataset.modelId;
+                refreshVariants(row);
+                productSelect(row).value = selected.value;
+            }
+            refreshVariants(row);
+        };
+
         const reindex = () => {
             rows().forEach((row, index) => {
                 row.querySelectorAll('[name], [data-field]')
@@ -56,7 +120,7 @@
         };
 
         const resetRow = (row) => {
-            const product = row.querySelector('select');
+            const product = productSelect(row);
             const quantity = row.querySelector(
                 'input[type="number"]'
             );
@@ -64,10 +128,12 @@
             if (product) {
                 product.value = '';
             }
+            ['family','subtype','brand','model'].forEach((key) => { const select = field(row,key); if (select) select.value = ''; });
 
             if (quantity) {
                 quantity.value = '1';
             }
+            refreshVariants(row, 'family');
         };
 
         if (add) {
@@ -81,11 +147,9 @@
 
                 lines.appendChild(fragment);
                 reindex();
-
                 const newRows = rows();
-                const product =
-                    newRows[newRows.length - 1]
-                        ?.querySelector('select');
+                initialiseVariants(newRows[newRows.length - 1]);
+                const product = productSelect(newRows[newRows.length - 1]);
 
                 product?.focus();
             });
@@ -119,7 +183,21 @@
             reindex();
         });
 
+        lines.addEventListener('change', (event) => {
+            const row = event.target.closest?.('[data-quick-line]');
+            if (!row) return;
+            for (const key of ['family','subtype','brand','model']) {
+                if (event.target === field(row,key)) { refreshVariants(row,key); return; }
+            }
+            if (event.target === productSelect(row)) refreshPreview(row);
+        });
+        lines.addEventListener('input', (event) => {
+            const row = event.target.closest?.('[data-quick-line]');
+            if (row && event.target.matches('input[type="number"]')) refreshPreview(row);
+        });
+
         reindex();
+        rows().forEach(initialiseVariants);
     };
 
     if (document.readyState === 'loading') {

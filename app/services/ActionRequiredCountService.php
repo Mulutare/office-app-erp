@@ -60,6 +60,17 @@ final class ActionRequiredCountService
         };
         $parameters = ['company_id' => $companyId, 'user_id' => $userId];
 
+        if ($module==='sales' && $section==='pricing' && $can('sales.pricing.approve')) {
+            $add("SELECT price_change_id id,CONCAT('SKU ',product_id,' · ',currency) reference FROM sales_product_price_changes WHERE company_id=:company_id AND status='submitted' AND requested_by<>:user_id",$parameters,'price_change','Approve SKU price and exact discount','approve_sales_price','/sales/pricing');
+        }
+        if ($module==='sales' && $section==='incentives' && $can('sales.incentive.approve')) {
+            $add("SELECT incentive_claim_id id,CONCAT('Safaricom #',incentive_claim_id) reference FROM sales_incentive_claims WHERE company_id=:company_id AND responsible_manager_id=:user_id AND status='submitted' AND submitted_by<>:user_id",$parameters,'incentive_claim','Review DSA/DSP incentive','approve_incentive','/sales/incentives/{id}');
+        }
+
+        if ($module==='inventory' && $section==='stock_requests' && $can('inventory.stock_requests.view') && $can('inventory.stock_requests.create')) {
+            $add("SELECT r.request_id id,r.request_number reference FROM inventory_stock_requests r WHERE r.company_id=:company_id AND r.requester_user_id=:user_id AND r.status='rejected'",$parameters,'stock_request','Correct and resubmit rejected stock request','correct_stock_request','/inventory/stock-requests/{id}');
+        }
+
         if ($module==='inventory' && $section==='stock_requests' && $can('inventory.stock_requests.view') && $can('inventory.stock_requests.process')) {
             $add("SELECT r.request_id id,r.request_number reference FROM inventory_stock_requests r JOIN inventory_stock_authorities a ON a.company_id=r.company_id AND a.user_id=r.current_handler_user_id AND a.active=TRUE WHERE r.company_id=:company_id AND r.current_handler_user_id=:user_id AND r.status='pending_review'",$parameters,'stock_request','Stock request awaiting allocation decision','decide_stock_request','/inventory/stock-requests/{id}');
             $add("SELECT p.proposal_id id,p.proposal_number reference FROM inventory_peer_proposals p JOIN inventory_stock_authorities a ON a.company_id=p.company_id AND a.authority_id=p.source_authority_id AND a.active=TRUE AND a.user_id=p.source_owner_user_id WHERE p.company_id=:company_id AND p.source_owner_user_id=:user_id AND p.state='proposed'",$parameters,'peer_proposal','Peer stock transfer approval required','decide_peer','/inventory/stock-requests');
@@ -499,7 +510,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             );
         }
 
-        foreach (['sales'=>['quick_sale','orders','quotations','deliveries','settlements'], 'inventory'=>['receipts','transfers','stock_requests']] as $moduleCode=>$sections) {
+        foreach (['sales'=>['quick_sale','orders','quotations','pricing','incentives','deliveries','settlements'], 'inventory'=>['receipts','transfers','stock_requests']] as $moduleCode=>$sections) {
             foreach ($sections as $section) $counts[$moduleCode][$section]=count($this->itemsFor($companyId,$userId,$permissions,$moduleCode,$section));
         }
         if($can('procurement.requisitions.create')) {
@@ -552,7 +563,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'procurement'=>['requisitions'=>0,'orders'=>0,'receipts'=>0,'bills'=>0,'payments'=>0,'returns'=>0,'total'=>0],
             'inventory'=>['stock'=>0,'movements'=>0,'receipts'=>0,'warehouses'=>0,'locations'=>0,'total'=>0],
             'assets'=>['register'=>0,'direct'=>0,'categories'=>0,'capitalization'=>0,'total'=>0],
-            'sales'=>['quick_sale'=>0,'orders'=>0,'quotations'=>0,'customers'=>0,'products'=>0,'pricelists'=>0,'teams'=>0,'deliveries'=>0,'settlements'=>0,'total'=>0],
+            'sales'=>['quick_sale'=>0,'orders'=>0,'quotations'=>0,'customers'=>0,'products'=>0,'pricing'=>0,'incentives'=>0,'pricelists'=>0,'teams'=>0,'deliveries'=>0,'settlements'=>0,'total'=>0],
             'analytics'=>['total'=>0],
             'attendance'=>['total'=>0],
             'administration'=>['integration_events'=>0,'total'=>0],
@@ -634,6 +645,9 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'create_purchase_order' => '/procurement?section=orders',
             'submit_purchase_order', 'approve_purchase_order', 'confirm_purchase_order', 'close_purchase_order', 'create_supplier_bill', 'create_receipt' => '/procurement/{id}',
             'decide_stock_request' => '/inventory/stock-requests/{id}',
+            'correct_stock_request' => '/inventory/stock-requests/{id}',
+            'approve_sales_price' => '/sales/pricing',
+            'approve_incentive' => '/sales/incentives/{id}',
             'decide_peer' => '/inventory/stock-requests',
             'approve_transfer', 'dispatch_transfer', 'receive_transfer' => '/inventory/transfers/{id}',
             'approve_receipt', 'post_receipt' => '/inventory/receipts/{id}',

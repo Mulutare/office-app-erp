@@ -60,6 +60,16 @@ $productOptions = static function (
         );
 
         echo '<option value="' . e($id) . '"'
+            . ' data-family="' . e((string)($product['product_family']??'')) . '"'
+            . ' data-subtype="' . e((string)($product['mifi_subtype']??'')) . '"'
+            . ' data-brand-id="' . e((string)($product['brand_id']??'')) . '"'
+            . ' data-brand-name="' . e((string)($product['brand_name']??'')) . '"'
+            . ' data-model-id="' . e((string)($product['model_id']??'')) . '"'
+            . ' data-model-name="' . e((string)($product['model_name']??'')) . '"'
+            . ' data-active-model="' . (!empty($product['model_active'])&&!empty($product['brand_active'])?'1':'0') . '"'
+            . ' data-price="' . e((string)($product['display_price']??$product['unit_price']??0)) . '"'
+            . ' data-discount="' . e((string)($product['display_discount']??0)) . '"'
+            . ' data-available="' . e((string)($product['available_quantity']??0)) . '"'
             . ($id === $selected ? ' selected' : '')
             . '>'
             . e($label)
@@ -269,6 +279,10 @@ $productOptions = static function (
                             class="quick-sale-item"
                             data-quick-line
                         >
+                            <div class="form-field"><label>Type</label><select name="lines[<?=e($index)?>][product_family]" data-variant-family><option value="">Legacy / Other</option><option value="mobile">Mobile</option><option value="mifi">MiFi</option></select></div>
+                            <div class="form-field"><label>MiFi subtype</label><select name="lines[<?=e($index)?>][mifi_subtype]" data-variant-subtype><option value="">Select type first</option><option value="portable">Portable</option><option value="non_portable">Non-Portable</option></select></div>
+                            <div class="form-field"><label>Brand</label><select name="lines[<?=e($index)?>][brand_id]" data-variant-brand><option value="">Select type first</option></select></div>
+                            <div class="form-field"><label>Model</label><select name="lines[<?=e($index)?>][model_id]" data-variant-model><option value="">Select brand first</option></select></div>
                             <div class="form-field">
                                 <label>Product</label>
                                 <select
@@ -304,7 +318,8 @@ $productOptions = static function (
                             </div>
 
                             <div class="quick-sale-price-note">
-                                Price: <strong>Automatic</strong>
+                                Unit: <strong data-quick-unit>—</strong> · Discount/unit: <strong data-quick-discount-unit>—</strong> · Available: <strong data-quick-available>—</strong><br>
+                                Gross: <strong data-quick-gross>—</strong> · Discount: <strong data-quick-discount-total>—</strong> · Net: <strong data-quick-net>—</strong>
                                 <small>
                                     Final <?= e($currency) ?> price is
                                     recalculated by the server.
@@ -324,6 +339,10 @@ $productOptions = static function (
 
                 <template data-quick-template>
                     <div class="quick-sale-item" data-quick-line>
+                        <div class="form-field"><label>Type</label><select data-field="product_family" data-variant-family><option value="">Legacy / Other</option><option value="mobile">Mobile</option><option value="mifi">MiFi</option></select></div>
+                        <div class="form-field"><label>MiFi subtype</label><select data-field="mifi_subtype" data-variant-subtype><option value="">Select type first</option><option value="portable">Portable</option><option value="non_portable">Non-Portable</option></select></div>
+                        <div class="form-field"><label>Brand</label><select data-field="brand_id" data-variant-brand><option value="">Select type first</option></select></div>
+                        <div class="form-field"><label>Model</label><select data-field="model_id" data-variant-model><option value="">Select brand first</option></select></div>
                         <div class="form-field">
                             <label>Product</label>
                             <select data-field="product_id" required>
@@ -345,7 +364,8 @@ $productOptions = static function (
                         </div>
 
                         <div class="quick-sale-price-note">
-                            Price: <strong>Automatic</strong>
+                            Unit: <strong data-quick-unit>—</strong> · Discount/unit: <strong data-quick-discount-unit>—</strong> · Available: <strong data-quick-available>—</strong><br>
+                            Gross: <strong data-quick-gross>—</strong> · Discount: <strong data-quick-discount-total>—</strong> · Net: <strong data-quick-net>—</strong>
                             <small>
                                 Final <?= e($currency) ?> price is
                                 recalculated by the server.

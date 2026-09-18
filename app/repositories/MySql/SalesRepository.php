@@ -119,6 +119,10 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         $creditedReturns->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
         $order['credit_note_eligible_quantity']=max(0.0,$returned-(float)$creditedReturns->fetchColumn());
         $net=max(0,$delivered-$returned);$order['delivery_state']=$delivered<=0?'not_delivered':($delivered<$ordered?'partially_delivered':'delivered');$order['invoice_state']=$invoiced<=0?($net>0?'to_invoice':'nothing_to_invoice'):($invoiced<$net?'partially_invoiced':'invoiced');$salesInvoices=array_values(array_filter($order['invoices'],static fn(array $i):bool=>($i['document_type']??'customer_invoice')==='customer_invoice'));$residual=array_sum(array_map(static fn(array $i)=>(float)$i['residual_amount'],$salesInvoices));$invoiceTotal=array_sum(array_map(static fn(array $i)=>(float)$i['total_amount'],$salesInvoices));$order['payment_state']=$invoiceTotal<=0||$residual===$invoiceTotal?'unpaid':($residual>0?'partially_paid':'paid');
+        $revisions=$this->connection()->prepare('SELECT * FROM sales_order_revisions WHERE company_id=? AND order_id=? ORDER BY revision_number');$revisions->execute([$companyId,$orderId]);
+        $order['revisions']=$revisions->fetchAll(PDO::FETCH_ASSOC);
+        $revisionLines=$this->connection()->prepare('SELECT * FROM sales_order_revision_lines WHERE company_id=? AND revision_id=? ORDER BY revision_line_id');
+        foreach($order['revisions'] as &$revision){$revisionLines->execute([$companyId,$revision['revision_id']]);$revision['lines']=$revisionLines->fetchAll(PDO::FETCH_ASSOC);}unset($revision);
         return $order;
     }
 
@@ -140,8 +144,8 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
     public function products(int $companyId): array
     {
         return $this->catalogue(
-            'SELECT product_id, sku, name, category, product_type, unit_of_measure, unit_price, commission_rate, serial_tracking,active
-             FROM sales_products WHERE company_id = :company_id AND deleted_at IS NULL ORDER BY active DESC,name',
+            'SELECT p.product_id,p.sku,p.name,p.category,p.product_type,p.unit_of_measure,p.unit_price,p.commission_rate,p.serial_tracking,p.active,p.model_id,m.brand_id,m.product_family,m.mifi_subtype,m.model_name,b.name brand_name,m.active model_active,b.active brand_active
+             FROM sales_products p LEFT JOIN sales_product_models m ON m.company_id=p.company_id AND m.model_id=p.model_id LEFT JOIN sales_product_brands b ON b.company_id=m.company_id AND b.brand_id=m.brand_id WHERE p.company_id = :company_id AND p.deleted_at IS NULL ORDER BY p.active DESC,p.name',
             $companyId
         );
     }
@@ -223,56 +227,11 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
     public function setPricelistActive(int $companyId,int $pricelistId,bool $active): void
     {$s=$this->connection()->prepare('UPDATE sales_pricelists SET active=:active WHERE company_id=:company_id AND pricelist_id=:id');$s->execute(['active'=>$active?1:0,'company_id'=>$companyId,'id'=>$pricelistId]);if($s->rowCount()===0&&$this->pricelist($companyId,$pricelistId)===null)throw new RuntimeException('Pricelist was not found.');}
 
-    public function resolvePrice(int $companyId, ?int $pricelistId, int $productId, float $quantity, string $date, float $basePrice): float
+    public function resolvePrice(int $companyId, int $productId, string $date, string $currency): array
     {
-        if ($pricelistId === null) {
-            return round($basePrice, 2);
-        }
-
-        $statement = $this->connection()->prepare(
-            'SELECT r.calculation, r.fixed_price, r.percentage_adjustment
-             FROM sales_pricelist_rules r
-             INNER JOIN sales_pricelists p
-                ON p.company_id = r.company_id AND p.pricelist_id = r.pricelist_id
-             INNER JOIN sales_products product
-                ON product.company_id = r.company_id AND product.product_id = :product_id
-             WHERE r.company_id = :company_id
-               AND r.pricelist_id = :pricelist_id
-               AND p.active = TRUE AND r.active = TRUE
-               AND r.minimum_quantity <= :quantity
-               AND (r.product_id = :exact_product_id OR (r.product_id IS NULL AND (r.category IS NULL OR r.category = product.category)))
-               AND (p.valid_from IS NULL OR p.valid_from <= :price_date)
-               AND (p.valid_to IS NULL OR p.valid_to >= :price_date_to)
-               AND (r.valid_from IS NULL OR r.valid_from <= :rule_date)
-               AND (r.valid_to IS NULL OR r.valid_to >= :rule_date_to)
-             ORDER BY (r.product_id IS NOT NULL) DESC,
-                      (r.category IS NOT NULL) DESC,
-                      r.minimum_quantity DESC,
-                      r.priority ASC,
-                      r.rule_id ASC
-             LIMIT 1'
-        );
-        $statement->execute([
-            'product_id' => $productId,
-            'company_id' => $companyId,
-            'pricelist_id' => $pricelistId,
-            'quantity' => $quantity,
-            'exact_product_id' => $productId,
-            'price_date' => $date,
-            'price_date_to' => $date,
-            'rule_date' => $date,
-            'rule_date_to' => $date,
-        ]);
-        $rule = $statement->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($rule)) {
-            return round($basePrice, 2);
-        }
-
-        $resolved = $rule['calculation'] === 'fixed'
-            ? (float) $rule['fixed_price']
-            : $basePrice * (1 + ((float) $rule['percentage_adjustment'] / 100));
-
-        return round(max(0, $resolved), 2);
+        $approved=$this->connection()->prepare("SELECT price_change_id,proposed_price unit_price,approved_discount_per_unit discount_per_unit FROM sales_product_price_changes WHERE company_id=? AND product_id=? AND currency=? AND status='approved' AND effective_from<=? ORDER BY effective_from DESC,price_change_id DESC LIMIT 1");
+        $approved->execute([$companyId,$productId,strtoupper($currency),strlen($date)===10?$date.' 23:59:59':$date]);
+        return $approved->fetch(PDO::FETCH_ASSOC) ?: ['price_change_id'=>null,'unit_price'=>0.0,'discount_per_unit'=>0.0];
     }
 
     public function updatePricelistRule(int $companyId,int $pricelistId,int $ruleId,array $v): void
@@ -690,6 +649,9 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
 
     public function createProduct(int $companyId, array $values, int $actorId): int
     {
+        // Catalogue creation cannot authorize a selling price. The SKU starts at
+        // zero and requires an independently approved effective price request.
+        $values['unit_price'] = 0;
         $statement = $this->connection()->prepare(
             'INSERT INTO sales_products
                 (company_id, sku, name, category, product_type, unit_of_measure, unit_price, commission_rate, serial_tracking, created_by)
@@ -702,7 +664,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
     }
 
     public function updateProduct(int $companyId,int $productId,array $v,int $actorId): void
-    {$s=$this->connection()->prepare('UPDATE sales_products SET sku=:sku,name=:name,category=:category,product_type=:product_type,unit_of_measure=:unit_of_measure,unit_price=:unit_price,commission_rate=:commission_rate,serial_tracking=:serial_tracking WHERE company_id=:company_id AND product_id=:id AND deleted_at IS NULL');$s->execute($v+['company_id'=>$companyId,'id'=>$productId]);if($s->rowCount()===0&&$this->product($companyId,$productId)===null)throw new RuntimeException('Product was not found.');}
+    {$s=$this->connection()->prepare('UPDATE sales_products SET sku=:sku,name=:name,category=:category,product_type=:product_type,unit_of_measure=:unit_of_measure,commission_rate=:commission_rate,serial_tracking=:serial_tracking WHERE company_id=:company_id AND product_id=:id AND deleted_at IS NULL');$s->execute($v+['company_id'=>$companyId,'id'=>$productId]);if($s->rowCount()===0&&$this->product($companyId,$productId)===null)throw new RuntimeException('Product was not found.');}
     public function setProductActive(int $companyId,int $productId,bool $active,int $actorId): void
     {$s=$this->connection()->prepare('UPDATE sales_products SET active=:active WHERE company_id=:company_id AND product_id=:id AND deleted_at IS NULL');$s->execute(['active'=>$active?1:0,'company_id'=>$companyId,'id'=>$productId]);if($s->rowCount()===0&&$this->product($companyId,$productId)===null)throw new RuntimeException('Product was not found.');}
 
@@ -1008,6 +970,16 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
             if ((int)$check->fetchColumn()>0) throw new RuntimeException('This order has downstream records and cannot be corrected here.');
         }
         if ((float)$old['paid_amount'] > 0) throw new RuntimeException('A paid order cannot be corrected here.');
+        $revisionNumber=$c->prepare('SELECT COALESCE(MAX(revision_number),0)+1 FROM sales_order_revisions WHERE company_id=? AND order_id=?');
+        $revisionNumber->execute([$companyId,$orderId]);
+        $rejection=$c->prepare("SELECT reason FROM sales_order_status_history WHERE company_id=? AND order_id=? AND to_status='rejected' ORDER BY history_id DESC LIMIT 1");
+        $rejection->execute([$companyId,$orderId]);
+        $snapshot=json_encode($old,JSON_THROW_ON_ERROR);
+        $revision=$c->prepare("INSERT INTO sales_order_revisions(company_id,order_id,revision_number,source_event,previous_status,reason,header_snapshot_json,actor_id,created_at) VALUES(?,?,?,'rejected_order_correction',?,?,?, ?,NOW())");
+        $revision->execute([$companyId,$orderId,(int)$revisionNumber->fetchColumn(),(string)$old['status'],$rejection->fetchColumn()?:null,$snapshot,$actorId]);
+        $revisionId=(int)$c->lastInsertId();
+        $copy=$c->prepare('INSERT INTO sales_order_revision_lines(company_id,revision_id,original_line_id,product_id,sku,description,quantity,unit_price,discount_amount,tax_rate,line_total) SELECT l.company_id,?,l.order_line_id,l.product_id,p.sku,l.description,l.quantity,l.unit_price,l.discount_amount,l.tax_rate,l.line_total FROM sales_order_lines l INNER JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id WHERE l.company_id=? AND l.order_id=? ORDER BY l.order_line_id');
+        $copy->execute([$revisionId,$companyId,$orderId]);
         $fields=['warehouse_id','source_location_id','customer_id','territory_id','agent_id','external_reference',
             'order_date','due_date','currency','subtotal','discount_amount','tax_amount','total_amount','notes'];
         $values=[];foreach($fields as $field)$values[]=$order[$field];

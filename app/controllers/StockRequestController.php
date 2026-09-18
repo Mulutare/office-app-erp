@@ -65,6 +65,24 @@ final class StockRequestController
         );
     }
 
+    public function reject(string $id): void
+    {
+        $requestId=(int)$id;
+        $this->mutate('inventory.stock_requests.process',function() use($requestId): string {
+            $this->service->rejectRequest($requestId,(string)($_POST['reason']??''),$this->actor());
+            return '/inventory/stock-requests/'.$requestId;
+        },'/inventory/stock-requests/'.$requestId,'Stock request rejected with its original values preserved.');
+    }
+
+    public function resubmit(string $id): void
+    {
+        $requestId=(int)$id;
+        $this->mutate('inventory.stock_requests.create',function() use($requestId): string {
+            $this->service->resubmitRejectedRequest($requestId,$_POST,$this->actor());
+            return '/inventory/stock-requests/'.$requestId;
+        },'/inventory/stock-requests/'.$requestId,'Corrected stock request resubmitted.');
+    }
+
     public function proposePeer(string $id): void
     {
         $this->mutate('inventory.stock_requests.process',function() use($id): string {

@@ -112,7 +112,7 @@ interface SalesRepository
     public function updatePricelistRule(int $companyId, int $pricelistId, int $ruleId, array $values): void;
     public function setPricelistRuleActive(int $companyId, int $pricelistId, int $ruleId, bool $active): void;
     public function setPricelistActive(int $companyId, int $pricelistId, bool $active): void;
-    public function resolvePrice(int $companyId, ?int $pricelistId, int $productId, float $quantity, string $date, float $basePrice): float;
+    public function resolvePrice(int $companyId, int $productId, string $date, string $currency): array;
     public function createTeam(int $companyId, array $values, array $memberIds, int $actorId): int;
     public function updateTeam(int $companyId, int $teamId, array $values, array $memberIds): void;
     public function setTeamActive(int $companyId, int $teamId, bool $active): void;

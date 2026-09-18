@@ -150,6 +150,12 @@ final class SalesQuickSaleService
                 static fn (array $product): bool =>
                     !empty($product['active'])
             ));
+            $stock=\db()->prepare("SELECT b.product_id,SUM(b.quantity_available) available FROM inventory_stock_balances b JOIN inventory_warehouse_locations l ON l.company_id=b.company_id AND l.location_id=b.location_id AND l.location_usage='internal' WHERE b.company_id=? AND b.warehouse_id=? GROUP BY b.product_id");
+            $stock->execute([$companyId,(int)$warehouse['warehouse_id']]);
+            $available=array_column($stock->fetchAll(\PDO::FETCH_ASSOC),'available','product_id');
+            $pricing=new SalesPricingService();$currency=$this->defaultCurrency();
+            foreach($products as &$product){$price=$pricing->effective($companyId,(int)$product['product_id'],date('Y-m-d'),$currency);$product['display_price']=$price['unit_price'];$product['display_discount']=$price['discount_per_unit'];$product['available_quantity']=$available[$product['product_id']]??0;}
+            unset($product);
 
             return [
                 'eligible' => true,
@@ -241,6 +247,19 @@ final class SalesQuickSaleService
                     ];
                 }
 
+                $selectedProduct=$products[$productId];
+                if (!empty($selectedProduct['model_id'])) {
+                    if (empty($selectedProduct['model_active']) || empty($selectedProduct['brand_active'])
+                        || (int)($line['model_id']??0)!==(int)$selectedProduct['model_id']
+                        || (int)($line['brand_id']??0)!==(int)$selectedProduct['brand_id']
+                        || (string)($line['product_family']??'')!==(string)$selectedProduct['product_family']
+                        || (string)($line['mifi_subtype']??'')!==(string)($selectedProduct['mifi_subtype']??'')) {
+                        return ['successful'=>false,'errors'=>['line_'.($index+1)=>'Select an active Mobile/MiFi type, brand, model and matching SKU.']];
+                    }
+                } elseif (!empty($line['product_family']) || !empty($line['model_id']) || !empty($line['brand_id'])) {
+                    return ['successful'=>false,'errors'=>['line_'.($index+1)=>'This legacy SKU is not classified as Mobile or MiFi.']];
+                }
+
                 $lines[] = [
                     'product_id' => $productId,
                     'quantity' => $quantity,
@@ -256,12 +275,8 @@ final class SalesQuickSaleService
                 ];
             }
 
-            $pricelist = $this->resolveAutomaticPricelist(
-                $companyId,
-                $lines,
-                $products,
-                $today
-            );
+            // Legacy pricelist selection must not influence controlled Quick Sale pricing or currency.
+            $pricelist = null;
 
             $currency = $pricelist !== null
                 ? strtoupper((string) ($pricelist['currency'] ?? 'ETB'))
@@ -3272,268 +3287,6 @@ final class SalesQuickSaleService
         }
 
         return $warehouses[0];
-    }
-
-    /**
-     * @param list<array{product_id:int,quantity:float}> $lines
-     * @param array<int,array<string,mixed>> $products
-     * @return array<string,mixed>|null
-     */
-    private function resolveAutomaticPricelist(
-        int $companyId,
-        array $lines,
-        array $products,
-        string $date
-    ): ?array {
-        $best = null;
-
-        foreach ($this->sales->pricelists($companyId) as $summary) {
-            if (empty($summary['active'])) {
-                continue;
-            }
-
-            if (
-                !empty($summary['valid_from'])
-                && (string) $summary['valid_from'] > $date
-            ) {
-                continue;
-            }
-
-            if (
-                !empty($summary['valid_to'])
-                && (string) $summary['valid_to'] < $date
-            ) {
-                continue;
-            }
-
-            $pricelistId = (int) ($summary['pricelist_id'] ?? 0);
-            if ($pricelistId <= 0) {
-                continue;
-            }
-
-            $detail = $this->sales->pricelist(
-                $companyId,
-                $pricelistId
-            );
-
-            if (!is_array($detail)) {
-                continue;
-            }
-
-            $coverage = 0;
-            $specificity = 0;
-            $minimumQuantityScore = 0.0;
-            $priorityScore = 0;
-
-            foreach ($lines as $line) {
-                $product =
-                    $products[(int) $line['product_id']] ?? null;
-
-                if (!is_array($product)) {
-                    continue;
-                }
-
-                $rule = $this->bestRuleForProduct(
-                    (array) ($detail['rules'] ?? []),
-                    $product,
-                    (float) $line['quantity'],
-                    $date
-                );
-
-                if ($rule === null) {
-                    continue;
-                }
-
-                /*
-                 * Quick Sale must never automatically select a
-                 * pricelist rule that resolves the product to a
-                 * zero or negative selling price. In that case the
-                 * product's normal base price remains authoritative.
-                 */
-                $resolvedPrice = $this->sales->resolvePrice(
-                    $companyId,
-                    $pricelistId,
-                    (int) $line['product_id'],
-                    (float) $line['quantity'],
-                    $date,
-                    (float) ($product['unit_price'] ?? 0)
-                );
-
-                if ($resolvedPrice <= 0) {
-                    continue;
-                }
-
-                $coverage++;
-                $specificity += (int) $rule['_specificity'];
-                $minimumQuantityScore +=
-                    (float) ($rule['minimum_quantity'] ?? 0);
-                $priorityScore +=
-                    (int) ($rule['priority'] ?? 100);
-            }
-
-            if ($coverage === 0) {
-                continue;
-            }
-
-            $candidate = [
-                'pricelist_id' => $pricelistId,
-                'currency' => $detail['currency'] ?? 'ETB',
-                '_coverage' => $coverage,
-                '_specificity' => $specificity,
-                '_minimum' => $minimumQuantityScore,
-                '_priority' => $priorityScore,
-            ];
-
-            if (
-                $best === null
-                || $this->isBetterPricelist($candidate, $best)
-            ) {
-                $best = $candidate;
-            }
-        }
-
-        return $best;
-    }
-
-    /**
-     * @param list<array<string,mixed>> $rules
-     * @param array<string,mixed> $product
-     * @return array<string,mixed>|null
-     */
-    private function bestRuleForProduct(
-        array $rules,
-        array $product,
-        float $quantity,
-        string $date
-    ): ?array {
-        $best = null;
-        $productId = (int) ($product['product_id'] ?? 0);
-        $category = trim((string) ($product['category'] ?? ''));
-
-        foreach ($rules as $rule) {
-            if (!is_array($rule) || empty($rule['active'])) {
-                continue;
-            }
-
-            if ((float) ($rule['minimum_quantity'] ?? 1) > $quantity) {
-                continue;
-            }
-
-            if (
-                !empty($rule['valid_from'])
-                && (string) $rule['valid_from'] > $date
-            ) {
-                continue;
-            }
-
-            if (
-                !empty($rule['valid_to'])
-                && (string) $rule['valid_to'] < $date
-            ) {
-                continue;
-            }
-
-            $ruleProductId = (int) ($rule['product_id'] ?? 0);
-            $ruleCategory =
-                trim((string) ($rule['category'] ?? ''));
-
-            if ($ruleProductId > 0) {
-                if ($ruleProductId !== $productId) {
-                    continue;
-                }
-
-                $specificity = 3;
-            } elseif ($ruleCategory !== '') {
-                if (strcasecmp($ruleCategory, $category) !== 0) {
-                    continue;
-                }
-
-                $specificity = 2;
-            } else {
-                $specificity = 1;
-            }
-
-            $candidate = $rule;
-            $candidate['_specificity'] = $specificity;
-
-            if (
-                $best === null
-                || $this->isBetterRule($candidate, $best)
-            ) {
-                $best = $candidate;
-            }
-        }
-
-        return $best;
-    }
-
-    /**
-     * @param array<string,mixed> $candidate
-     * @param array<string,mixed> $current
-     */
-    private function isBetterRule(
-        array $candidate,
-        array $current
-    ): bool {
-        if (
-            (int) $candidate['_specificity']
-            !== (int) $current['_specificity']
-        ) {
-            return (int) $candidate['_specificity']
-                > (int) $current['_specificity'];
-        }
-
-        if (
-            (float) $candidate['minimum_quantity']
-            !== (float) $current['minimum_quantity']
-        ) {
-            return (float) $candidate['minimum_quantity']
-                > (float) $current['minimum_quantity'];
-        }
-
-        if (
-            (int) $candidate['priority']
-            !== (int) $current['priority']
-        ) {
-            return (int) $candidate['priority']
-                < (int) $current['priority'];
-        }
-
-        return (int) $candidate['rule_id']
-            < (int) $current['rule_id'];
-    }
-
-    /**
-     * @param array<string,mixed> $candidate
-     * @param array<string,mixed> $current
-     */
-    private function isBetterPricelist(
-        array $candidate,
-        array $current
-    ): bool {
-        foreach (
-            [
-                '_coverage',
-                '_specificity',
-                '_minimum',
-            ] as $descending
-        ) {
-            if ($candidate[$descending] !== $current[$descending]) {
-                return $candidate[$descending]
-                    > $current[$descending];
-            }
-        }
-
-        if (
-            (int) $candidate['_priority']
-            !== (int) $current['_priority']
-        ) {
-            return (int) $candidate['_priority']
-                < (int) $current['_priority'];
-        }
-
-        return (int) $candidate['pricelist_id']
-            < (int) $current['pricelist_id'];
     }
 
     private function ensureTechnicalCustomer(

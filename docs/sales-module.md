@@ -33,3 +33,30 @@ should submit a line array to `SalesService`; the schema and repository already
 support multiple lines. Inventory allocation and invoice journal posting should
 be added as separate services so that sales does not directly mutate inventory
 or finance tables.
+
+## Local migration 088 work in progress (not deployable)
+
+The unstaged 088 draft introduces independently approved, effective SKU prices
+and exact discounts per unit, immutable rejected-order revisions, structured
+Mobile/MiFi brand/model/SKU classification, manager-issued cash float and
+Safaricom incentive claims/settlements. DSA/DSP price and discount calculation
+is intended to remain server-authoritative, with existing sale lines retaining
+their historical snapshots. Operational float and incentive records do not post
+Finance GL entries; accounting policy is deferred.
+
+The 088 selling resolver now accepts only approved, effective SKU pricing and
+exact discount; no approved price means the sale is blocked. Legacy catalogue
+price and pricelist rules remain for history but do not control new 088 selling.
+Reservation events are captured before the locked baseline, with an event-ID
+boundary used to exclude pre-baseline changes. Existing-company permissions are
+limited to active assigned company-owner/system-administrator, Sales Manager,
+Sales Approver and Sales Officer roles; DSA/DSP identity and manager hierarchy
+remain service-enforced. MariaDB cutover/concurrency and workflow acceptance
+remain open. See `docs/UPGRADE_STATE.md` section 24 before using any 088 feature.
+
+Daily stock history reads completed authoritative movement legs: receipt is
+Received; internal source/destination legs are Transfers Out/In; return_in is
+Returns In; issue/fulfilment is Sold/Issued; return_out is Returns Out; and
+opening/adjustment_in/adjustment_out are Adjustments. Unexpected movement legs
+remain visibly Unclassified and still affect Ending On-Hand. Reservation and
+Available history before the explicit 088 cutover is unavailable, not zero.

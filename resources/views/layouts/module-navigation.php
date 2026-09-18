@@ -23,10 +23,13 @@ $definitions = [
     'sales' => [
         'quick_sale' => ['Quick Sale', '/sales/quick-sale'],
         'dsa_dsp_report' => ['DSA/DSP Sales Report', '/sales/dsa-dsp-report', 'sales.view'],
+        'incentives' => ['Incentives', '/sales/incentives', 'sales.incentive.view'],
         'orders' => ['Sales Orders', '/sales/orders'],
         'quotations' => ['Quotations', '/sales/quotations'],
         'customers' => ['Customers', '/sales/customers'],
         'products' => ['Products', '/sales/products'],
+        'pricing' => ['Approved Pricing', '/sales/pricing', 'sales.pricing.view'],
+        'product_variants' => ['Mobile / MiFi Variants', '/sales/product-variants', 'sales.view'],
         'pricelists' => ['Pricelists', '/sales/pricelists'],
         'teams' => ['DSA / DSP & Teams', '/sales/teams'],
         'deliveries' => ['Deliveries', '/sales/deliveries'],
@@ -63,6 +66,7 @@ $definitions = [
     'inventory' => [
         'stock' => ['Current Stock', '/inventory?section=stock'],
         'stock_requests' => ['Stock Requests', '/inventory/stock-requests', 'inventory.stock_requests.view'],
+        'stock_daily_history' => ['Daily Stock History', '/inventory/stock-daily-history', 'inventory.stock.view'],
         'movements' => ['Movements', '/inventory?section=movements'],
         'receipts' => ['Receipts', '/inventory/receipts'],
         'transfers' => ['Transfers', '/inventory/transfers', 'inventory.transfers.view'],
@@ -95,20 +99,22 @@ if (
             '/sales/dsa-dsp-report',
             'sales.view',
         ],
+        'incentives' => ['Incentives', '/sales/incentives', 'sales.incentive.view'],
     ];
 
     $section = $section !== '' ? $section : 'quick_sale';
 }
 if ($section === '') {
     if ($module === 'sales') {
-        foreach (['dsa-dsp-report', 'quotations', 'orders', 'customers', 'products', 'pricelists', 'teams', 'deliveries', 'settlements'] as $candidate) {
+        foreach (['dsa-dsp-report', 'incentives', 'quotations', 'orders', 'customers', 'product-variants', 'products', 'pricing', 'pricelists', 'teams', 'deliveries', 'settlements'] as $candidate) {
             if (str_contains($requestPath, '/sales/' . $candidate)) { $section = $candidate; break; }
         }
         if ($section === 'dsa-dsp-report') $section = 'dsa_dsp_report';
+        if ($section === 'product-variants') $section = 'product_variants';
         $section = $section ?: 'orders';
     } elseif ($module === 'inventory') {
-        foreach (['stock-requests', 'receipts', 'warehouses', 'locations'] as $candidate) {
-            if (str_contains($requestPath, '/inventory/' . $candidate)) { $section = $candidate === 'stock-requests' ? 'stock_requests' : $candidate; break; }
+        foreach (['stock-requests', 'stock-daily-history', 'receipts', 'warehouses', 'locations'] as $candidate) {
+            if (str_contains($requestPath, '/inventory/' . $candidate)) { $section = $candidate === 'stock-requests' ? 'stock_requests' : ($candidate==='stock-daily-history'?'stock_daily_history':$candidate); break; }
         }
         $section = $section ?: (string) ($_GET['section'] ?? 'stock');
     } elseif ($module === 'finance') {

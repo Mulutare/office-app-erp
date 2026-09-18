@@ -356,6 +356,10 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
 <?php foreach($request['lines']??[] as $line):?><tr><td><?=e($line['sku'].' — '.$line['name'])?></td><td><?=e($line['requested_quantity'].' '.$line['unit_of_measure'])?></td><td><?=e($line['allocated_quantity'])?></td><td><?=e($line['proposed_quantity']??0)?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['allocated_quantity']-(float)($line['proposed_quantity']??0)))?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['ready_quantity']))?></td><td><?=e($line['ready_quantity'])?></td></tr><?php endforeach;?>
 </tbody></table></div></section>
 
+<?php if(!empty($request['events'])):?><section class="card"><h3>Immutable request history</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Reason</th><th>Previous values</th><th>New values</th></tr></thead><tbody><?php foreach($request['events'] as $event):?><tr><td><?=e($event['occurred_at'])?></td><td><?=e(str_replace('_',' ',$event['event_type']))?></td><td><?=e($event['actor_id'])?></td><td><?=e($event['reason']??'—')?></td><td><details><summary>View snapshot</summary><pre><?=e($event['previous_values_json']??'—')?></pre></details></td><td><details><summary>View snapshot</summary><pre><?=e($event['new_values_json']??'—')?></pre></details></td></tr><?php endforeach;?></tbody></table></div></section><?php endif;?>
+
+<?php if($request['status']==='rejected' && (int)$request['requester_user_id']===$actorId && $can('inventory.stock_requests.create')):?><section class="card"><h3>Correct and resubmit</h3><p>The rejected values remain in immutable history. Enter the corrected quantities; zero means omit that SKU.</p><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=(int)$request['request_id']?>/resubmit"><?=csrfField()?><?php foreach($request['lines'] as $line):?><div class="form-grid"><label>Product<select name="product_id[]" required><option value="<?=(int)$line['product_id']?>"><?=e($line['sku'].' — '.$line['name'])?></option></select></label><label>Quantity<input type="number" name="quantity[]" min="0" step="0.001" value="<?=e($line['requested_quantity'])?>" required></label></div><?php endforeach;?><label>Notes<textarea name="notes" maxlength="1000"><?=e($request['notes']??'')?></textarea></label><button class="btn btn-primary">Resubmit corrected request</button></form></section><?php endif;?>
+
 <?php if(!empty($request['allocations'])):?><section class="card"><h3>Allocation and transfer history</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Level</th><th>Manager</th><th>Product</th><th>Qty</th><th>Source</th><th>Status</th><th>Transfer</th></tr></thead><tbody>
 <?php foreach($request['allocations'] as $a):?><tr><td><?=e(ucfirst($a['authority_level']))?></td><td><?=e($a['authority_name'])?></td><td><?=e($a['product_name'])?></td><td><?=e($a['quantity'])?></td><td><?=e($a['source_warehouse_name'].' / '.$a['source_location_name'])?></td><td><?=e(str_replace('_',' ',$a['status']))?></td><td><?php if(!empty($a['transfer_id'])):?><a href="<?=e(appBasePath())?>/inventory/transfers/<?=$a['transfer_id']?>"><?=e($a['transfer_number']??('TRF #'.$a['transfer_id']))?></a> · <?=e($a['transfer_status']??'')?><?php else:?>Direct Shop allocation<?php endif;?></td></tr><?php endforeach;?>
 </tbody></table></div></section><?php endif;?>
@@ -373,6 +377,7 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
 <?php endif; ?>
 <section class="card stock-request-action-card"><h3>Available action</h3><div class="page-actions">
 <?php if((int)($request['current_handler_user_id']??0)===$actorId && in_array($request['status'],['pending_review','awaiting_transfer'],true) && $can('inventory.stock_requests.process')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=$request['request_id']?>/process"><?=csrfField()?><button class="btn btn-primary"><?=(($request['request_kind']??'')==='manager_replenishment' && (int)$request['requester_user_id']===$actorId)?'Recheck Central replenishment':'Fulfil From My Stock'?></button></form><?php endif;?>
+<?php if($request['status']==='pending_review' && ($request['request_kind']??'employee_issue')==='employee_issue' && (int)($request['current_handler_user_id']??0)===$actorId && $can('inventory.stock_requests.process')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=(int)$request['request_id']?>/reject"><?=csrfField()?><label>Rejection reason<textarea name="reason" required maxlength="1000"></textarea></label><button class="btn btn-secondary">Reject for correction</button></form><?php endif;?>
 <?php if(($request['request_kind']??'employee_issue')==='employee_issue' && $request['status']==='ready_to_issue' && (int)($stockRequestAuthority['authority_id']??0)===(int)$request['serving_authority_id'] && $can('inventory.stock_requests.issue')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=$request['request_id']?>/issue"><?=csrfField()?><button class="btn btn-primary">Issue full request to DSA/DSP</button></form><?php endif;?>
 <?php if($request['status']==='issued' && (int)$request['requester_user_id']===$actorId && $can('inventory.stock_requests.receive')):?><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=$request['request_id']?>/receive"><?=csrfField()?><button class="btn btn-primary">Confirm I received the stock</button></form><?php endif;?>
 <a class="btn btn-secondary" href="<?=e(appBasePath())?>/inventory/stock-requests">Back to requests</a>
@@ -538,8 +543,9 @@ $isStockHierarchyManager = in_array(
                         name="quantity[]"
                         class="stock-request-quantity"
                         type="number"
-                        min="0.001"
+                        min="0"
                         step="0.001"
+                        value="0"
                         required
                     >
                 </label>
@@ -582,8 +588,9 @@ $isStockHierarchyManager = in_array(
                             name="quantity[]"
                             class="stock-request-quantity"
                             type="number"
-                            min="0.001"
+                            min="0"
                             step="0.001"
+                            value="0"
                         >
                     </label>
                 </div>
@@ -662,7 +669,8 @@ $isStockHierarchyManager = in_array(
             'awaiting_procurement' => 'Waiting for procurement',
             'issued' => 'Stock sent',
             'completed', 'closed' => 'Completed',
-            'cancelled', 'rejected' => 'Cancelled',
+            'cancelled' => 'Cancelled',
+            'rejected' => 'Rejected — correction required',
             default => ucfirst(str_replace('_', ' ', $status)),
         };
     };
