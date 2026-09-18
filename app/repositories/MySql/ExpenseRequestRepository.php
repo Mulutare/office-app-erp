@@ -80,7 +80,7 @@ class ExpenseRequestRepository extends MySqlRepository
         $statement = $this->connection()->prepare(
             'SELECT COUNT(*)
              FROM finance_expense_requests requests
-             INNER JOIN hr_employees employees
+             LEFT JOIN hr_employees employees
                  ON employees.employee_id =
                     requests.requested_by_employee_id
                 AND employees.company_id =
@@ -135,7 +135,7 @@ class ExpenseRequestRepository extends MySqlRepository
                 categories.code AS category_code,
                 categories.name AS category_name
              FROM finance_expense_requests requests
-             INNER JOIN hr_employees employees
+             LEFT JOIN hr_employees employees
                  ON employees.employee_id =
                     requests.requested_by_employee_id
                 AND employees.company_id =

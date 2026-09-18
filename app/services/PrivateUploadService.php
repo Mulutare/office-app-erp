@@ -14,6 +14,48 @@ final class PrivateUploadService
 
     private const MAX_BYTES = 10485760;
 
+    public function storeExpenseEvidence(int $companyId, array $file): array
+    {
+        $this->validateExpenseEvidence($file);
+        if ($companyId < 1) {
+            throw new \RuntimeException('Private expense evidence storage is unavailable.');
+        }
+        $size = (int) $file['size'];
+        $mime = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+        $root = dirname(__DIR__, 2) . '/storage/private/expense-evidence/company-' . $companyId;
+        if (!is_dir($root) && !mkdir($root, 0700, true) && !is_dir($root)) {
+            throw new \RuntimeException('Private expense evidence storage is unavailable.');
+        }
+        $path = $root . '/' . bin2hex(random_bytes(24)) . '.' . self::ALLOWED[$mime];
+        if (!move_uploaded_file($file['tmp_name'], $path)) {
+            throw new \RuntimeException('Expense receipt could not be stored.');
+        }
+        chmod($path, 0600);
+        return [
+            'evidence_path' => $path,
+            'evidence_original_name' => mb_substr(basename((string) ($file['name'] ?? 'receipt')), 0, 255),
+            'evidence_mime' => $mime,
+            'evidence_size' => $size,
+            'evidence_sha256' => hash_file('sha256', $path),
+        ];
+    }
+
+    public function validateExpenseEvidence(array $file): void
+    {
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+            || !is_string($file['tmp_name'] ?? null) || !is_uploaded_file($file['tmp_name'])) {
+            throw new \RuntimeException('Attach a valid PDF, PNG or JPEG expense receipt.');
+        }
+        $size = (int) ($file['size'] ?? 0);
+        if ($size < 1 || $size > self::MAX_BYTES) {
+            throw new \RuntimeException('Expense receipt must be no larger than 10 MB.');
+        }
+        $mime = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+        if (!isset(self::ALLOWED[$mime])) {
+            throw new \RuntimeException('Only genuine PDF, PNG and JPEG expense receipts are accepted.');
+        }
+    }
+
     public function storeEvidence(int $companyId, array $file): array
     {
         if (

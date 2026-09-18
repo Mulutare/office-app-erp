@@ -753,6 +753,10 @@ $router->post('/finance/expenses/{id}/review',[$financeExpenseController,'review
 $router->post('/finance/expenses/{id}/pay',[$financeExpenseController,'pay']);
 $router->post('/finance/expenses/{id}/recognize',[$financeExpenseController,'recognize']);
 $router->post('/finance/expenses/{id}/reverse',[$financeExpenseController,'reverse']);
+$router->post('/finance/expenses/{id}/evidence',[$financeExpenseController,'addEvidence']);
+$router->post('/finance/expenses/{id}/evidence/{evidenceId}/remove',[$financeExpenseController,'removeEvidence']);
+$router->get('/finance/expenses/{id}/evidence/{evidenceId}',[$financeExpenseController,'evidence']);
+$router->post('/finance/expense-categories/{id}/defaults',[$financeExpenseController,'categoryDefaults']);
 $router->get('/finance/staff-loans',[$financeStaffLoanController,'index']);
 $router->post('/finance/staff-loans',[$financeStaffLoanController,'create']);
 $router->get('/finance/staff-loans/{id}',[$financeStaffLoanController,'detail']);

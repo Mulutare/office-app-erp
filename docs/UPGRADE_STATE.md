@@ -84,11 +84,11 @@ Latest deployed application commit:
 
 ## 3. Current Migration Baseline
 
-Latest migration in repository and production:
-
-083_user_notifications_and_rejection_resubmit.php
-
-Production is recorded through 083. Migration 083 was applied successfully.
+Latest repository migration: `086_finance_expense_evidence_and_defaults.php` (local,
+not deployed). The user reports 084 and 085 deployed; their production
+`schema_migrations` records were not independently inspected in this pass.
+Migration 083 was independently recorded as applied in section 4. Verify the
+production migration ledger before applying 086.
 
 Recent migration sequence:
 
@@ -103,13 +103,17 @@ Recent migration sequence:
 081_manager_peer_replenishment_and_evidence.php
 082_stock_hierarchy_manager_role.php
 083_user_notifications_and_rejection_resubmit.php
+084_finance_expense_workflow.php
+085_finance_staff_loans.php
+086_finance_expense_evidence_and_defaults.php (local, not deployed)
 
 Next migration number must NOT be assumed permanently.
 Always inspect the repository before creating the next migration.
 
 Migration 083 is already applied in production and must not be edited or reapplied.
-Do not assume that 084 is the next migration: inspect repository files and
-deployment migration records before allocating another number.
+Do not edit or reapply previously deployed migrations. The current scoped
+local schema upgrade is 086; inspect repository files and deployment records
+before allocating any later number.
 
 ## 4. Production Baseline
 
@@ -119,7 +123,9 @@ passiontech_officeapp
 Production application:
 office-app-erp
 
-Production has already been upgraded through migration 083.
+Migration 083 is independently recorded as applied. The user reports 084/085
+deployed, but this pass did not independently inspect their production
+`schema_migrations` records. Migration 086 is not deployed.
 
 Migration 081:
 manager peer replenishment and multiple Quick Sale evidence
@@ -334,7 +340,7 @@ Update this document with:
 
 ## 9. Current Next Action
 
-Current scoped upgrade: DSA/DSP Sales Summary and Reporting.
+Current scoped upgrade: migration 086 expense completion (local; not deployed).
 The pending end-to-end verification of the notification/rejection-resubmit
 upgrade remains recorded as pending; it does not block separately requested
 future work. Do not mix that pending verification with unrelated future upgrades.
@@ -346,6 +352,7 @@ future work. Do not mix that pending verification with unrelated future upgrades
 - Action Required: the existing source of truth for pending business actions; see section 5.
 - Notifications and rejected edit/resubmit: DEPLOYED / DATABASE VERIFIED / BASIC UI VERIFIED / END-TO-END WORKFLOW VERIFICATION PENDING; see sections 7 and 17.
 - DSA/DSP Sales Summary and Reporting: implemented locally as read-only analytics; not deployed and runtime verification not performed; see section 18.
+- Finance migration 086 expense completion: local implementation, not deployed; see section 22.
 - Other module/integration status: Not currently documented — verify before changing this area.
 
 ## 11. Production-specific Deployment Notes
@@ -687,3 +694,15 @@ A source audit found existing Sales/Quick Sale invoice and receipt paths, Procur
 Migration 086 was not created. Expense evidence is currently a reference string and company-paid expenses still require an employee because of the existing non-null FK. Expense category GL/tax defaults are absent. Protected upload architecture exists for other workflows but expense metadata/retrieval needs a reviewed design. `bank_transactions` alone does not provide bank-statement reconciliation sessions or matching history. Cash-flow activity classes are unmapped and no statement is fabricated. These, along with payroll deductions and advanced loan changes, remain future Finance gaps. See `docs/FINANCE_NEXT_UPGRADE_PLAN.md` for the audit matrix and exact local scope.
 
 Focused local PHP lint and whitespace/diff checks passed. Browser checks with `finance.verify.local` in company 2 showed home, report chooser/Trial Balance, expense register/opened form, staff-loan register and enhanced GL. No new accounting transaction was posted for this UI pass; no production acceptance is claimed.
+
+## 22. Migration 086 expense completion (local; not deployed)
+
+Starting committed HEAD: `0b7f874` on `main`. Migration 086 is an additive expense-only upgrade. Migrations 084 and 085 remain unchanged. The previously recorded deployment facts in sections 1–21 are historical; check current HEAD and production migration records independently before any deployment. This section does not claim production migration application or runtime acceptance.
+
+`086_finance_expense_evidence_and_defaults.php` creates `finance_expense_evidence` with company/expense identity, unique sequence 1–10, filename, private path, MIME, size, SHA-256, uploading user and timestamp. Its company/expense composite FK protects tenant linkage. It adds nullable company-scoped default expense and recoverable-tax account FKs to expense categories, without backfilling guessed values. It makes expense employee nullable while enforcing a non-NULL employee for reimbursements with a database CHECK; historical rows remain untouched. The existing `evidence_reference` text field stays.
+
+Expense evidence uses the existing private upload conventions: PDF/PNG/JPEG, 10 MB per file, random tenant-scoped storage, restrictive permissions, server-detected MIME and SHA-256. Only the draft creator may add/remove evidence; submitted, approved, posted, paid and reversed evidence is read-only and reversal does not delete it. Downloads require Finance read authorization and a tenant-scoped expense/evidence lookup. Category defaults are controlled suggestions, not posting overrides; incompatible currency defaults are not applied, tax is not calculated automatically, and changing a category does not rewrite an expense or journal. Reimbursement recognition/payment and company-paid/petty-cash direct posting, maker/checker, period checks, idempotency, reversal, notifications and Action Required remain governed by migration 084 behavior.
+
+Bank-statement reconciliation and Cash Flow classification remain deferred, as do payroll deductions and loan restructuring/write-off. No bank/Cash Flow schema or posting semantics are included in migration 086. Local validation and deployment status must be recorded separately after verification; do not infer production deployment from this implementation entry.
+
+Production-readiness source follow-up: selected evidence files are prevalidated before create/edit draft persistence where practical; the locked evidence transaction remains authoritative for the ten-file limit. A failed create upload cleans stored files and compensates only its newly created draft when it is still safe to delete; otherwise the user is told that the draft remains. A failed edit upload reports that draft fields were saved while evidence was not. Draft evidence removal revokes database access before unlink; a failed unlink leaves an inaccessible orphan and emits a structured warning with safe IDs for manual cleanup, never a private path. Migration 086 is **IMPLEMENTED LOCALLY / NOT DEPLOYED / DB AND RUNTIME VERIFICATION PENDING**. The normalized migration checksum is `769bc3ec24bbf3e97246a1e7bd9c6dccaa851639b166d670100eb6d0143e57da`.

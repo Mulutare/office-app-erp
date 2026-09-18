@@ -22,12 +22,16 @@ final class FinanceExpenseService
             $statement->execute(['company' => $company]);
             return $statement->fetchAll(PDO::FETCH_ASSOC);
         };
+        $expenses = $this->expenseRows($company, $status, $search);
+        $evidence = (new FinanceExpenseEvidenceService())->listMany(array_column($expenses,'expense_request_id'));
         return [
-            'expenses' => $this->expenseRows($company, $status, $search),
+            'expenses' => $expenses,
+            'evidence' => $evidence,
             'filters' => ['status' => $status, 'search' => $search],
             'employees' => $query('SELECT employee_id,employee_number,first_name,last_name FROM hr_employees WHERE company_id=:company AND deleted_at IS NULL ORDER BY first_name,last_name LIMIT 500', $company),
-            'categories' => $query('SELECT category_id,name FROM finance_expense_categories WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL ORDER BY name', $company),
-            'accounts' => $query("SELECT account_id,account_code,account_name,account_type FROM finance_accounts WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL AND account_type IN('expense','asset') ORDER BY account_code", $company),
+            'categories' => $query('SELECT category_id,name,default_expense_account_id,default_recoverable_tax_account_id FROM finance_expense_categories WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL ORDER BY name', $company),
+            'categorySettings' => $query('SELECT category_id,name,active,default_expense_account_id,default_recoverable_tax_account_id FROM finance_expense_categories WHERE company_id=:company AND deleted_at IS NULL ORDER BY name', $company),
+            'accounts' => $query("SELECT account_id,account_code,account_name,account_type,currency FROM finance_accounts WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL AND account_type IN('expense','asset') ORDER BY account_code", $company),
             'journals' => $query("SELECT journal_id,journal_code,journal_name,journal_type FROM finance_journals WHERE company_id=:company AND active=TRUE AND journal_type IN('cash','bank') ORDER BY journal_name", $company),
             'history' => $query('SELECT h.expense_request_id,h.from_status,h.to_status,h.action,h.reason,h.actor_id,h.occurred_at FROM finance_expense_history h JOIN finance_expense_requests r ON r.company_id=h.company_id AND r.expense_request_id=h.expense_request_id WHERE h.company_id=:company AND r.deleted_at IS NULL ORDER BY h.history_id DESC LIMIT 500', $company),
         ];
@@ -35,7 +39,7 @@ final class FinanceExpenseService
 
     private function expenseRows(int $company, string $status, string $search): array
     {
-        $sql = "SELECT r.*,CONCAT(e.first_name,' ',e.last_name) employee_name,c.name category_name,a.account_code,a.account_name,b.batch_number FROM finance_expense_requests r JOIN hr_employees e ON e.company_id=r.company_id AND e.employee_id=r.requested_by_employee_id LEFT JOIN finance_expense_categories c ON c.company_id=r.company_id AND c.category_id=r.category_id LEFT JOIN finance_accounts a ON a.company_id=r.company_id AND a.account_id=r.expense_account_id LEFT JOIN finance_journal_batches b ON b.company_id=r.company_id AND b.journal_batch_id=r.journal_batch_id WHERE r.company_id=:company AND r.deleted_at IS NULL";
+        $sql = "SELECT r.*,CONCAT(e.first_name,' ',e.last_name) employee_name,c.name category_name,a.account_code,a.account_name,b.batch_number FROM finance_expense_requests r LEFT JOIN hr_employees e ON e.company_id=r.company_id AND e.employee_id=r.requested_by_employee_id LEFT JOIN finance_expense_categories c ON c.company_id=r.company_id AND c.category_id=r.category_id LEFT JOIN finance_accounts a ON a.company_id=r.company_id AND a.account_id=r.expense_account_id LEFT JOIN finance_journal_batches b ON b.company_id=r.company_id AND b.journal_batch_id=r.journal_batch_id WHERE r.company_id=:company AND r.deleted_at IS NULL";
         $params = ['company' => $company];
         if ($status !== '') { $sql .= ' AND r.status=:status'; $params['status'] = $status; }
         if ($search !== '') { $sql .= ' AND (r.request_number LIKE :search OR r.title LIKE :title)'; $params['search'] = '%'.$search.'%'; $params['title'] = '%'.$search.'%'; }
@@ -44,10 +48,25 @@ final class FinanceExpenseService
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function saveCategoryDefaults(int $categoryId, int $expenseAccountId, int $taxAccountId): void
+    {
+        if ($expenseAccountId < 0 || $taxAccountId < 0) throw new RuntimeException('Select valid category default accounts.');
+        $company=$this->company(); $db=\db(); $db->beginTransaction();
+        try {
+            $this->assertReference('finance_expense_categories','category_id',$categoryId,$company,'deleted_at IS NULL');
+            if ($expenseAccountId>0) $this->assertReference('finance_accounts','account_id',$expenseAccountId,$company,"active=TRUE AND deleted_at IS NULL AND account_type='expense'");
+            if ($taxAccountId>0) $this->assertReference('finance_accounts','account_id',$taxAccountId,$company,"active=TRUE AND deleted_at IS NULL AND account_type='asset'");
+            $s=$db->prepare('UPDATE finance_expense_categories SET default_expense_account_id=:expense,default_recoverable_tax_account_id=:tax,updated_by=:actor WHERE company_id=:company AND category_id=:category AND deleted_at IS NULL');
+            $s->execute(['expense'=>$expenseAccountId?:null,'tax'=>$taxAccountId?:null,'actor'=>(int)($_SESSION['auth']['user_id']??0),'company'=>$company,'category'=>$categoryId]);
+            $db->commit();
+        } catch (Throwable $e) { if ($db->inTransaction()) $db->rollBack(); throw $e; }
+    }
+
     public function save(array $input, int $actor, ?int $id = null): int
     {
         $company = $this->company();
         $employee = (int)($input['employee_id'] ?? 0);
+        if (trim((string)($input['employee_id'] ?? '')) !== '' && $employee < 1) throw new RuntimeException('Select a valid employee or leave the field blank.');
         $category = (int)($input['category_id'] ?? 0);
         $account = (int)($input['expense_account_id'] ?? 0);
         $taxAccount = (int)($input['tax_account_id'] ?? 0);
@@ -57,10 +76,10 @@ final class FinanceExpenseService
         $title = mb_substr(trim((string)($input['title'] ?? '')), 0, 150);
         $net = round((float)($input['net_amount'] ?? 0), 2);
         $tax = round((float)($input['tax_amount'] ?? 0), 2);
-        if ($actor < 1 || $employee < 1 || $account < 1 || $title === '' || $net <= 0 || $tax < 0 || !is_finite($net) || !is_finite($tax) || !in_array($kind, ['company_paid','reimbursement','petty_cash'], true) || preg_match('/^[A-Z]{3}$/', $currency) !== 1 || ($tax > 0 && $taxAccount < 1)) throw new RuntimeException('Complete the employee, expense account, type, date, currency and positive amounts. Tax requires an asset tax account.');
+        if ($actor < 1 || ($kind === 'reimbursement' && $employee < 1) || $account < 1 || $title === '' || $net <= 0 || $tax < 0 || !is_finite($net) || !is_finite($tax) || !in_array($kind, ['company_paid','reimbursement','petty_cash'], true) || preg_match('/^[A-Z]{3}$/', $currency) !== 1 || ($tax > 0 && $taxAccount < 1)) throw new RuntimeException('Complete the required employee for reimbursements, expense account, type, date, currency and positive amounts. Tax requires an asset tax account.');
         $db = \db(); $db->beginTransaction();
         try {
-            $this->assertReference('hr_employees','employee_id',$employee,$company,'deleted_at IS NULL');
+            if ($employee > 0) $this->assertReference('hr_employees','employee_id',$employee,$company,'deleted_at IS NULL');
             if ($category > 0) $this->assertReference('finance_expense_categories','category_id',$category,$company,'active=TRUE AND deleted_at IS NULL');
             $this->assertReference('finance_accounts','account_id',$account,$company,"active=TRUE AND deleted_at IS NULL AND account_type='expense'");
             if ($tax > 0) $this->assertReference('finance_accounts','account_id',$taxAccount,$company,"active=TRUE AND deleted_at IS NULL AND account_type='asset'");
@@ -70,15 +89,34 @@ final class FinanceExpenseService
                 $existing = $this->locked($company,$id);
                 if ($existing['status'] !== 'draft' || (int)$existing['created_by'] !== $actor) throw new RuntimeException('Only the creator may edit a draft expense.');
                 $statement = $db->prepare('UPDATE finance_expense_requests SET requested_by_employee_id=:employee,category_id=:category,expense_kind=:kind,expense_account_id=:account,tax_account_id=:tax_account,net_amount=:net,tax_amount=:tax,amount=:amount,currency=:currency,expense_date=:date,title=:title,description=:description,evidence_reference=:evidence,updated_by=:actor WHERE company_id=:company AND expense_request_id=:id AND status=\'draft\'');
-                $statement->execute(['employee'=>$employee,'category'=>$category?:null,'kind'=>$kind,'account'=>$account,'tax_account'=>$tax>0?$taxAccount:null,'net'=>$net,'tax'=>$tax,'amount'=>round($net+$tax,2),'currency'=>$currency,'date'=>$date,'title'=>$title,'description'=>trim((string)($input['description'] ?? '')),'evidence'=>mb_substr(trim((string)($input['evidence_reference']??'')),0,500)?:null,'actor'=>$actor,'company'=>$company,'id'=>$id]);
+                $statement->execute(['employee'=>$employee?:null,'category'=>$category?:null,'kind'=>$kind,'account'=>$account,'tax_account'=>$tax>0?$taxAccount:null,'net'=>$net,'tax'=>$tax,'amount'=>round($net+$tax,2),'currency'=>$currency,'date'=>$date,'title'=>$title,'description'=>trim((string)($input['description'] ?? '')),'evidence'=>mb_substr(trim((string)($input['evidence_reference']??'')),0,500)?:null,'actor'=>$actor,'company'=>$company,'id'=>$id]);
             } else {
                 $number = 'EXP-'.date('Ymd').'-'.strtoupper(bin2hex(random_bytes(4)));
                 $statement = $db->prepare("INSERT INTO finance_expense_requests(company_id,request_number,requested_by_employee_id,category_id,title,description,evidence_reference,amount,net_amount,tax_amount,expense_account_id,tax_account_id,expense_kind,currency,expense_date,status,created_by,updated_by) VALUES(:company,:number,:employee,:category,:title,:description,:evidence,:amount,:net,:tax,:account,:tax_account,:kind,:currency,:date,'draft',:actor,:updated)");
-                $statement->execute(['company'=>$company,'number'=>$number,'employee'=>$employee,'category'=>$category?:null,'title'=>$title,'description'=>trim((string)($input['description'] ?? '')),'evidence'=>mb_substr(trim((string)($input['evidence_reference']??'')),0,500)?:null,'amount'=>round($net+$tax,2),'net'=>$net,'tax'=>$tax,'account'=>$account,'tax_account'=>$tax>0?$taxAccount:null,'kind'=>$kind,'currency'=>$currency,'date'=>$date,'actor'=>$actor,'updated'=>$actor]);
+                $statement->execute(['company'=>$company,'number'=>$number,'employee'=>$employee?:null,'category'=>$category?:null,'title'=>$title,'description'=>trim((string)($input['description'] ?? '')),'evidence'=>mb_substr(trim((string)($input['evidence_reference']??'')),0,500)?:null,'amount'=>round($net+$tax,2),'net'=>$net,'tax'=>$tax,'account'=>$account,'tax_account'=>$tax>0?$taxAccount:null,'kind'=>$kind,'currency'=>$currency,'date'=>$date,'actor'=>$actor,'updated'=>$actor]);
                 $id = (int)$db->lastInsertId();
                 $this->history($company,$id,null,'draft','created',null,$actor);
             }
             $db->commit(); return $id;
+        } catch (Throwable $e) { if ($db->inTransaction()) $db->rollBack(); throw $e; }
+    }
+
+    public function discardNewDraftAfterEvidenceFailure(int $id, int $actor): bool
+    {
+        $company=$this->company(); $db=\db(); $db->beginTransaction();
+        try {
+            $s=$db->prepare('SELECT status,created_by FROM finance_expense_requests WHERE company_id=:company AND expense_request_id=:id AND deleted_at IS NULL FOR UPDATE');
+            $s->execute(['company'=>$company,'id'=>$id]); $row=$s->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($row) || $row['status']!=='draft' || (int)$row['created_by']!==$actor) { $db->rollBack(); return false; }
+            $s=$db->prepare('SELECT COUNT(*) FROM finance_expense_evidence WHERE company_id=:company AND expense_request_id=:id');
+            $s->execute(['company'=>$company,'id'=>$id]);
+            if ((int)$s->fetchColumn()!==0) { $db->rollBack(); return false; }
+            $s=$db->prepare('SELECT COUNT(*) total, SUM(action<>\'created\') other_actions FROM finance_expense_history WHERE company_id=:company AND expense_request_id=:id');
+            $s->execute(['company'=>$company,'id'=>$id]); $history=$s->fetch(PDO::FETCH_ASSOC);
+            if ((int)$history['total']!==1 || (int)$history['other_actions']!==0) { $db->rollBack(); return false; }
+            $db->prepare('DELETE FROM finance_expense_history WHERE company_id=:company AND expense_request_id=:id')->execute(['company'=>$company,'id'=>$id]);
+            $db->prepare("DELETE FROM finance_expense_requests WHERE company_id=:company AND expense_request_id=:id AND status='draft' AND created_by=:actor")->execute(['company'=>$company,'id'=>$id,'actor'=>$actor]);
+            $db->commit(); return true;
         } catch (Throwable $e) { if ($db->inTransaction()) $db->rollBack(); throw $e; }
     }
 
