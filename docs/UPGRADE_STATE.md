@@ -84,8 +84,9 @@ Latest deployed application commit:
 
 ## 3. Current Migration Baseline
 
-Latest repository migration: `086_finance_expense_evidence_and_defaults.php` (local,
-not deployed). The user reports 084 and 085 deployed; their production
+Latest repository migration: `087_finance_bank_reconciliation.php` (local,
+not deployed). Migration 086 is committed but not runtime-verified or deployed.
+The user reports 084 and 085 deployed; their production
 `schema_migrations` records were not independently inspected in this pass.
 Migration 083 was independently recorded as applied in section 4. Verify the
 production migration ledger before applying 086.
@@ -105,14 +106,15 @@ Recent migration sequence:
 083_user_notifications_and_rejection_resubmit.php
 084_finance_expense_workflow.php
 085_finance_staff_loans.php
-086_finance_expense_evidence_and_defaults.php (local, not deployed)
+086_finance_expense_evidence_and_defaults.php (committed; not deployed)
+087_finance_bank_reconciliation.php (local; not deployed)
 
 Next migration number must NOT be assumed permanently.
 Always inspect the repository before creating the next migration.
 
 Migration 083 is already applied in production and must not be edited or reapplied.
 Do not edit or reapply previously deployed migrations. The current scoped
-local schema upgrade is 086; inspect repository files and deployment records
+local schema upgrade is 087; inspect repository files and deployment records
 before allocating any later number.
 
 ## 4. Production Baseline
@@ -125,7 +127,7 @@ office-app-erp
 
 Migration 083 is independently recorded as applied. The user reports 084/085
 deployed, but this pass did not independently inspect their production
-`schema_migrations` records. Migration 086 is not deployed.
+`schema_migrations` records. Migrations 086 and 087 are not deployed.
 
 Migration 081:
 manager peer replenishment and multiple Quick Sale evidence
@@ -340,7 +342,7 @@ Update this document with:
 
 ## 9. Current Next Action
 
-Current scoped upgrade: migration 086 expense completion (local; not deployed).
+Current scoped upgrade: migration 087 true bank reconciliation (local, uncommitted and source-reviewed; not deployed). Migration 086 is committed but runtime verification remains pending and it is not deployed. It must be accepted and deployed before any separate 087 deployment acceptance.
 The pending end-to-end verification of the notification/rejection-resubmit
 upgrade remains recorded as pending; it does not block separately requested
 future work. Do not mix that pending verification with unrelated future upgrades.
@@ -353,6 +355,7 @@ future work. Do not mix that pending verification with unrelated future upgrades
 - Notifications and rejected edit/resubmit: DEPLOYED / DATABASE VERIFIED / BASIC UI VERIFIED / END-TO-END WORKFLOW VERIFICATION PENDING; see sections 7 and 17.
 - DSA/DSP Sales Summary and Reporting: implemented locally as read-only analytics; not deployed and runtime verification not performed; see section 18.
 - Finance migration 086 expense completion: local implementation, not deployed; see section 22.
+- Finance migration 087 bank reconciliation: local source-reviewed implementation, not committed, deployed or runtime-verified; see section 23.
 - Other module/integration status: Not currently documented — verify before changing this area.
 
 ## 11. Production-specific Deployment Notes
@@ -706,3 +709,15 @@ Expense evidence uses the existing private upload conventions: PDF/PNG/JPEG, 10 
 Bank-statement reconciliation and Cash Flow classification remain deferred, as do payroll deductions and loan restructuring/write-off. No bank/Cash Flow schema or posting semantics are included in migration 086. Local validation and deployment status must be recorded separately after verification; do not infer production deployment from this implementation entry.
 
 Production-readiness source follow-up: selected evidence files are prevalidated before create/edit draft persistence where practical; the locked evidence transaction remains authoritative for the ten-file limit. A failed create upload cleans stored files and compensates only its newly created draft when it is still safe to delete; otherwise the user is told that the draft remains. A failed edit upload reports that draft fields were saved while evidence was not. Draft evidence removal revokes database access before unlink; a failed unlink leaves an inaccessible orphan and emits a structured warning with safe IDs for manual cleanup, never a private path. Migration 086 is **IMPLEMENTED LOCALLY / NOT DEPLOYED / DB AND RUNTIME VERIFICATION PENDING**. The normalized migration checksum is `769bc3ec24bbf3e97246a1e7bd9c6dccaa851639b166d670100eb6d0143e57da`.
+
+## 23. Migration 087 true bank reconciliation (local, source-reviewed)
+
+Starting committed HEAD `1319332` on `main`. Migration 086 is committed but remains unverified and undeployed; production must receive and separately accept 086 before any deployment of 087. No production migration, staging, commit, push or deployment is claimed here.
+
+Migration 087 adds a durable company-scoped bank/GL binding: a Finance GL account belongs to only one physical bank across all mapping revisions, enforced by a unique company/GL key and a composite mapping FK. It also adds mapping history, statement headers and manual lines, reconciliation sessions, append-only match/removal history and events, plus dedicated view/prepare/review/mapping permissions. It does not alter `bank_transactions`, Sales settlement tables, customer-payment posting or migrations 086 and earlier. The mapping is explicit, approved by an actor other than its creator, fixed to the bank currency and a non-system asset GL account. Opening cutover balance is compared with actual posted GL balance immediately before the effective date; no historical shared-cash attribution, automatic transfer journal or backfill is made. Successor mappings preserve prior rows and require prior completed statements to have no outstanding book items.
+
+The local manual workflow can propose/approve a mapping, enter a continuous statement, add lines, match or remove matches to posted mapped-account journal entries, show unmatched statement and book activity, calculate deposits in transit, outstanding payments, adjusted statement balance and difference, and send for independent review. Completion rechecks statement movement, fully explained statement lines, zero difference and active mapping, then stores snapshots and history. Book candidates derive from posted GL lines since cutover; uncleared lines are not copied and remain visible in later periods. Bank statement CREDIT means inflow/GL debit; DEBIT means outflow/GL credit. Sales Settlement Reconciliation remains a separate customer-payment evidence workflow, never an automatic bank clearing.
+
+The narrow posting guard now runs within the existing balanced-journal transaction after company/account validation and account row locks. It blocks a posting or reversal only when that company's journal line touches a historically or currently mapped physical-bank GL account and its date is protected by a completed reconciliation, including a superseded mapping's completed period. Unrelated accounts, companies, later dates and draft/in-review sessions remain unaffected. Correct a protected period by posting in a later open period; completed reconciliations are never reopened in place. The worksheet shows the bank and mapped GL code/name instead of only an internal ID.
+
+Status: **IMPLEMENTED LOCALLY / NOT COMMITTED / NOT DEPLOYED / SOURCE REVIEWED / DB AND RUNTIME VERIFICATION PENDING**. This is not production readiness. Statement evidence upload/download has no route and remains deferred; nullable evidence metadata is unused. CSV/provider import, automatic fee/interest journals, FX reconciliation, versioned reopening and Cash Flow are deferred. MariaDB migration acceptance, posting/completion and double-clear concurrency, permissions, maker/checker, tenant isolation, math and unchanged Sales Settlement/customer-payment paths still require local runtime verification. Migration 086 must first be separately runtime-accepted and deployed; 087 requires separate acceptance before deployment.

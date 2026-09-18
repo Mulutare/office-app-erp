@@ -47,12 +47,13 @@ $definitions = [
         'receivables' => ['Receivables', '/finance?section=receivables'],
         'invoices' => ['Customer Invoices', '/finance/customer-invoices'],
         'receipts' => ['Receipts', '/finance?section=receipts'],
-        'settlements' => ['Settlement Reconciliation', '/finance/settlements', 'finance.settlements.view'],
+        'settlements' => ['Sales Settlement Reconciliation', '/finance/settlements', 'finance.settlements.view'],
         'payables' => ['Payables', '/finance/accounting/payables', 'finance.records.view'],
         'expenses' => ['Expenses', '/finance/expenses', 'finance.records.view'],
         'legacy-expenses' => ['Expense History', '/finance?section=expenses'],
         'staff-loans' => ['Staff Loans & Advances', '/finance/staff-loans', 'finance.records.view'],
         'cash-bank' => ['Cash & Bank', '/finance/accounting/cash-bank', 'finance.records.view'],
+        'bank-reconciliation' => ['Bank Reconciliation', '/finance/bank-reconciliation', 'finance.bank_reconciliation.view'],
         'accounts' => ['Chart of Accounts', '/finance/accounting/accounts', 'finance.records.view'],
         'journals' => ['Journals', '/finance?section=journals'],
         'ledger' => ['General Ledger', '/finance/accounting/ledger', 'finance.records.view'],
@@ -119,6 +120,8 @@ if ($section === '') {
             $section = 'expenses';
         } elseif (str_contains($requestPath, '/finance/settlements')) {
             $section = 'settlements';
+        } elseif (str_contains($requestPath, '/finance/bank-reconciliation')) {
+            $section = 'bank-reconciliation';
         } elseif (str_contains($requestPath, '/finance/customer-invoices')) {
             $section = 'invoices';
         } elseif (preg_match('~/finance/accounting/([^/?]+)~', $requestPath, $matches)) {
@@ -145,7 +148,7 @@ if ($items !== []):
         'overview' => ['Overview', ['dashboard']],
         'receivables' => ['Receivables', ['receivables', 'invoices', 'receipts', 'ar-aging', 'customer-statements', 'ar-reconciliation']],
         'payables' => ['Payables & Expenses', ['payables', 'expenses', 'legacy-expenses', 'staff-loans', 'supplier-statements', 'ap-reconciliation']],
-        'banking' => ['Banking & Cash', ['cash-bank', 'settlements']],
+        'banking' => ['Banking & Cash', ['cash-bank', 'bank-reconciliation', 'settlements']],
         'accounting' => ['Accounting', ['accounts', 'journals', 'ledger', 'periods']],
         'reporting' => ['Reports', ['reports']],
     ];

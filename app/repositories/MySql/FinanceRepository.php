@@ -654,6 +654,13 @@ final class FinanceRepository extends MySqlRepository
                 );
             }
 
+            (new \App\Services\FinanceBankReconciliationPostingGuard())->assertPostingAllowed(
+                $connection,
+                $companyId,
+                $accountIds,
+                $postingDate
+            );
+
             foreach ($normalized as $line) {
                 if ($line['branch_id'] === null) {
                     continue;
