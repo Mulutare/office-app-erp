@@ -11,22 +11,37 @@ final class FinanceExpenseService
 {
     private function company(): int { return (new TenantContext())->companyId(); }
 
-    public function workspace(): array
+    public function workspace(array $filters = []): array
     {
         $company = $this->company();
+        $status = trim((string)($filters['status'] ?? ''));
+        $search = mb_substr(trim((string)($filters['search'] ?? '')), 0, 100);
+        if (!in_array($status, ['', 'draft', 'submitted', 'approved', 'rejected', 'paid', 'reversed', 'cancelled'], true)) $status = '';
         $query = static function (string $sql, int $company): array {
             $statement = \db()->prepare($sql);
             $statement->execute(['company' => $company]);
             return $statement->fetchAll(PDO::FETCH_ASSOC);
         };
         return [
-            'expenses' => $query('SELECT r.*,CONCAT(e.first_name,\' \',e.last_name) employee_name,c.name category_name,a.account_code,a.account_name,b.batch_number FROM finance_expense_requests r JOIN hr_employees e ON e.company_id=r.company_id AND e.employee_id=r.requested_by_employee_id LEFT JOIN finance_expense_categories c ON c.company_id=r.company_id AND c.category_id=r.category_id LEFT JOIN finance_accounts a ON a.company_id=r.company_id AND a.account_id=r.expense_account_id LEFT JOIN finance_journal_batches b ON b.company_id=r.company_id AND b.journal_batch_id=r.journal_batch_id WHERE r.company_id=:company AND r.deleted_at IS NULL ORDER BY r.created_at DESC,r.expense_request_id DESC LIMIT 100', $company),
+            'expenses' => $this->expenseRows($company, $status, $search),
+            'filters' => ['status' => $status, 'search' => $search],
             'employees' => $query('SELECT employee_id,employee_number,first_name,last_name FROM hr_employees WHERE company_id=:company AND deleted_at IS NULL ORDER BY first_name,last_name LIMIT 500', $company),
             'categories' => $query('SELECT category_id,name FROM finance_expense_categories WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL ORDER BY name', $company),
             'accounts' => $query("SELECT account_id,account_code,account_name,account_type FROM finance_accounts WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL AND account_type IN('expense','asset') ORDER BY account_code", $company),
             'journals' => $query("SELECT journal_id,journal_code,journal_name,journal_type FROM finance_journals WHERE company_id=:company AND active=TRUE AND journal_type IN('cash','bank') ORDER BY journal_name", $company),
             'history' => $query('SELECT h.expense_request_id,h.from_status,h.to_status,h.action,h.reason,h.actor_id,h.occurred_at FROM finance_expense_history h JOIN finance_expense_requests r ON r.company_id=h.company_id AND r.expense_request_id=h.expense_request_id WHERE h.company_id=:company AND r.deleted_at IS NULL ORDER BY h.history_id DESC LIMIT 500', $company),
         ];
+    }
+
+    private function expenseRows(int $company, string $status, string $search): array
+    {
+        $sql = "SELECT r.*,CONCAT(e.first_name,' ',e.last_name) employee_name,c.name category_name,a.account_code,a.account_name,b.batch_number FROM finance_expense_requests r JOIN hr_employees e ON e.company_id=r.company_id AND e.employee_id=r.requested_by_employee_id LEFT JOIN finance_expense_categories c ON c.company_id=r.company_id AND c.category_id=r.category_id LEFT JOIN finance_accounts a ON a.company_id=r.company_id AND a.account_id=r.expense_account_id LEFT JOIN finance_journal_batches b ON b.company_id=r.company_id AND b.journal_batch_id=r.journal_batch_id WHERE r.company_id=:company AND r.deleted_at IS NULL";
+        $params = ['company' => $company];
+        if ($status !== '') { $sql .= ' AND r.status=:status'; $params['status'] = $status; }
+        if ($search !== '') { $sql .= ' AND (r.request_number LIKE :search OR r.title LIKE :title)'; $params['search'] = '%'.$search.'%'; $params['title'] = '%'.$search.'%'; }
+        $statement = \db()->prepare($sql.' ORDER BY r.created_at DESC,r.expense_request_id DESC LIMIT 100');
+        $statement->execute($params);
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function save(array $input, int $actor, ?int $id = null): int

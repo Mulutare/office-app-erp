@@ -217,6 +217,8 @@ final class FinanceController
                 'Sales receivables, receipts, journal postings and expense workflow visibility.',
             'contentView' => 'finance.index',
             'user' => $_SESSION['auth'],
+            'workCenter' => in_array('finance.records.view', $_SESSION['auth']['permissions'] ?? [], true)
+                ? (new \App\Services\FinanceWorkCenterService())->summary() : [],
             'receivableSummary' =>
                 $dashboard['receivableSummary'],
             'receivables' =>

@@ -14,8 +14,8 @@ final class FinanceStaffLoanService
     public function workspace(string $filter = ''): array
     {
         $company=$this->company();
-        $allowed=['','active','paid','overdue']; if(!in_array($filter,$allowed,true))$filter='';
-        $where=$filter==='overdue' ? "AND l.status IN('disbursed','active') AND EXISTS(SELECT 1 FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0 AND i.due_date<CURRENT_DATE)" : ($filter==='active' ? "AND l.status IN('disbursed','active')" : ($filter!=='' ? "AND l.status=:status" : ''));
+        $allowed=['','active','due','paid','overdue']; if(!in_array($filter,$allowed,true))$filter='';
+        $where=$filter==='overdue' ? "AND l.status IN('disbursed','active') AND EXISTS(SELECT 1 FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0 AND i.due_date<CURRENT_DATE)" : ($filter==='due' ? "AND l.status IN('disbursed','active') AND EXISTS(SELECT 1 FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0 AND i.due_date<=CURRENT_DATE)" : ($filter==='active' ? "AND l.status IN('disbursed','active')" : ($filter==='paid' ? 'AND l.status=:status' : '')));
         $params=['company'=>$company]; if($filter==='paid')$params['status']=$filter;
         $statement=\db()->prepare("SELECT l.*,CONCAT(e.first_name,' ',e.last_name) employee_name,(SELECT COUNT(*) FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0) installments_remaining,(SELECT COALESCE(SUM(i.remaining_due),0) FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0 AND i.due_date<CURRENT_DATE AND l.status IN('disbursed','active')) overdue_amount FROM finance_staff_loans l JOIN hr_employees e ON e.company_id=l.company_id AND e.employee_id=l.employee_id WHERE l.company_id=:company $where ORDER BY l.loan_id DESC LIMIT 100");
         $statement->execute($params);

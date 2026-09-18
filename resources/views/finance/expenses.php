@@ -14,31 +14,17 @@ $token=csrfToken();
 ?>
 <?php if(!empty($data['expenseError'])): ?><p class="alert alert-danger"><?= e($data['expenseError']) ?></p><?php endif; ?>
 <?php if(!empty($data['notice'])): ?><p class="alert alert-success"><?= e($data['notice']) ?></p><?php endif; ?>
-<?php if($canManage): ?>
-<details class="card finance-composer"><summary>New expense draft</summary>
-<form method="post" action="<?= e(appBasePath().'/finance/expenses') ?>" class="form-grid">
-<input type="hidden" name="_token" value="<?= e($token) ?>">
-<label>Employee <select name="employee_id" required><option value="">Select</option><?php foreach($employees as $employee): ?><option value="<?= (int)$employee['employee_id'] ?>"><?= e($employee['employee_number'].' '.$employee['first_name'].' '.$employee['last_name']) ?></option><?php endforeach; ?></select></label>
-<label>Type <select name="expense_kind"><option value="company_paid">Company paid</option><option value="reimbursement">Employee reimbursement</option><option value="petty_cash">Petty cash</option></select></label>
-<label>Category <select name="category_id"><option value="">None</option><?php foreach($categories as $category): ?><option value="<?= (int)$category['category_id'] ?>"><?= e($category['name']) ?></option><?php endforeach; ?></select></label>
-<label>Expense account <select name="expense_account_id" required><option value="">Select</option><?php foreach($accounts as $account): if($account['account_type']!=='expense')continue; ?><option value="<?= (int)$account['account_id'] ?>"><?= e($account['account_code'].' '.$account['account_name']) ?></option><?php endforeach; ?></select></label>
-<label>Title <input name="title" required maxlength="150"></label>
-<label>Expense date <input type="date" name="expense_date" required value="<?= e(date('Y-m-d')) ?>"></label>
-<label>Currency <input name="currency" required maxlength="3" value="ETB"></label>
-<label>Net amount <input type="number" name="net_amount" step="0.01" min="0.01" required></label>
-<label>Tax amount <input type="number" name="tax_amount" step="0.01" min="0" value="0"></label>
-<label>Recoverable tax account <select name="tax_account_id"><option value="">None</option><?php foreach($accounts as $account): if($account['account_type']!=='asset')continue; ?><option value="<?= (int)$account['account_id'] ?>"><?= e($account['account_code'].' '.$account['account_name']) ?></option><?php endforeach; ?></select></label>
-<label>Business purpose <input name="description" maxlength="500"></label>
-<label>Receipt / evidence reference <input name="evidence_reference" maxlength="500"></label>
-<button type="submit">Save draft</button>
-</form></details>
-<?php endif; ?>
-<section class="card"><h2>Expense register</h2><div class="table-responsive"><table class="data-table"><thead><tr><th>Number</th><th>Employee</th><th>Type</th><th>Category / account</th><th>Date</th><th>Amount</th><th>Status</th><th>Journal</th><th>Action</th></tr></thead><tbody>
+<div class="finance-toolbar"><div><h2>Expense register</h2><p>Review requests and posted expenses. Evidence references are text only; file receipts are not yet supported.</p></div><?php if($canManage): ?><button class="btn btn-primary" type="button" data-open-details="new-expense">+ New Expense</button><?php endif; ?></div>
+<section class="card finance-register"><form method="get" action="<?= e(appBasePath().'/finance/expenses') ?>" class="finance-filter-bar" aria-label="Expense filters">
+<label>Search <input type="search" name="search" maxlength="100" value="<?= e($data['expenseData']['filters']['search']??'') ?>" placeholder="Number or title"></label>
+<label>Status <select name="status"><option value="">All statuses</option><?php foreach(['draft','submitted','approved','rejected','paid','reversed','cancelled'] as $option): ?><option value="<?= e($option) ?>"<?= ($data['expenseData']['filters']['status']??'')===$option?' selected':'' ?>><?= e(ucfirst($option)) ?></option><?php endforeach; ?></select></label>
+<button class="btn btn-secondary" type="submit">Apply filters</button><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/expenses') ?>">Clear</a></form>
+<div class="table-responsive"><table class="data-table"><thead><tr><th>Number</th><th>Employee</th><th>Type</th><th>Category / account</th><th>Date</th><th>Amount</th><th>Status</th><th>Journal</th><th>Action</th></tr></thead><tbody>
 <?php foreach($records as $row): $id=(int)$row['expense_request_id'];$status=(string)$row['status'];$own=(int)$row['created_by']===$actor; ?>
-<tr id="expense-<?= $id ?>"><td><?= e($row['request_number']) ?></td><td><?= e($row['employee_name']) ?></td><td><?= e(str_replace('_',' ',$row['expense_kind'])) ?></td><td><?= e(($row['category_name']??'').' / '.($row['account_code']??'')) ?></td><td><?= e($row['expense_date']) ?></td><td class="erp-money-column"><?= e($row['currency'].' '.number_format((float)$row['amount'],2)) ?></td><td><span class="status"><?= e($status) ?></span></td><td><?= e($row['batch_number']??'') ?></td><td>
-<details><summary>History</summary><?php foreach(($history[$id]??[]) as $event): ?><p><?= e($event['occurred_at'].' '.$event['action'].' by user #'.$event['actor_id'].($event['reason']?' — '.$event['reason']:'')) ?></p><?php endforeach; ?></details>
+<tr id="expense-<?= $id ?>"><td><strong><?= e($row['request_number']) ?></strong><small><?= e($row['title']) ?></small></td><td><?= e($row['employee_name']) ?></td><td><?= e(str_replace('_',' ',$row['expense_kind'])) ?></td><td><?= e(($row['category_name']??'').' / '.($row['account_code']??'')) ?></td><td><?= e($row['expense_date']) ?></td><td class="erp-money-column"><?= e($row['currency'].' '.number_format((float)$row['amount'],2)) ?></td><td><span class="finance-status finance-status-<?= e($status) ?>"><?= e($status) ?></span></td><td><?= e($row['batch_number']??'') ?></td><td class="finance-row-actions">
+<details><summary class="btn btn-secondary btn-compact">History</summary><?php foreach(($history[$id]??[]) as $event): ?><p><?= e($event['occurred_at'].' '.$event['action'].' by user #'.$event['actor_id'].($event['reason']?' — '.$event['reason']:'')) ?></p><?php endforeach; ?></details>
 <?php if($canManage&&$own&&$status==='draft'): ?>
-<details><summary>Edit draft</summary><form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/edit') ?>">
+<details><summary class="btn btn-secondary btn-compact">Edit draft</summary><form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/edit') ?>" class="finance-inline-form">
 <input type="hidden" name="_token" value="<?= e($token) ?>">
 <label>Employee <select name="employee_id" required><?php foreach($employees as $employee): ?><option value="<?= (int)$employee['employee_id'] ?>"<?= (int)$row['requested_by_employee_id']===(int)$employee['employee_id']?' selected':'' ?>><?= e($employee['employee_number'].' '.$employee['first_name'].' '.$employee['last_name']) ?></option><?php endforeach; ?></select></label>
 <label>Type <select name="expense_kind"><?php foreach(['company_paid'=>'Company paid','reimbursement'=>'Employee reimbursement','petty_cash'=>'Petty cash'] as $value=>$label): ?><option value="<?= e($value) ?>"<?= $row['expense_kind']===$value?' selected':'' ?>><?= e($label) ?></option><?php endforeach; ?></select></label>
@@ -52,20 +38,41 @@ $token=csrfToken();
 <label>Tax account <select name="tax_account_id"><option value="">None</option><?php foreach($accounts as $account): if($account['account_type']!=='asset')continue; ?><option value="<?= (int)$account['account_id'] ?>"<?= (int)$row['tax_account_id']===(int)$account['account_id']?' selected':'' ?>><?= e($account['account_code'].' '.$account['account_name']) ?></option><?php endforeach; ?></select></label>
 <label>Purpose <input name="description" value="<?= e($row['description']??'') ?>"></label>
 <label>Evidence reference <input name="evidence_reference" value="<?= e($row['evidence_reference']??'') ?>"></label>
-<button type="submit">Save changes</button></form></details>
-<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/submit') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><button type="submit">Submit</button></form>
-<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/cancel') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><button type="submit">Cancel</button></form>
+<button class="btn btn-primary" type="submit">Save changes</button></form></details>
+<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/submit') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><button class="btn btn-primary" type="submit">Submit</button></form>
+<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/cancel') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><button class="btn btn-danger" type="submit">Cancel</button></form>
 <?php elseif($canApprove&&!$own&&$status==='submitted'): ?>
-<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/review') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><button name="action" value="approve">Approve</button><input name="reason" placeholder="Rejection reason"><button name="action" value="reject">Reject</button></form>
+<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/review') ?>" class="finance-inline-form"><input type="hidden" name="_token" value="<?= e($token) ?>"><button class="btn btn-primary" name="action" value="approve">Approve</button><input name="reason" aria-label="Rejection reason" placeholder="Rejection reason"><button class="btn btn-danger" name="action" value="reject">Reject</button></form>
 <?php elseif($canManage&&$status==='approved'): ?>
 <?php if($row['expense_kind']==='reimbursement'&&empty($row['recognition_batch_id'])): ?><form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/recognize') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><input type="date" name="recognition_date" value="<?= e(date('Y-m-d')) ?>" required><button type="submit">Recognize employee payable</button></form><?php endif; ?>
 <?php if($row['expense_kind']!=='reimbursement'||!empty($row['recognition_batch_id'])): ?>
-<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/pay') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><input type="date" name="payment_date" value="<?= e(date('Y-m-d')) ?>" required><select name="journal_id" required><option value="">Journal</option><?php foreach($journals as $journal): ?><option value="<?= (int)$journal['journal_id'] ?>"><?= e($journal['journal_name']) ?></option><?php endforeach; ?></select><button type="submit">Pay &amp; post</button></form>
+<form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/pay') ?>" class="finance-inline-form"><input type="hidden" name="_token" value="<?= e($token) ?>"><input type="date" name="payment_date" aria-label="Payment date" value="<?= e(date('Y-m-d')) ?>" required><select name="journal_id" aria-label="Payment journal" required><option value="">Journal</option><?php foreach($journals as $journal): ?><option value="<?= (int)$journal['journal_id'] ?>"><?= e($journal['journal_name']) ?></option><?php endforeach; ?></select><button class="btn btn-primary" type="submit">Pay &amp; post</button></form>
 <?php endif; ?>
 <?php elseif($canApprove&&$status==='paid'&&(int)$row['paid_by']!==$actor): ?>
-<details><summary>Reverse</summary><form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/reverse') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><input type="date" name="reversal_date" value="<?= e(date('Y-m-d')) ?>" required><input name="reason" maxlength="500" required placeholder="Reversal reason"><button type="submit">Reverse posted expense</button></form></details>
+<details><summary class="btn btn-danger btn-compact">Reverse</summary><form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/reverse') ?>" class="finance-inline-form"><input type="hidden" name="_token" value="<?= e($token) ?>"><input type="date" name="reversal_date" aria-label="Reversal date" value="<?= e(date('Y-m-d')) ?>" required><input name="reason" aria-label="Reversal reason" maxlength="500" required placeholder="Reversal reason"><button class="btn btn-danger" type="submit">Reverse posted expense</button></form></details>
 <?php endif; ?>
 </td></tr>
 <?php endforeach; ?>
-<?php if(!$records): ?><tr><td colspan="9">No expenses recorded.</td></tr><?php endif; ?>
+<?php if(!$records): ?><tr><td colspan="9" class="finance-empty-state">No expenses match these filters. Clear the filters or create a draft.</td></tr><?php endif; ?>
 </tbody></table></div></section>
+<?php if($canManage): ?>
+<details id="new-expense" class="card finance-composer"><summary class="btn btn-primary">+ New Expense</summary>
+<form method="post" action="<?= e(appBasePath().'/finance/expenses') ?>" class="finance-form">
+<input type="hidden" name="_token" value="<?= e($token) ?>">
+<fieldset class="finance-form-section"><legend>Expense details</legend><div class="form-grid">
+<label>Employee <select name="employee_id" required><option value="">Select</option><?php foreach($employees as $employee): ?><option value="<?= (int)$employee['employee_id'] ?>"><?= e($employee['employee_number'].' '.$employee['first_name'].' '.$employee['last_name']) ?></option><?php endforeach; ?></select></label>
+<label>Type <select name="expense_kind"><option value="company_paid">Company paid</option><option value="reimbursement">Employee reimbursement</option><option value="petty_cash">Petty cash</option></select></label>
+<label>Expense date <input type="date" name="expense_date" required value="<?= e(date('Y-m-d')) ?>"></label>
+<label>Title <input name="title" required maxlength="150"></label>
+<label>Business purpose <input name="description" maxlength="500"></label></div></fieldset>
+<fieldset class="finance-form-section"><legend>Accounting</legend><div class="form-grid">
+<label>Category <select name="category_id"><option value="">None</option><?php foreach($categories as $category): ?><option value="<?= (int)$category['category_id'] ?>"><?= e($category['name']) ?></option><?php endforeach; ?></select></label>
+<label>Expense account <select name="expense_account_id" required><option value="">Select</option><?php foreach($accounts as $account): if($account['account_type']!=='expense')continue; ?><option value="<?= (int)$account['account_id'] ?>"><?= e($account['account_code'].' '.$account['account_name']) ?></option><?php endforeach; ?></select></label>
+<label>Currency <input name="currency" required maxlength="3" value="ETB"></label>
+<label>Net amount <input type="number" name="net_amount" step="0.01" min="0.01" required></label></div></fieldset>
+<fieldset class="finance-form-section"><legend>Tax</legend><div class="form-grid"><label>Tax amount <input type="number" name="tax_amount" step="0.01" min="0" value="0"></label>
+<label>Recoverable tax account <select name="tax_account_id"><option value="">None</option><?php foreach($accounts as $account): if($account['account_type']!=='asset')continue; ?><option value="<?= (int)$account['account_id'] ?>"><?= e($account['account_code'].' '.$account['account_name']) ?></option><?php endforeach; ?></select></label></div></fieldset>
+<fieldset class="finance-form-section"><legend>Evidence</legend><div class="form-grid"><label>External receipt / evidence reference <input name="evidence_reference" maxlength="500"></label></div><p class="finance-muted">A reference does not attach a file. Keep the original receipt in the approved document system.</p></fieldset>
+<div class="finance-action-bar"><button class="btn btn-primary" type="submit">Save draft</button></div>
+</form></details>
+<?php endif; ?>

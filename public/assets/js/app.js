@@ -939,3 +939,14 @@ document.addEventListener('DOMContentLoaded', () => {
         cell.append(chip, detail);
     });
 });
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-open-details]').forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+            const details = document.getElementById(trigger.dataset.openDetails || '');
+            if (!(details instanceof HTMLDetailsElement)) return;
+            details.open = true;
+            details.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            details.querySelector('select, input')?.focus({ preventScroll: true });
+        });
+    });
+});

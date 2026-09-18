@@ -140,6 +140,58 @@ if ($module === 'assets' && !in_array($section, ['register', 'direct', 'categori
 $items = $definitions[$module] ?? [];
 if ($items !== []):
 ?>
+<?php if ($module === 'finance'):
+    $financeGroups = [
+        'overview' => ['Overview', ['dashboard']],
+        'receivables' => ['Receivables', ['receivables', 'invoices', 'receipts', 'ar-aging', 'customer-statements', 'ar-reconciliation']],
+        'payables' => ['Payables & Expenses', ['payables', 'expenses', 'legacy-expenses', 'staff-loans', 'supplier-statements', 'ap-reconciliation']],
+        'banking' => ['Banking & Cash', ['cash-bank', 'settlements']],
+        'accounting' => ['Accounting', ['accounts', 'journals', 'ledger', 'periods']],
+        'reporting' => ['Reports', ['reports']],
+    ];
+    $financeLinks = array_replace($items, ['invoices' => ['Customer Invoices', '/finance/customer-invoices', 'finance.records.view']]) + [
+        'ar-aging' => ['AR Aging', '/finance/accounting/receivables', 'finance.records.view'],
+        'customer-statements' => ['Customer Statements', '/finance/statements/customer', 'finance.records.view'],
+        'ar-reconciliation' => ['AR / GL Reconciliation', '/finance/reconciliation', 'finance.records.view'],
+        'supplier-statements' => ['Supplier Statements', '/finance/statements/supplier', 'finance.records.view'],
+        'ap-reconciliation' => ['AP / GL Reconciliation', '/finance/reconciliation?focus=ap', 'finance.records.view'],
+    ];
+    if (str_contains($requestPath, '/finance/statements/customer')) $section = 'customer-statements';
+    elseif (str_contains($requestPath, '/finance/statements/supplier')) $section = 'supplier-statements';
+    elseif (str_contains($requestPath, '/finance/reconciliation')) $section = ($_GET['focus'] ?? '') === 'ap' ? 'ap-reconciliation' : 'ar-reconciliation';
+    elseif (str_contains($requestPath, '/finance/accounting/receivables')) $section = 'ar-aging';
+    $currentGroup = 'overview';
+    foreach ($financeGroups as $groupKey => [, $keys]) {
+        if (in_array($section, $keys, true)) { $currentGroup = $groupKey; break; }
+    }
+    $linkVisible = static fn (array $item): bool => !isset($item[2]) || $can($item[2]);
+?>
+<nav class="finance-workspace-nav" aria-label="Finance workspace">
+    <div class="finance-primary-nav" aria-label="Finance work centers">
+        <?php foreach ($financeGroups as $groupKey => [$label, $keys]):
+            $visibleKeys = array_values(array_filter($keys, static fn (string $key): bool => $linkVisible($financeLinks[$key])));
+            if ($visibleKeys === []) continue;
+            $path = $financeLinks[$visibleKeys[0]][1];
+        ?>
+        <a href="<?= e(appBasePath() . $path) ?>" class="finance-primary-link<?= $currentGroup === $groupKey ? ' active' : '' ?>"<?= $currentGroup === $groupKey ? ' aria-current="page"' : '' ?>><?= e($label) ?></a>
+        <?php endforeach; ?>
+    </div>
+    <div class="finance-secondary-nav" aria-label="<?= e($financeGroups[$currentGroup][0]) ?> pages">
+        <?php foreach ($financeGroups[$currentGroup][1] as $key):
+            $item = $financeLinks[$key]; if (!$linkVisible($item)) continue;
+            [$label, $path] = $item;
+            $actionCount = (int) ($actionRequiredCounts['finance'][$key] ?? 0);
+        ?>
+        <span class="module-tab-wrap<?= $actionCount > 0 ? ' has-action-badge' : '' ?>">
+            <a class="finance-secondary-link<?= $section === $key ? ' active' : '' ?>" href="<?= e(appBasePath() . $path) ?>"<?= $section === $key ? ' aria-current="page"' : '' ?>><?= e($label) ?></a>
+            <?php if ($actionCount > 0): $separator = str_contains($path, '?') ? '&' : '?'; ?>
+            <a class="nav-action-badge" href="<?= e(appBasePath() . $path . $separator . 'task_filter=action_required') ?>" aria-label="<?= e('Show ' . $actionCount . ' records requiring action') ?>"><?= e($actionCount) ?></a>
+            <?php endif; ?>
+        </span>
+        <?php endforeach; ?>
+    </div>
+</nav>
+<?php else: ?>
 <nav class="module-tabs<?= $module === 'finance' ? ' finance-module-tabs' : '' ?>" aria-label="<?= e(ucfirst($module)) ?> sections">
     <?php foreach ($items as $key => $item): ?>
         <?php [$label, $path] = $item; $permission = $item[2] ?? null; ?>
@@ -156,4 +208,5 @@ if ($items !== []):
         </span>
     <?php endforeach; ?>
 </nav>
+<?php endif; ?>
 <?php endif; ?>

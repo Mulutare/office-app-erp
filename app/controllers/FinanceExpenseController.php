@@ -22,7 +22,7 @@ final class FinanceExpenseController
             'pageDescription'=>'Controlled expense requests, approvals and posted payments.',
             'contentView'=>'finance.expenses',
             'user'=>$_SESSION['auth'],
-            'expenseData'=>$this->service()->workspace(),
+            'expenseData'=>$this->service()->workspace($_GET),
             'notice'=>\getFlash('finance_expense_notice'),
             'expenseError'=>\getFlash('finance_expense_error'),
         ]);
