@@ -1,4 +1,4 @@
-<?php $claim=$incentiveDetail['claim'];$settlements=$incentiveDetail['settlements'];$events=$incentiveDetail['events']; ?>
+<?php $incentiveDetail=$data['incentiveDetail']??[];$claim=$incentiveDetail['claim'];$settlements=$incentiveDetail['settlements'];$events=$incentiveDetail['events'];$notice=$data['notice']??null;$error=$data['error']??null;$canApproveIncentive=$data['canApproveIncentive']??false;$canSettleIncentive=$data['canSettleIncentive']??false; ?>
 <div class="module-stack">
 <div class="page-actions"><a class="btn btn-secondary" href="<?=e(appBasePath())?>/sales/incentives">Back to Incentives</a></div>
 <?php if(!empty($notice)):?><div class="notice success"><?=e($notice)?></div><?php endif;?>

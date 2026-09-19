@@ -44,15 +44,18 @@ is intended to remain server-authoritative, with existing sale lines retaining
 their historical snapshots. Operational float and incentive records do not post
 Finance GL entries; accounting policy is deferred.
 
-The 088 selling resolver now accepts only approved, effective SKU pricing and
-exact discount; no approved price means the sale is blocked. Legacy catalogue
-price and pricelist rules remain for history but do not control new 088 selling.
+The selling resolver accepts only saved, effective SKU pricing with percentage
+discount and tax; an unpriced SKU is blocked. A privileged user updates these
+terms directly with `sales.pricing.manage`, without a second approval. The
+product catalogue and DSA/DSP preview read the same effective record. Legacy
+pricelist rules remain for history but do not control Quick Sale pricing.
 Reservation events are captured before the locked baseline, with an event-ID
 boundary used to exclude pre-baseline changes. Existing-company permissions are
 limited to active assigned company-owner/system-administrator, Sales Manager,
 Sales Approver and Sales Officer roles; DSA/DSP identity and manager hierarchy
-remain service-enforced. MariaDB cutover/concurrency and workflow acceptance
-remain open. See `docs/UPGRADE_STATE.md` section 24 before using any 088 feature.
+remain service-enforced. The core Sales, Finance and DSA/DSP workflows were
+exercised in the local acceptance pass. See `docs/UPGRADE_STATE.md`
+section 25 for the cumulative 086–091 production package status.
 
 Daily stock history reads completed authoritative movement legs: receipt is
 Received; internal source/destination legs are Transfers Out/In; return_in is

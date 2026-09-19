@@ -16,9 +16,13 @@ $statusTone = static fn (string $status): string => match ($status) {
 $maskAccount = static fn (string $account): string => strlen($account) <= 4 ? $account : '****' . substr($account, -4);
 $workflow = (string) $settlement['workflow_status'];
 $reconciliation = (string) $settlement['reconciliation_status'];
+$actorId = (int) ($data['user']['user_id'] ?? 0);
+$canReview = $can('sales.settlements.review')
+    && $actorId !== (int) $settlement['created_by']
+    && $actorId !== (int) ($settlement['submitted_by'] ?? 0);
 $hasWorkflowAction =
     ($workflow === 'draft' && $can('sales.settlements.submit'))
-    || ($workflow === 'submitted' && $can('sales.settlements.review'))
+    || ($workflow === 'submitted' && $canReview)
     || ($workflow === 'supervisor_reviewed' && $can('finance.settlements.reconcile'))
     || ($workflow === 'finance_reconciled' && $can('finance.settlements.approve'));
 ?>
@@ -51,7 +55,7 @@ $hasWorkflowAction =
 
     <?php if ($hasWorkflowAction): ?><section class="card erp-action-bar"><div><p class="erp-eyebrow">Next step</p><h2>Workflow Action</h2></div><div class="erp-action-group">
         <?php if ($workflow === 'draft' && $can('sales.settlements.submit')): ?><form method="post" action="<?= e(appBasePath() . '/sales/settlements/' . $settlement['settlement_id'] . '/submit') ?>"><?= csrfField() ?><button class="btn btn-primary">Submit Settlement</button></form><?php endif; ?>
-        <?php if ($workflow === 'submitted' && $can('sales.settlements.review')): ?><form method="post" action="<?= e(appBasePath() . '/sales/settlements/' . $settlement['settlement_id'] . '/review') ?>"><?= csrfField() ?><button class="btn btn-primary">Review Settlement</button></form><?php endif; ?>
+        <?php if ($workflow === 'submitted' && $canReview): ?><form method="post" action="<?= e(appBasePath() . '/sales/settlements/' . $settlement['settlement_id'] . '/review') ?>"><?= csrfField() ?><button class="btn btn-primary">Review Settlement</button></form><?php endif; ?>
         <?php if ($workflow === 'supervisor_reviewed' && in_array($reconciliation, ['matched', 'partial', 'mismatch', 'review_required'], true) && $can('finance.settlements.reconcile')): ?><form method="post" action="<?= e(appBasePath() . '/sales/settlements/' . $settlement['settlement_id'] . '/reconcile') ?>"><?= csrfField() ?><button class="btn btn-primary">Reconcile</button></form><?php endif; ?>
         <?php if ($workflow === 'finance_reconciled' && $can('finance.settlements.approve')): ?><form method="post" action="<?= e(appBasePath() . '/sales/settlements/' . $settlement['settlement_id'] . '/approve') ?>"><?= csrfField() ?><button class="btn btn-primary">Approve</button></form><?php endif; ?>
     </div></section><?php endif; ?>

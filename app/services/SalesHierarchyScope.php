@@ -24,7 +24,11 @@ final class SalesHierarchyScope
     public function userIds(int $companyId, int $actorId): array
     {
         if ($this->isAgent($companyId, $actorId)) return [$actorId];
-        return (new StockHierarchy())->userIds($companyId, $actorId);
+        $ids = (new StockHierarchy())->userIds($companyId, $actorId);
+        $direct = \db()->prepare('SELECT cu.user_id FROM company_users cu INNER JOIN users u ON u.user_id=cu.user_id AND u.active=TRUE AND u.deleted_at IS NULL WHERE cu.company_id=? AND cu.manager_user_id=? AND cu.active=TRUE');
+        $direct->execute([$companyId, $actorId]);
+        foreach ($direct->fetchAll(\PDO::FETCH_COLUMN) as $userId) $ids[] = (int) $userId;
+        return array_values(array_unique(array_map('intval', $ids)));
     }
 
     public function canManage(int $companyId, int $actorId): bool

@@ -154,7 +154,7 @@ final class SalesQuickSaleService
             $stock->execute([$companyId,(int)$warehouse['warehouse_id']]);
             $available=array_column($stock->fetchAll(\PDO::FETCH_ASSOC),'available','product_id');
             $pricing=new SalesPricingService();$currency=$this->defaultCurrency();
-            foreach($products as &$product){$price=$pricing->effective($companyId,(int)$product['product_id'],date('Y-m-d'),$currency);$product['display_price']=$price['unit_price'];$product['display_discount']=$price['discount_per_unit'];$product['available_quantity']=$available[$product['product_id']]??0;}
+            foreach($products as &$product){$price=$pricing->effective($companyId,(int)$product['product_id'],date('Y-m-d'),$currency);$product['display_price']=$price['unit_price'];$product['display_discount']=$price['discount_per_unit'];$product['display_discount_percent']=$price['discount_percent'];$product['display_tax_percent']=$price['tax_percent'];$product['display_priced']=$price['price_change_id']!==null;$product['available_quantity']=$available[$product['product_id']]??0;}
             unset($product);
 
             return [
@@ -227,22 +227,26 @@ final class SalesQuickSaleService
                 }
 
                 $productId = (int) ($line['product_id'] ?? 0);
-                $quantity = (float) ($line['quantity'] ?? 0);
+                $quantityRaw=$line['quantity']??0;
+                if (!is_scalar($quantityRaw) || !is_numeric($quantityRaw) || !is_finite((float)$quantityRaw)) {
+                    return ['successful'=>false,'errors'=>['line_'.($index+1)=>'Enter a valid quantity of at least 1.']];
+                }
+                $quantity = (float) $quantityRaw;
 
-                if ($productId <= 0 && $quantity <= 0) {
+                if ($quantity === 0.0) {
                     continue;
                 }
 
                 if (
                     $productId <= 0
                     || !isset($products[$productId])
-                    || $quantity <= 0
+                    || $quantity < 1
                 ) {
                     return [
                         'successful' => false,
                         'errors' => [
                             'line_' . ($index + 1) =>
-                                'Select a valid product and positive quantity.',
+                                'Select a valid product and quantity of at least 1.',
                         ],
                     ];
                 }
@@ -270,7 +274,7 @@ final class SalesQuickSaleService
                 return [
                     'successful' => false,
                     'errors' => [
-                        'lines' => 'Add at least one product.',
+                        'lines' => 'At least 1 item is needed. Select a product and quantity, then send to your manager.',
                     ],
                 ];
             }
@@ -1294,12 +1298,11 @@ final class SalesQuickSaleService
              * the invoice but failed before closing the Quick Sale.
              */
             $existingInvoiceStatement = $connection->prepare(
-                "SELECT invoice_id
+                "SELECT invoice_id, invoice_policy
                  FROM finance_invoices
                  WHERE company_id = :company_id
                    AND sales_order_id = :order_id
                    AND document_type = 'customer_invoice'
-                   AND invoice_policy = 'delivered'
                    AND status <> 'cancelled'
                  ORDER BY invoice_id"
             );
@@ -1309,9 +1312,9 @@ final class SalesQuickSaleService
                 'order_id' => $orderId,
             ]);
 
-            $existingInvoiceIds =
+            $existingInvoices =
                 $existingInvoiceStatement->fetchAll(
-                    \PDO::FETCH_COLUMN
+                    \PDO::FETCH_ASSOC
                 );
 
             $completionStatement = $connection->prepare(
@@ -1349,26 +1352,55 @@ final class SalesQuickSaleService
 
             $invoiceId = 0;
 
-            if ($existingInvoiceIds !== []) {
+            if ($existingInvoices !== []) {
                 if ($totalSold <= 0.0005) {
                     throw new RuntimeException(
-                        'A delivered customer invoice already exists for an all-return Quick Sale.'
+                        'A customer invoice already exists for an all-return Quick Sale.'
                     );
                 }
 
-                if (count($existingInvoiceIds) !== 1) {
+                if (count($existingInvoices) !== 1) {
                     throw new RuntimeException(
-                        'Multiple delivered customer invoices already exist for this Quick Sale. Finance review is required.'
+                        'Multiple customer invoices already exist for this Quick Sale. Finance review is required.'
                     );
                 }
 
-                if (!$allSoldPickingsPreviouslyCompleted) {
-                    throw new RuntimeException(
-                        'A delivered customer invoice already exists before this Quick Sale report was completed.'
+                $existingInvoice = $existingInvoices[0];
+                if ((string) $existingInvoice['invoice_policy'] === 'delivered') {
+                    if (!$allSoldPickingsPreviouslyCompleted) {
+                        throw new RuntimeException(
+                            'A delivered customer invoice already exists before this Quick Sale report was completed.'
+                        );
+                    }
+                } elseif ((string) $existingInvoice['invoice_policy'] === 'ordered') {
+                    $soldByProduct = [];
+                    foreach ($reportLines as $line) {
+                        $productId = (int) $line['product_id'];
+                        $soldByProduct[$productId] = round(
+                            ($soldByProduct[$productId] ?? 0) + (float) $line['sold_quantity'], 3
+                        );
+                    }
+                    $invoiced = $connection->prepare(
+                        'SELECT product_id, SUM(quantity) quantity FROM finance_invoice_lines '
+                        . 'WHERE company_id = ? AND invoice_id = ? GROUP BY product_id'
                     );
+                    $invoiced->execute([$companyId, (int) $existingInvoice['invoice_id']]);
+                    $invoicedByProduct = [];
+                    foreach ($invoiced->fetchAll(\PDO::FETCH_ASSOC) as $line) {
+                        $invoicedByProduct[(int) $line['product_id']] = round((float) $line['quantity'], 3);
+                    }
+                    ksort($soldByProduct);
+                    ksort($invoicedByProduct);
+                    if ($soldByProduct !== $invoicedByProduct) {
+                        throw new RuntimeException(
+                            'The existing ordered invoice does not match sold quantities. Finance review is required before confirmation.'
+                        );
+                    }
+                } else {
+                    throw new RuntimeException('Unsupported existing customer invoice policy.');
                 }
 
-                $invoiceId = (int) $existingInvoiceIds[0];
+                $invoiceId = (int) $existingInvoice['invoice_id'];
             }
 
             $inventory = RepositoryFactory::inventory();

@@ -9976,17 +9976,39 @@ form[action$="/procurement/requisitions"] > .btn {
 }
 
 .quick-sale-price-note {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     min-width: 0;
-    gap: 2px;
-    font-size: 0.86rem;
+    gap: 8px 12px;
+    font-size: 0.78rem;
+}
+
+.quick-sale-price-note > span {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px 6px;
+    min-width: 0;
+    color: #526174;
+}
+
+.quick-sale-price-note strong {
+    color: #172b4d;
+    font-size: 0.88rem;
+}
+
+.quick-sale-price-note .quick-sale-line-total strong {
+    color: #1451a6;
 }
 
 .quick-sale-price-note small {
     color: #697586;
     line-height: 1.35;
+}
+
+.quick-sale-price-note [data-quick-warning] {
+    grid-column: 1 / -1;
+    color: #a34013;
 }
 
 .quick-sale-item [data-quick-remove] {
@@ -10124,10 +10146,11 @@ form[action$="/procurement/requisitions"] > .btn {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    grid-template-columns: minmax(0, 1fr) 120px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-areas:
-        "product quantity"
-        "price remove";
+        "family subtype brand model"
+        "product product product quantity"
+        "price price price remove";
     column-gap: 12px;
     row-gap: 8px;
     padding: 12px 0;
@@ -10140,15 +10163,20 @@ form[action$="/procurement/requisitions"] > .btn {
 }
 
 .quick-sale-form .quick-sale-item > .form-field:first-child {
-    grid-area: product;
+    grid-area: family;
 }
+
+.quick-sale-form .quick-sale-item > .form-field:nth-child(2) { grid-area: subtype; }
+.quick-sale-form .quick-sale-item > .form-field:nth-child(3) { grid-area: brand; }
+.quick-sale-form .quick-sale-item > .form-field:nth-child(4) { grid-area: model; }
+.quick-sale-form .quick-sale-item > .form-field:nth-child(5) { grid-area: product; }
 
 .quick-sale-form .quick-sale-quantity {
     grid-area: quantity;
     width: 100%;
     min-width: 0;
     max-width: none;
-    padding-right: 16px;
+    padding-right: 0;
     justify-self: stretch;
 }
 
@@ -10179,15 +10207,34 @@ form[action$="/procurement/requisitions"] > .btn {
     justify-self: end;
 }
 
+@media (max-width: 900px) {
+    .quick-sale-form .quick-sale-item {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-areas:
+            "family subtype"
+            "brand model"
+            "product quantity"
+            "price price"
+            "remove remove";
+    }
+    .quick-sale-price-note { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 480px) {
     .quick-sale-form .quick-sale-item {
         grid-template-columns: 1fr;
         grid-template-areas:
+            "family"
+            "subtype"
+            "brand"
+            "model"
             "product"
             "quantity"
             "price"
             "remove";
     }
+
+    .quick-sale-price-note { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
     .quick-sale-form .quick-sale-quantity {
         width: 100%;

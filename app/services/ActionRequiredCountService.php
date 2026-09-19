@@ -60,11 +60,8 @@ final class ActionRequiredCountService
         };
         $parameters = ['company_id' => $companyId, 'user_id' => $userId];
 
-        if ($module==='sales' && $section==='pricing' && $can('sales.pricing.approve')) {
-            $add("SELECT price_change_id id,CONCAT('SKU ',product_id,' · ',currency) reference FROM sales_product_price_changes WHERE company_id=:company_id AND status='submitted' AND requested_by<>:user_id",$parameters,'price_change','Approve SKU price and exact discount','approve_sales_price','/sales/pricing');
-        }
         if ($module==='sales' && $section==='incentives' && $can('sales.incentive.approve')) {
-            $add("SELECT incentive_claim_id id,CONCAT('Safaricom #',incentive_claim_id) reference FROM sales_incentive_claims WHERE company_id=:company_id AND responsible_manager_id=:user_id AND status='submitted' AND submitted_by<>:user_id",$parameters,'incentive_claim','Review DSA/DSP incentive','approve_incentive','/sales/incentives/{id}');
+            $add("SELECT incentive_claim_id id,CONCAT('Safaricom #',incentive_claim_id) reference FROM sales_incentive_claims WHERE company_id=:company_id AND responsible_manager_id=:user_id AND status='submitted' AND submitted_by<>:submitter_id",$parameters + ['submitter_id'=>$userId],'incentive_claim','Review DSA/DSP incentive','approve_incentive','/sales/incentives/{id}');
         }
 
         if ($module==='inventory' && $section==='stock_requests' && $can('inventory.stock_requests.view') && $can('inventory.stock_requests.create')) {
@@ -646,7 +643,6 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'submit_purchase_order', 'approve_purchase_order', 'confirm_purchase_order', 'close_purchase_order', 'create_supplier_bill', 'create_receipt' => '/procurement/{id}',
             'decide_stock_request' => '/inventory/stock-requests/{id}',
             'correct_stock_request' => '/inventory/stock-requests/{id}',
-            'approve_sales_price' => '/sales/pricing',
             'approve_incentive' => '/sales/incentives/{id}',
             'decide_peer' => '/inventory/stock-requests',
             'approve_transfer', 'dispatch_transfer', 'receive_transfer' => '/inventory/transfers/{id}',

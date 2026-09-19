@@ -40,16 +40,27 @@
         const selectedSku = (row) => productSelect(row)?.selectedOptions?.[0];
         const refreshPreview = (row) => {
             const option = selectedSku(row);
+            const priced = option?.value && option.dataset.priced === '1';
             const quantity = Number(row.querySelector('input[type="number"]')?.value || 0);
             const unit = Number(option?.dataset.price || 0);
             const discountUnit = Number(option?.dataset.discount || 0);
+            const discountPercent = Number(option?.dataset.discountPercent || 0);
+            const taxPercent = Number(option?.dataset.taxPercent || 0);
+            const gross = Math.round(unit * quantity * 100) / 100;
+            const discountTotal = Math.round(discountUnit * quantity * 100) / 100;
+            const taxTotal = Math.round((gross - discountTotal) * taxPercent) / 100;
             const put = (selector, value) => { const node = row.querySelector(selector); if (node) node.textContent = value; };
-            put('[data-quick-unit]', option?.value ? unit.toFixed(2) : '—');
-            put('[data-quick-discount-unit]', option?.value ? discountUnit.toFixed(2) : '—');
+            put('[data-quick-unit]', priced ? unit.toFixed(2) : option?.value ? 'Not priced' : '—');
+            put('[data-quick-discount-unit]', priced ? discountUnit.toFixed(2) : '—');
+            put('[data-quick-discount-percent]', priced ? discountPercent.toFixed(2) : '—');
+            put('[data-quick-tax-percent]', priced ? taxPercent.toFixed(2) : '—');
             put('[data-quick-available]', option?.value ? (option.dataset.available || '0') : '—');
-            put('[data-quick-gross]', option?.value ? (unit * quantity).toFixed(2) : '—');
-            put('[data-quick-discount-total]', option?.value ? (discountUnit * quantity).toFixed(2) : '—');
-            put('[data-quick-net]', option?.value ? ((unit - discountUnit) * quantity).toFixed(2) : '—');
+            put('[data-quick-gross]', priced ? gross.toFixed(2) : '—');
+            put('[data-quick-discount-total]', priced ? discountTotal.toFixed(2) : '—');
+            put('[data-quick-tax-total]', priced ? taxTotal.toFixed(2) : '—');
+            put('[data-quick-net]', priced ? (gross - discountTotal + taxTotal).toFixed(2) : '—');
+            const warning = row.querySelector('[data-quick-warning]');
+            if (warning) warning.hidden = !option?.value || priced;
         };
         const refreshVariants = (row, changed = '') => {
             const family = field(row, 'family'); const subtype = field(row, 'subtype');
@@ -131,7 +142,7 @@
             ['family','subtype','brand','model'].forEach((key) => { const select = field(row,key); if (select) select.value = ''; });
 
             if (quantity) {
-                quantity.value = '1';
+                quantity.value = '0';
             }
             refreshVariants(row, 'family');
         };
@@ -194,6 +205,30 @@
         lines.addEventListener('input', (event) => {
             const row = event.target.closest?.('[data-quick-line]');
             if (row && event.target.matches('input[type="number"]')) refreshPreview(row);
+        });
+
+        root.addEventListener('submit', (event) => {
+            const selected = rows().map((row) => ({
+                product: selectedSku(row),
+                quantity: Number(row.querySelector('input[type="number"]')?.value || 0),
+            })).filter((line) => line.quantity >= 1);
+            let message = root.querySelector('[data-quick-sale-error]');
+            let error = '';
+            if (selected.length === 0) error = 'At least 1 item is needed. Select a product and quantity, then send to your manager.';
+            else if (selected.some((line) => !line.product?.value)) error = 'Select a product for every quantity entered.';
+            else if (selected.some((line) => line.product.dataset.priced !== '1')) error = 'The selected SKU has no current price. Ask an administrator to update Pricelists.';
+            if (error) {
+                event.preventDefault();
+                if (!message) {
+                    message = document.createElement('div');
+                    message.className = 'alert alert-danger';
+                    message.setAttribute('role', 'alert');
+                    message.dataset.quickSaleError = '';
+                    root.prepend(message);
+                }
+                message.textContent = error;
+                message.scrollIntoView({block: 'nearest'});
+            } else if (message) message.remove();
         });
 
         reindex();

@@ -235,7 +235,7 @@ $statusLabel = match ($status) {
                         </div>
 
                         <div class="form-field">
-                            <label>Discount</label>
+                            <label>Approved discount amount</label>
                             <input
                                 type="number"
                                 min="0"
@@ -244,11 +244,12 @@ $statusLabel = match ($status) {
                                 value="<?= e(
                                     $line['discount_amount'] ?? 0
                                 ) ?>"
+                                readonly
                             >
                         </div>
 
                         <div class="form-field">
-                            <label>Tax %</label>
+                            <label>Approved tax %</label>
                             <input
                                 type="number"
                                 min="0"
@@ -258,6 +259,7 @@ $statusLabel = match ($status) {
                                 value="<?= e(
                                     $line['tax_rate'] ?? 0
                                 ) ?>"
+                                readonly
                             >
                         </div>
 
@@ -1107,7 +1109,7 @@ $statusLabel = match ($status) {
                                 <p>
                                     Confirming completes the sold stock,
                                     releases any unsold reserved quantity,
-                                    creates the delivered customer invoice
+                                    creates or reuses the customer invoice
                                     when quantity was sold, and closes this
                                     Quick Sale.
                                 </p>

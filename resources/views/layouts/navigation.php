@@ -43,6 +43,9 @@ foreach ($enabledModules as $module) {
     if (!is_array($module)) {
         continue;
     }
+    if ($simpleSalesUser && (string) ($module['code'] ?? '') === 'inventory') {
+        continue;
+    }
 
     $routePath = (string) (
         $module['route_path'] ?? ''

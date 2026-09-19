@@ -18,15 +18,29 @@ final class SalesPricingService
     public function register(int $actorId): array
     {
         $company=(new TenantContext())->companyId();$this->permit($company,$actorId,'view');
-        $mayReview=!(new SalesHierarchyScope())->isAgent($company,$actorId)
-            && ((new ModuleRoleService())->permissionAllowed($company,$actorId,'sales.pricing.manage')
-            || (new ModuleRoleService())->permissionAllowed($company,$actorId,'sales.pricing.approve'));
-        $changes=\db()->prepare('SELECT c.*,p.sku,p.name product_name FROM sales_product_price_changes c JOIN sales_products p ON p.company_id=c.company_id AND p.product_id=c.product_id WHERE c.company_id=?'
-            .($mayReview?'':" AND c.status='approved'").' ORDER BY c.price_change_id DESC LIMIT 300');
+        $canManage=!(new SalesHierarchyScope())->isAgent($company,$actorId)
+            && (new ModuleRoleService())->permissionAllowed($company,$actorId,'sales.pricing.manage');
+        $changes=\db()->prepare('SELECT c.*,p.sku,p.name product_name,u.display_name changed_by_name FROM sales_product_price_changes c JOIN sales_products p ON p.company_id=c.company_id AND p.product_id=c.product_id LEFT JOIN users u ON u.user_id=c.requested_by WHERE c.company_id=?'
+            .($canManage?'':" AND c.status='approved'").' ORDER BY c.price_change_id DESC LIMIT 300');
         $changes->execute([$company]);
-        $products=\db()->prepare('SELECT product_id,sku,name,unit_price FROM sales_products WHERE company_id=? AND active=TRUE AND deleted_at IS NULL ORDER BY name');
+        $products=\db()->prepare('SELECT p.product_id,p.sku,p.name,p.product_type,p.active,m.model_name,m.product_family,m.mifi_subtype,b.name brand_name FROM sales_products p LEFT JOIN sales_product_models m ON m.company_id=p.company_id AND m.model_id=p.model_id LEFT JOIN sales_product_brands b ON b.company_id=m.company_id AND b.brand_id=m.brand_id WHERE p.company_id=? AND p.deleted_at IS NULL ORDER BY p.active DESC,p.sku');
         $products->execute([$company]);
-        return ['changes'=>$changes->fetchAll(PDO::FETCH_ASSOC),'products'=>$products->fetchAll(PDO::FETCH_ASSOC)];
+        $productRows=$products->fetchAll(PDO::FETCH_ASSOC);
+        $currency=\db()->prepare('SELECT default_currency FROM companies WHERE company_id=?');
+        $currency->execute([$company]);
+        $code=(string)$currency->fetchColumn();
+        $now=date('Y-m-d H:i:s');
+        foreach($productRows as &$product){
+            $approved=$this->effective($company,(int)$product['product_id'],$now,$code);
+            $product['approved_price']=$approved['unit_price'];
+            $product['approved_discount_percent']=$approved['discount_percent'];
+            $product['approved_tax_percent']=$approved['tax_percent'];
+            $product['effective_from']=$approved['effective_from']??null;
+            $product['updated_at']=$approved['requested_at']??null;
+            $product['updated_by']=$approved['changed_by_name']??null;
+        }
+        unset($product);
+        return ['changes'=>$changes->fetchAll(PDO::FETCH_ASSOC),'products'=>$productRows];
     }
 
     public function submit(array $input, int $actorId): int
@@ -34,14 +48,13 @@ final class SalesPricingService
         $company=(new TenantContext())->companyId();$this->permit($company,$actorId,'manage');
         $productId=(int)($input['product_id']??0);
         $price=$this->money($input['proposed_price']??null);
-        $discount=$this->money($input['approved_discount_per_unit']??0);
+        $discountPercent=$this->money($input['approved_discount_percent']??null);
+        $taxPercent=$this->money($input['approved_tax_percent']??null);
+        $discount=round($price*$discountPercent/100,2);
         $reason=trim((string)($input['reason']??''));
-        $dateText=trim((string)($input['effective_from']??''));
-        $date=\DateTimeImmutable::createFromFormat('!Y-m-d',$dateText);
-        if ($price<=0 || $discount<0 || $discount>=$price) throw new RuntimeException('The discount must be below the positive unit price.');
-        if ($reason==='' || strlen($reason)>1000) throw new RuntimeException('Enter a price-change reason of up to 1000 characters.');
-        if (!$date || $date->format('Y-m-d')!==$dateText) throw new RuntimeException('Enter a valid effective date.');
-        if($dateText<date('Y-m-d'))throw new RuntimeException('A new approved price cannot be backdated.');
+        $dateText=date('Y-m-d');
+        if ($price<=0 || $discountPercent<0 || $discountPercent>=100 || $discount>=$price || $taxPercent<0 || $taxPercent>100) throw new RuntimeException('Enter a positive unit price, discount below 100%, and tax from 0% to 100%.');
+        if (strlen($reason)>1000) throw new RuntimeException('Enter a price-change reason of up to 1000 characters.');
         $connection=\db();$connection->beginTransaction();
         try {
             $product=$connection->prepare('SELECT product_id FROM sales_products WHERE company_id=? AND product_id=? AND active=TRUE AND deleted_at IS NULL FOR UPDATE');
@@ -51,46 +64,21 @@ final class SalesPricingService
             $currency->execute([$company]);$code=strtoupper((string)$currency->fetchColumn());
             if (preg_match('/^[A-Z]{3}$/',$code)!==1) throw new RuntimeException('Company currency is not configured.');
             $old=$this->effective($company,$productId,$dateText,$code);
-            $insert=$connection->prepare("INSERT INTO sales_product_price_changes(company_id,product_id,old_price,proposed_price,approved_discount_per_unit,currency,effective_from,reason,status,requested_by,requested_at) VALUES(?,?,?,?,?,?,?,?,'submitted',?,NOW())");
-            $insert->execute([$company,$productId,$old['unit_price'],$price,$discount,$code,$dateText.' 00:00:00',$reason,$actorId]);
+            $connection->prepare("UPDATE sales_product_price_changes SET status='rejected',rejected_by=?,rejected_at=NOW(),decision_reason='Superseded by direct pricing update' WHERE company_id=? AND product_id=? AND status='approved' AND effective_from>NOW()")
+                ->execute([$actorId,$company,$productId]);
+            $insert=$connection->prepare("INSERT INTO sales_product_price_changes(company_id,product_id,old_price,old_discount_percent,old_tax_percent,proposed_price,approved_discount_per_unit,approved_discount_percent,approved_tax_percent,currency,effective_from,reason,status,requested_by,requested_at,approved_by,approved_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'approved',?,NOW(),?,NOW())");
+            $insert->execute([$company,$productId,$old['unit_price'],$old['discount_percent'],$old['tax_percent'],$price,$discount,$discountPercent,$taxPercent,$code,$dateText.' 00:00:00',$reason,$actorId,$actorId]);
             $id=(int)$connection->lastInsertId();
-            $users=$connection->prepare('SELECT cu.user_id FROM company_users cu JOIN users u ON u.user_id=cu.user_id WHERE cu.company_id=? AND cu.active=TRUE AND u.active=TRUE AND u.deleted_at IS NULL AND cu.user_id<>?');
-            $users->execute([$company,$actorId]);
-            $permission=new ModuleRoleService();$notifications=new UserNotificationService($connection);
-            foreach($users->fetchAll(PDO::FETCH_ASSOC) as $user){$checker=(int)$user['user_id'];if(!$permission->permissionAllowed($company,$checker,'sales.pricing.approve'))continue;$notifications->notify($company,$checker,'sales.pricing.review','Price approval required','Review the submitted SKU price and exact discount.','sales_product_price_change',$id,'/sales/pricing','sales-pricing:'.$id.':review:'.$checker);}
+            $connection->prepare('UPDATE sales_products SET unit_price=? WHERE company_id=? AND product_id=?')
+                ->execute([$price,$company,$productId]);
             $connection->commit();return $id;
-        } catch (\Throwable $e) { if ($connection->inTransaction()) $connection->rollBack();throw $e; }
-    }
-
-    public function decide(int $id, bool $approve, string $reason, int $actorId): void
-    {
-        $company=(new TenantContext())->companyId();$this->permit($company,$actorId,'approve');
-        $reason=trim($reason);
-        if ((!$approve && $reason==='') || strlen($reason)>1000) throw new RuntimeException('Enter a decision reason of up to 1000 characters.');
-        $connection=\db();$connection->beginTransaction();
-        try {
-            $query=$connection->prepare('SELECT * FROM sales_product_price_changes WHERE company_id=? AND price_change_id=? FOR UPDATE');
-            $query->execute([$company,$id]);$row=$query->fetch(PDO::FETCH_ASSOC);
-            if (!$row || $row['status']!=='submitted') throw new RuntimeException('The price request is not pending.');
-            if ((int)$row['requested_by']===$actorId) throw new RuntimeException('Maker and checker must differ.');
-            if ($approve) {
-                if(substr((string)$row['effective_from'],0,10)<date('Y-m-d'))throw new RuntimeException('The requested effective date has passed; submit a new future-dated price request.');
-                $product=$connection->prepare('SELECT product_id FROM sales_products WHERE company_id=? AND product_id=? AND active=TRUE AND deleted_at IS NULL FOR UPDATE');
-                $product->execute([$company,$row['product_id']]);
-                if (!$product->fetchColumn()) throw new RuntimeException('The SKU is no longer active.');
-                $connection->prepare("UPDATE sales_product_price_changes SET status='approved',approved_by=?,approved_at=NOW(),decision_reason=? WHERE company_id=? AND price_change_id=?")->execute([$actorId,$reason?:null,$company,$id]);
-            } else {
-                $connection->prepare("UPDATE sales_product_price_changes SET status='rejected',rejected_by=?,rejected_at=NOW(),decision_reason=? WHERE company_id=? AND price_change_id=?")->execute([$actorId,$reason,$company,$id]);
-            }
-            (new UserNotificationService($connection))->notify($company,(int)$row['requested_by'],$approve?'sales.pricing.approved':'sales.pricing.rejected',$approve?'Price change approved':'Price change rejected',$approve?'Approved price and discount will apply from the effective date.':$reason,'sales_product_price_change',$id,'/sales/pricing','sales-pricing:'.$id.':'.($approve?'approved':'rejected'));
-            $connection->commit();
         } catch (\Throwable $e) { if ($connection->inTransaction()) $connection->rollBack();throw $e; }
     }
 
     private function permit(int $company, int $actor, string $suffix): void
     {
         if (!(new ModuleRoleService())->permissionAllowed($company,$actor,'sales.pricing.'.$suffix)
-            || (new SalesHierarchyScope())->isAgent($company,$actor)) {
+            || ($suffix !== 'view' && (new SalesHierarchyScope())->isAgent($company,$actor))) {
             throw new RuntimeException('Dedicated Sales pricing permission is required.');
         }
     }

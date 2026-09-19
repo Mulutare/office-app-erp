@@ -409,7 +409,6 @@ $router->get('/sales/quick-sale', [$salesController, 'quickSale']);
 $router->get('/sales/dsa-dsp-report', [$salesReportController, 'index']);
 $router->get('/sales/pricing', [$salesPricingController, 'index']);
 $router->post('/sales/pricing', [$salesPricingController, 'submit']);
-$router->post('/sales/pricing/{id}/decision', [$salesPricingController, 'decide']);
 $router->get('/sales/product-variants', [$salesProductVariantController, 'index']);
 $router->post('/sales/product-variants/brands', [$salesProductVariantController, 'brand']);
 $router->post('/sales/product-variants/models', [$salesProductVariantController, 'model']);

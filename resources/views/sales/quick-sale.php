@@ -68,7 +68,10 @@ $productOptions = static function (
             . ' data-model-name="' . e((string)($product['model_name']??'')) . '"'
             . ' data-active-model="' . (!empty($product['model_active'])&&!empty($product['brand_active'])?'1':'0') . '"'
             . ' data-price="' . e((string)($product['display_price']??$product['unit_price']??0)) . '"'
+            . ' data-priced="' . (!empty($product['display_priced'])?'1':'0') . '"'
             . ' data-discount="' . e((string)($product['display_discount']??0)) . '"'
+            . ' data-discount-percent="' . e((string)($product['display_discount_percent']??0)) . '"'
+            . ' data-tax-percent="' . e((string)($product['display_tax_percent']??0)) . '"'
             . ' data-available="' . e((string)($product['available_quantity']??0)) . '"'
             . ($id === $selected ? ' selected' : '')
             . '>'
@@ -287,7 +290,6 @@ $productOptions = static function (
                                 <label>Product</label>
                                 <select
                                     name="lines[<?= e($index) ?>][product_id]"
-                                    required
                                 >
                                     <?php
                                     $productOptions(
@@ -305,25 +307,28 @@ $productOptions = static function (
                                 <label>Quantity</label>
                                 <input
                                     type="number"
-                                    min="0.001"
-                                    step="0.001"
-                                    inputmode="decimal"
+                                    min="0"
+                                    step="1"
+                                    inputmode="numeric"
                                     name="lines[<?= e($index) ?>][quantity]"
                                     value="<?= e(
                                         $line['quantity']
-                                        ?? '1'
+                                        ?? '0'
                                     ) ?>"
                                     required
                                 >
                             </div>
 
-                            <div class="quick-sale-price-note">
-                                Unit: <strong data-quick-unit>—</strong> · Discount/unit: <strong data-quick-discount-unit>—</strong> · Available: <strong data-quick-available>—</strong><br>
-                                Gross: <strong data-quick-gross>—</strong> · Discount: <strong data-quick-discount-total>—</strong> · Net: <strong data-quick-net>—</strong>
-                                <small>
-                                    Final <?= e($currency) ?> price is
-                                    recalculated by the server.
-                                </small>
+                            <div class="quick-sale-price-note" aria-label="Calculated selling terms">
+                                <span>Unit <strong data-quick-unit>—</strong></span>
+                                <span>Discount / unit <strong><span data-quick-discount-percent>—</span>%</strong> <small>(<span data-quick-discount-unit>—</span>)</small></span>
+                                <span>Tax <strong><span data-quick-tax-percent>—</span>%</strong></span>
+                                <span>Available <strong data-quick-available>—</strong></span>
+                                <span>Gross <strong data-quick-gross>—</strong></span>
+                                <span>Discount <strong data-quick-discount-total>—</strong></span>
+                                <span>Tax amount <strong data-quick-tax-total>—</strong></span>
+                                <span class="quick-sale-line-total">Total <strong><?= e($currency) ?> <span data-quick-net>—</span></strong></span>
+                                <small data-quick-warning hidden>Price is not configured for this SKU. Ask an administrator to update Pricelists.</small>
                             </div>
 
                             <button
@@ -345,7 +350,7 @@ $productOptions = static function (
                         <div class="form-field"><label>Model</label><select data-field="model_id" data-variant-model><option value="">Select brand first</option></select></div>
                         <div class="form-field">
                             <label>Product</label>
-                            <select data-field="product_id" required>
+                            <select data-field="product_id">
                                 <?php $productOptions($products, 0); ?>
                             </select>
                         </div>
@@ -354,22 +359,25 @@ $productOptions = static function (
                             <label>Quantity</label>
                             <input
                                 type="number"
-                                min="0.001"
-                                step="0.001"
-                                inputmode="decimal"
-                                value="1"
+                                min="0"
+                                step="1"
+                                inputmode="numeric"
+                                value="0"
                                 data-field="quantity"
                                 required
                             >
                         </div>
 
-                        <div class="quick-sale-price-note">
-                            Unit: <strong data-quick-unit>—</strong> · Discount/unit: <strong data-quick-discount-unit>—</strong> · Available: <strong data-quick-available>—</strong><br>
-                            Gross: <strong data-quick-gross>—</strong> · Discount: <strong data-quick-discount-total>—</strong> · Net: <strong data-quick-net>—</strong>
-                            <small>
-                                Final <?= e($currency) ?> price is
-                                recalculated by the server.
-                            </small>
+                        <div class="quick-sale-price-note" aria-label="Calculated selling terms">
+                            <span>Unit <strong data-quick-unit>—</strong></span>
+                            <span>Discount / unit <strong><span data-quick-discount-percent>—</span>%</strong> <small>(<span data-quick-discount-unit>—</span>)</small></span>
+                            <span>Tax <strong><span data-quick-tax-percent>—</span>%</strong></span>
+                            <span>Available <strong data-quick-available>—</strong></span>
+                            <span>Gross <strong data-quick-gross>—</strong></span>
+                            <span>Discount <strong data-quick-discount-total>—</strong></span>
+                            <span>Tax amount <strong data-quick-tax-total>—</strong></span>
+                            <span class="quick-sale-line-total">Total <strong><?= e($currency) ?> <span data-quick-net>—</span></strong></span>
+                            <small data-quick-warning hidden>Price is not configured for this SKU. Ask an administrator to update Pricelists.</small>
                         </div>
 
                         <button
@@ -394,7 +402,7 @@ $productOptions = static function (
         </form>
 
         <script
-            src="<?= e(appBasePath()) ?>/assets/js/quick-sale.js"
+            src="<?= e(appBasePath()) ?>/assets/js/quick-sale.js?v=091"
             defer
         ></script>
 

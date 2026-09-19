@@ -358,7 +358,7 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
 
 <?php if(!empty($request['events'])):?><section class="card"><h3>Immutable request history</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Reason</th><th>Previous values</th><th>New values</th></tr></thead><tbody><?php foreach($request['events'] as $event):?><tr><td><?=e($event['occurred_at'])?></td><td><?=e(str_replace('_',' ',$event['event_type']))?></td><td><?=e($event['actor_id'])?></td><td><?=e($event['reason']??'—')?></td><td><details><summary>View snapshot</summary><pre><?=e($event['previous_values_json']??'—')?></pre></details></td><td><details><summary>View snapshot</summary><pre><?=e($event['new_values_json']??'—')?></pre></details></td></tr><?php endforeach;?></tbody></table></div></section><?php endif;?>
 
-<?php if($request['status']==='rejected' && (int)$request['requester_user_id']===$actorId && $can('inventory.stock_requests.create')):?><section class="card"><h3>Correct and resubmit</h3><p>The rejected values remain in immutable history. Enter the corrected quantities; zero means omit that SKU.</p><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/<?=(int)$request['request_id']?>/resubmit"><?=csrfField()?><?php foreach($request['lines'] as $line):?><div class="form-grid"><label>Product<select name="product_id[]" required><option value="<?=(int)$line['product_id']?>"><?=e($line['sku'].' — '.$line['name'])?></option></select></label><label>Quantity<input type="number" name="quantity[]" min="0" step="0.001" value="<?=e($line['requested_quantity'])?>" required></label></div><?php endforeach;?><label>Notes<textarea name="notes" maxlength="1000"><?=e($request['notes']??'')?></textarea></label><button class="btn btn-primary">Resubmit corrected request</button></form></section><?php endif;?>
+<?php if($request['status']==='rejected' && (int)$request['requester_user_id']===$actorId && $can('inventory.stock_requests.create')):?><section class="card"><h3>Correct and resubmit</h3><p>The rejected values remain in immutable history. Enter the corrected quantities; zero means omit that SKU.</p><form method="post" data-stock-request-quantities action="<?=e(appBasePath())?>/inventory/stock-requests/<?=(int)$request['request_id']?>/resubmit"><?=csrfField()?><?php foreach($request['lines'] as $line):?><div class="form-grid"><label>Product<select name="product_id[]" required><option value="<?=(int)$line['product_id']?>"><?=e($line['sku'].' — '.$line['name'])?></option></select></label><label>Quantity<input type="number" name="quantity[]" min="0" step="0.001" value="<?=e($line['requested_quantity'])?>" required></label></div><?php endforeach;?><label>Notes<textarea name="notes" maxlength="1000"><?=e($request['notes']??'')?></textarea></label><button class="btn btn-primary">Resubmit corrected request</button></form></section><?php endif;?>
 
 <?php if(!empty($request['allocations'])):?><section class="card"><h3>Allocation and transfer history</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Level</th><th>Manager</th><th>Product</th><th>Qty</th><th>Source</th><th>Status</th><th>Transfer</th></tr></thead><tbody>
 <?php foreach($request['allocations'] as $a):?><tr><td><?=e(ucfirst($a['authority_level']))?></td><td><?=e($a['authority_name'])?></td><td><?=e($a['product_name'])?></td><td><?=e($a['quantity'])?></td><td><?=e($a['source_warehouse_name'].' / '.$a['source_location_name'])?></td><td><?=e(str_replace('_',' ',$a['status']))?></td><td><?php if(!empty($a['transfer_id'])):?><a href="<?=e(appBasePath())?>/inventory/transfers/<?=$a['transfer_id']?>"><?=e($a['transfer_number']??('TRF #'.$a['transfer_id']))?></a> · <?=e($a['transfer_status']??'')?><?php else:?>Direct Shop allocation<?php endif;?></td></tr><?php endforeach;?>
@@ -486,7 +486,7 @@ $isStockHierarchyManager = in_array(
     $stockManagerLevel,
     ['shop', 'district', 'regional'],
     true
-);
+) && !(new \App\Services\SalesHierarchyScope())->isAgent($companyId,$actorUserId);
 ?>
 
 <section class="card">
@@ -509,6 +509,7 @@ $isStockHierarchyManager = in_array(
 
     <form
         id="stock-request-create-form"
+        data-stock-request-quantities
         method="post"
         action="<?= e(appBasePath()) ?>/inventory/stock-requests"
     >
@@ -521,7 +522,6 @@ $isStockHierarchyManager = in_array(
                     <select
                         name="product_id[]"
                         class="stock-request-product"
-                        required
                     >
                         <option value="">Select product</option>
 
@@ -835,6 +835,7 @@ $isStockHierarchyManager = in_array(
  var w=document.getElementById('authority-warehouse'),l=document.getElementById('authority-location');if(w&&l){var filter=function(){Array.from(l.options).forEach(function(o,i){if(i===0)return;o.hidden=o.dataset.warehouse!==w.value;});if(l.selectedOptions[0]&&l.selectedOptions[0].hidden)l.value='';};w.addEventListener('change',filter);filter();}
 })();
 </script>
+<script src="<?= e(appBasePath()) ?>/assets/js/stock-request-validation.js?v=091" defer></script>
 
 <?php if(!empty($peerProposals)): ?>
 <section class="card"><h2>Peer transfer decisions and history</h2>

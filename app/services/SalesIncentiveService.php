@@ -103,6 +103,10 @@ final class SalesIncentiveService
         try{
             $query=$connection->prepare('SELECT * FROM sales_incentive_claims WHERE company_id=? AND incentive_claim_id=? FOR UPDATE');$query->execute([$company,$id]);$claim=$query->fetch(PDO::FETCH_ASSOC);
             if(!$claim||!in_array($claim['status'],['approved','partially_settled'],true)||$claim['external_body']!=='Safaricom')throw new RuntimeException('Only an approved outstanding Safaricom claim may be settled.');
+            if (!(new SalesHierarchyScope())->hasCompanyWideAccess($company,$actor)) {
+                $this->directManager($company,(int)$claim['dsa_dsp_user_id'],$actor);
+                if ((int)$claim['responsible_manager_id']!==$actor) throw new RuntimeException('Only the responsible manager may settle this claim.');
+            }
             $currency=strtoupper(trim((string)($input['currency']??'')));
             if($currency!==$claim['currency'])throw new RuntimeException('Settlement currency must match the approved claim.');
             $paid=$connection->prepare('SELECT COALESCE(SUM(amount),0) FROM sales_incentive_settlements WHERE company_id=? AND incentive_claim_id=? AND reversed_at IS NULL');$paid->execute([$company,$id]);
@@ -122,7 +126,7 @@ final class SalesIncentiveService
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.view');
         $scope=new SalesHierarchyScope();$visible=$scope->hasCompanyWideAccess($company,$actor)?null:$scope->userIds($company,$actor);
-        if($visible===[])return ['claims'=>[],'floats'=>[],'reports'=>[],'users'=>[]];
+        if($visible===[])return ['claims'=>[],'floats'=>[],'reports'=>[],'users'=>[],'managers'=>[]];
         $params=[$company];$where=['c.company_id=?'];
         if($visible!==null){$where[]='c.dsa_dsp_user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$params=array_merge($params,$visible);}
         $status=(string)($filters['status']??'');
@@ -136,12 +140,19 @@ final class SalesIncentiveService
         $sql='SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,u.display_name dsa_name,m.display_name manager_name,COALESCE((SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount,COALESCE((SELECT SUM(s.amount) FROM sales_incentive_settlements s WHERE s.company_id=c.company_id AND s.incentive_claim_id=c.incentive_claim_id AND s.reversed_at IS NULL),0) settled_amount FROM sales_incentive_claims c JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE '.implode(' AND ',$where).' ORDER BY c.submitted_at DESC,c.incentive_claim_id DESC LIMIT 300';
         $query=\db()->prepare($sql);$query->execute($params);$claims=$query->fetchAll(PDO::FETCH_ASSOC);
         foreach($claims as &$claim){$claim['outstanding']=max(0,round((float)($claim['approved_amount']??0)-(float)$claim['settled_amount'],2));$claim['unexplained_variance']=round((float)$claim['float_amount']-(float)$claim['sold_amount']-(float)($claim['approved_amount']??0),2);}unset($claim);
-        $users=\db()->prepare('SELECT cu.user_id,u.display_name FROM company_users cu JOIN users u ON u.user_id=cu.user_id WHERE cu.company_id=? AND cu.active=TRUE ORDER BY u.display_name');$users->execute([$company]);
+        $userSql='SELECT cu.user_id,u.display_name FROM company_users cu JOIN users u ON u.user_id=cu.user_id WHERE cu.company_id=? AND cu.active=TRUE';
+        $userParams=[$company];
+        if($visible!==null){$userSql.=' AND cu.user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$userParams=array_merge($userParams,$visible);}
+        $users=\db()->prepare($userSql.' ORDER BY u.display_name');$users->execute($userParams);
+        $managerSql='SELECT DISTINCT m.user_id,m.display_name FROM company_users cu JOIN users m ON m.user_id=cu.manager_user_id AND m.active=TRUE AND m.deleted_at IS NULL WHERE cu.company_id=? AND cu.active=TRUE AND cu.manager_user_id IS NOT NULL';
+        $managerParams=[$company];
+        if($visible!==null){$managerSql.=' AND cu.user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$managerParams=array_merge($managerParams,$visible);}
+        $managers=\db()->prepare($managerSql.' ORDER BY m.display_name');$managers->execute($managerParams);
         $floats=\db()->prepare('SELECT f.* FROM sales_dsa_float_issuances f WHERE f.company_id=? ORDER BY f.issued_date DESC,f.float_id DESC LIMIT 300');$floats->execute([$company]);
         $floatRows=array_values(array_filter($floats->fetchAll(PDO::FETCH_ASSOC),static fn(array $f):bool=>$visible===null||in_array((int)$f['dsa_dsp_user_id'],$visible,true)));
         $reports=\db()->prepare("SELECT r.report_id,qs.user_id dsa_dsp_user_id,r.created_at FROM sales_quick_sale_reports r JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id WHERE r.company_id=? AND r.status='confirmed' AND qs.status='closed' AND r.finance_invoice_id IS NOT NULL AND r.report_id=(SELECT MAX(latest.report_id) FROM sales_quick_sale_reports latest WHERE latest.company_id=r.company_id AND latest.quick_sale_id=r.quick_sale_id) ORDER BY r.report_id DESC LIMIT 300");$reports->execute([$company]);
         $reportRows=array_values(array_filter($reports->fetchAll(PDO::FETCH_ASSOC),static fn(array $r):bool=>$visible===null||in_array((int)$r['dsa_dsp_user_id'],$visible,true)));
-        return ['claims'=>$claims,'floats'=>$floatRows,'reports'=>$reportRows,'users'=>$users->fetchAll(PDO::FETCH_ASSOC)];
+        return ['claims'=>$claims,'floats'=>$floatRows,'reports'=>$reportRows,'users'=>$users->fetchAll(PDO::FETCH_ASSOC),'managers'=>$managers->fetchAll(PDO::FETCH_ASSOC)];
     }
 
     public function detail(int $id,int $actor): array

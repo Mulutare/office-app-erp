@@ -462,7 +462,7 @@ public function showQuickSale(string $id): void
     public function showTeam(string $id): void{$this->authorize('sales.view');$this->renderCommercial('team',(int)$id);}
     private function renderCommercial(string $type,int $id): void
     {
-        $this->redirectSimpleSalesUser();$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
+        $this->redirectSimpleSalesUser();$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();$canManage=$type==='pricelist'?$this->can('sales.pricing.manage')&&!(new \App\Services\SalesHierarchyScope())->isAgent((new TenantContext())->companyId(),$this->actorId()):$this->can('sales.catalogue.manage');\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$canManage]+$workspace);}
 
     public function createQuotation(): void
     {
@@ -530,6 +530,18 @@ public function showQuickSale(string $id): void
         $this->redirectSimpleSalesUser();
         $this->authorize('sales.view');
         $workspace = $this->sales->workspace();
+        $pricingData = [];
+        $canManagePricing = false;
+        if ($section === 'pricelists') {
+            $companyId = (new TenantContext())->companyId();
+            $actorId = $this->actorId();
+            $permissions = new \App\Services\ModuleRoleService();
+            if ($permissions->permissionAllowed($companyId, $actorId, 'sales.pricing.view')) {
+                $pricingData = (new \App\Services\SalesPricingService())->register($actorId);
+                $agent = (new \App\Services\SalesHierarchyScope())->isAgent($companyId, $actorId);
+                $canManagePricing = !$agent && $permissions->permissionAllowed($companyId, $actorId, 'sales.pricing.manage');
+            }
+        }
 
         \view('layouts.app', [
             'applicationName' => \config('name', 'OfficeApp ERP'),
@@ -553,6 +565,10 @@ public function showQuickSale(string $id): void
             'canManageSerials' => $this->can('sales.serials.manage'),
             'canManageCommissions' => $this->can('sales.commissions.manage'),
             'canExportReports' => $this->can('sales.reports.export'),
+            'pricingData' => $pricingData,
+            'canManagePricing' => $canManagePricing,
+            'pricingNotice' => \getFlash('sales_pricing_notice'),
+            'pricingError' => \getFlash('sales_pricing_error'),
         ] + $workspace);
     }
 
@@ -712,13 +728,21 @@ public function showQuickSale(string $id): void
     }
     public function storePricelist(): void
     {
-        $this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist');$input=$this->input(['name','currency','valid_from','valid_to','product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$this->finish($this->sales->createPricelist($input,$this->actorId()),'pricelist','Pricelist created successfully.',$input);
+        $this->authorizeCentralPricing();$this->requireCsrf('pricelist');$input=$this->input(['name','currency','valid_from','valid_to','product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$this->finish($this->sales->createPricelist($input,$this->actorId()),'pricelist','Pricelist created successfully.',$input);
     }
-    public function updatePricelist(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist');$input=$this->input(['name','currency','valid_from','valid_to']);$result=$this->sales->updatePricelist((int)$id,$input);$this->finishTo($result,'pricelist','Pricelist saved.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
-    public function storePricelistRule(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist_rule');$input=$this->input(['product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$result=$this->sales->addPricelistRule((int)$id,$input);$this->finishTo($result,'pricelist_rule','Pricing rule added.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
-    public function updatePricelistRule(string $id,string $ruleId): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist_rule');$input=$this->input(['product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$result=$this->sales->updatePricelistRule((int)$id,(int)$ruleId,$input);$this->finishTo($result,'pricelist_rule','Pricing rule saved.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
-    public function togglePricelistRule(string $id,string $ruleId): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist_rule');$result=$this->sales->setPricelistRuleActive((int)$id,(int)$ruleId,\postString('active')==='1');$this->finishTo($result,'pricelist_rule','Pricing rule status updated.',[],'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
-    public function togglePricelist(string $id): void{$this->authorize('sales.catalogue.manage');$this->requireCsrf('pricelist');$result=$this->sales->setPricelistActive((int)$id,\postString('active')==='1');$this->finishTo($result,'pricelist','Pricelist status updated.',[],'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function updatePricelist(string $id): void{$this->authorizeCentralPricing();$this->requireCsrf('pricelist');$input=$this->input(['name','currency','valid_from','valid_to']);$result=$this->sales->updatePricelist((int)$id,$input);$this->finishTo($result,'pricelist','Pricelist saved.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function storePricelistRule(string $id): void{$this->authorizeCentralPricing();$this->requireCsrf('pricelist_rule');$input=$this->input(['product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$result=$this->sales->addPricelistRule((int)$id,$input);$this->finishTo($result,'pricelist_rule','Pricing rule added.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function updatePricelistRule(string $id,string $ruleId): void{$this->authorizeCentralPricing();$this->requireCsrf('pricelist_rule');$input=$this->input(['product_id','category','minimum_quantity','calculation','fixed_price','percentage_adjustment','rule_from','rule_to','priority']);$result=$this->sales->updatePricelistRule((int)$id,(int)$ruleId,$input);$this->finishTo($result,'pricelist_rule','Pricing rule saved.',$input,'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function togglePricelistRule(string $id,string $ruleId): void{$this->authorizeCentralPricing();$this->requireCsrf('pricelist_rule');$result=$this->sales->setPricelistRuleActive((int)$id,(int)$ruleId,\postString('active')==='1');$this->finishTo($result,'pricelist_rule','Pricing rule status updated.',[],'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    public function togglePricelist(string $id): void{$this->authorizeCentralPricing();$this->requireCsrf('pricelist');$result=$this->sales->setPricelistActive((int)$id,\postString('active')==='1');$this->finishTo($result,'pricelist','Pricelist status updated.',[],'/sales/pricelists/'.(int)$id,'/sales/pricelists/'.(int)$id);}
+    private function authorizeCentralPricing(): void
+    {
+        $this->authorize('sales.pricing.manage');
+        $companyId = (new TenantContext())->companyId();
+        if ((new \App\Services\SalesHierarchyScope())->isAgent($companyId, $this->actorId())) {
+            throw new \RuntimeException('DSA/DSP may not change central pricing.');
+        }
+    }
     public function storeTeam(): void
     {
         $this->authorize('sales.catalogue.manage');$this->requireCsrf('team');$input=$this->input(['name','leader_agent_id','territory_id'])+['member_ids'=>is_array($_POST['member_ids']??null)?$_POST['member_ids']:[]];$this->finish($this->sales->createSalesTeam($input,$this->actorId()),'team','Sales team created successfully.',$input);

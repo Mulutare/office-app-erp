@@ -325,9 +325,9 @@ final class SalesService
     public function transitionQuotation(int $id,string $action,int $actorId,array $input=[]): array
     {
         try {
-            $this->assertQuickSaleManager($actorId, $id, null, $action);
+            $quickSaleAuthorized = $this->assertQuickSaleManager($actorId, $id, null, $action);
             $row = $this->sales->quotation($this->tenant->companyId(), $id);
-            if (!$row || !(new SalesHierarchyScope())->canReadSalesRow($this->tenant->companyId(), $actorId, $row)) throw new \RuntimeException('Quotation was not found.');
+            if (!$row || (!$quickSaleAuthorized && !(new SalesHierarchyScope())->canReadSalesRow($this->tenant->companyId(), $actorId, $row))) throw new \RuntimeException('Quotation was not found.');
             $warehouseId=(int)($input['warehouse_id']??0);$sourceLocationId=(int)($input['source_location_id']??0);
             if($action==='confirm')$this->operationalAccess->assertAuthorizedSource($this->tenant->companyId(),$actorId,$warehouseId,$sourceLocationId);
             $result = $this->sales->transitionQuotation(
@@ -671,7 +671,7 @@ final class SalesService
             $quoted=!empty($existing['quotation_id']);
             $pricing=$quoted ? null : (new SalesPricingService())->effective($companyId,$productId,$orderDate,strtoupper(trim((string)($input['currency']??'ETB'))));
             $lineDiscount=$quoted ? (float)($existing['lines'][$index]['discount_amount']??0) : round((float)$pricing['discount_per_unit']*$quantity,2);
-            $taxRate = $this->money($submittedLine['tax_rate'] ?? 0);
+            $taxRate = $quoted ? (float)($existing['lines'][$index]['tax_rate']??0) : (float)$pricing['tax_percent'];
             if (!is_array($product) || empty($product['active']) || $quantity <= 0 || $lineDiscount < 0 || $taxRate < 0 || $taxRate > 100) {
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' has an invalid product, quantity, discount or tax rate.';
                 continue;
@@ -1114,7 +1114,7 @@ final class SalesService
                 continue;
             }
             $discount = round((float)$pricing['discount_per_unit'] * $quantity,2);
-            $taxRate = $this->money($submitted['tax_rate'] ?? 0);
+            $taxRate = (float)$pricing['tax_percent'];
             $gross = round($quantity * $price, 2);
             if ($discount < 0 || $discount > $gross || $taxRate < 0 || $taxRate > 100) {
                 $errors['line_' . ($index + 1)] = 'Line ' . ($index + 1) . ' has an invalid discount or tax rate.';
@@ -1387,7 +1387,7 @@ final class SalesService
             && ((new InventoryReadScope())->warehouse($company, $actor, (int) ($row['warehouse_id'] ?? 0)) || (new SalesHierarchyScope())->isAgent($company, $actor));
     }
 
-    private function assertQuickSaleManager(int $actorId, ?int $quotationId, ?int $orderId, ?string $action = null): void
+    private function assertQuickSaleManager(int $actorId, ?int $quotationId, ?int $orderId, ?string $action = null): bool
     {
         $companyId = $this->tenant->companyId();
         $statement = \db()->prepare('SELECT qs.manager_user_id,qs.user_id,qs.status,q.status AS quotation_status,q.sales_order_id FROM sales_quick_sales qs
@@ -1395,16 +1395,17 @@ final class SalesService
             WHERE qs.company_id=? AND ' . ($quotationId !== null ? 'qs.quotation_id=?' : 'q.sales_order_id=?'));
         $statement->execute([$companyId, $quotationId ?? $orderId]);
         $sale = $statement->fetch(\PDO::FETCH_ASSOC);
-        if (!$sale) return;
+        if (!$sale) return false;
         // The owner sends the newly created draft, or compensates a failed creation.
         if ($quotationId !== null && (int) $sale['user_id'] === $actorId
             && $sale['quotation_status'] === 'draft' && empty($sale['sales_order_id'])
             && (($action === 'send' && $sale['status'] === 'submitted')
                 || ($action === 'cancel' && $sale['status'] === 'cancelled'))
-            && (new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view')) return;
+            && (new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view')) return true;
         if ((int) $sale['manager_user_id'] !== $actorId
             || !(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
             throw new \RuntimeException('Only the current responsible manager may progress this Quick Sale.');
         }
+        return true;
     }
 }

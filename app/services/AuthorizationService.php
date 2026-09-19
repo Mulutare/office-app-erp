@@ -86,6 +86,14 @@ final class AuthorizationService
         string $permissionCode
     ): void {
         $this->requireModule($moduleCode);
+        if ($moduleCode === 'sales') {
+            $companyId = (int) ($_SESSION['auth']['company']['company_id'] ?? 0);
+            $userId = (int) ($_SESSION['auth']['user_id'] ?? 0);
+            if ((new SalesHierarchyScope())->isAgent($companyId, $userId)
+                && !in_array($permissionCode, ['sales.view', 'sales.incentive.view', 'sales.incentive.submit'], true)) {
+                $this->deny();
+            }
+        }
         $this->requireTenantPermission($permissionCode);
     }
 
@@ -215,7 +223,12 @@ final class AuthorizationService
 
     private function moduleEntitled(string $module): bool
     {
-        return (new ModuleRoleService())->entitled((int) ($_SESSION['auth']['company']['company_id'] ?? 0), (int) ($_SESSION['auth']['user_id'] ?? 0), $module);
+        $companyId = (int) ($_SESSION['auth']['company']['company_id'] ?? 0);
+        $userId = (int) ($_SESSION['auth']['user_id'] ?? 0);
+        if ($module === 'inventory' && (new SalesHierarchyScope())->isAgent($companyId, $userId)) {
+            return false;
+        }
+        return (new ModuleRoleService())->entitled($companyId, $userId, $module);
     }
 
     private function requireModuleEntitlement(string $module): void
