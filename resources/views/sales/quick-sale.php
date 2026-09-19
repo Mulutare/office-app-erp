@@ -319,14 +319,14 @@ $productOptions = static function (
                                 >
                             </div>
 
-                            <div class="quick-sale-price-note" aria-label="Calculated selling terms">
-                                <span>Unit <strong data-quick-unit>—</strong></span>
-                                <span>Discount / unit <strong><span data-quick-discount-percent>—</span>%</strong> <small>(<span data-quick-discount-unit>—</span>)</small></span>
+                            <div class="quick-sale-price-note" aria-label="Calculated selling terms" hidden>
+                                <span>Unit Price <strong><?= e($currency) ?> <span data-quick-unit>—</span></strong></span>
+                                <span>Discount <strong><span data-quick-discount-percent>—</span>%</strong></span>
                                 <span>Tax <strong><span data-quick-tax-percent>—</span>%</strong></span>
                                 <span>Available <strong data-quick-available>—</strong></span>
-                                <span>Gross <strong data-quick-gross>—</strong></span>
-                                <span>Discount <strong data-quick-discount-total>—</strong></span>
-                                <span>Tax amount <strong data-quick-tax-total>—</strong></span>
+                                <span>Gross <strong><?= e($currency) ?> <span data-quick-gross>—</span></strong></span>
+                                <span>Discount Amount <strong><?= e($currency) ?> <span data-quick-discount-total>—</span></strong></span>
+                                <span>Tax Amount <strong><?= e($currency) ?> <span data-quick-tax-total>—</span></strong></span>
                                 <span class="quick-sale-line-total">Total <strong><?= e($currency) ?> <span data-quick-net>—</span></strong></span>
                                 <small data-quick-warning hidden>Price is not configured for this SKU. Ask an administrator to update Pricelists.</small>
                             </div>
@@ -368,14 +368,14 @@ $productOptions = static function (
                             >
                         </div>
 
-                        <div class="quick-sale-price-note" aria-label="Calculated selling terms">
-                            <span>Unit <strong data-quick-unit>—</strong></span>
-                            <span>Discount / unit <strong><span data-quick-discount-percent>—</span>%</strong> <small>(<span data-quick-discount-unit>—</span>)</small></span>
+                        <div class="quick-sale-price-note" aria-label="Calculated selling terms" hidden>
+                            <span>Unit Price <strong><?= e($currency) ?> <span data-quick-unit>—</span></strong></span>
+                            <span>Discount <strong><span data-quick-discount-percent>—</span>%</strong></span>
                             <span>Tax <strong><span data-quick-tax-percent>—</span>%</strong></span>
                             <span>Available <strong data-quick-available>—</strong></span>
-                            <span>Gross <strong data-quick-gross>—</strong></span>
-                            <span>Discount <strong data-quick-discount-total>—</strong></span>
-                            <span>Tax amount <strong data-quick-tax-total>—</strong></span>
+                            <span>Gross <strong><?= e($currency) ?> <span data-quick-gross>—</span></strong></span>
+                            <span>Discount Amount <strong><?= e($currency) ?> <span data-quick-discount-total>—</span></strong></span>
+                            <span>Tax Amount <strong><?= e($currency) ?> <span data-quick-tax-total>—</span></strong></span>
                             <span class="quick-sale-line-total">Total <strong><?= e($currency) ?> <span data-quick-net>—</span></strong></span>
                             <small data-quick-warning hidden>Price is not configured for this SKU. Ask an administrator to update Pricelists.</small>
                         </div>
@@ -402,7 +402,7 @@ $productOptions = static function (
         </form>
 
         <script
-            src="<?= e(appBasePath()) ?>/assets/js/quick-sale.js?v=091"
+            src="<?= e(assetUrl('js/quick-sale.js')) ?>"
             defer
         ></script>
 

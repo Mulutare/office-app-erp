@@ -61,6 +61,8 @@
             put('[data-quick-net]', priced ? (gross - discountTotal + taxTotal).toFixed(2) : '—');
             const warning = row.querySelector('[data-quick-warning]');
             if (warning) warning.hidden = !option?.value || priced;
+            const summary = row.querySelector('.quick-sale-price-note');
+            if (summary) summary.hidden = !option?.value;
         };
         const refreshVariants = (row, changed = '') => {
             const family = field(row, 'family'); const subtype = field(row, 'subtype');
@@ -70,7 +72,11 @@
             if (changed === 'subtype') { brand.value = ''; model.value = ''; sku.value = ''; }
             if (changed === 'brand') { model.value = ''; sku.value = ''; }
             if (changed === 'model') sku.value = '';
-            subtype.disabled = family.value !== 'mifi';
+            const variant = family.value === 'mobile' || family.value === 'mifi';
+            for (const [control, visible] of [[subtype, family.value === 'mifi'], [brand, variant], [model, variant]]) {
+                control.closest('.form-field').hidden = !visible;
+                control.disabled = !visible;
+            }
             const eligible = options(row).filter((option) => option.dataset.activeModel === '1'
                 && option.dataset.family === family.value
                 && (family.value !== 'mifi' || option.dataset.subtype === subtype.value));
@@ -214,7 +220,7 @@
             })).filter((line) => line.quantity >= 1);
             let message = root.querySelector('[data-quick-sale-error]');
             let error = '';
-            if (selected.length === 0) error = 'At least 1 item is needed. Select a product and quantity, then send to your manager.';
+            if (selected.length === 0) error = 'Add at least one product and submit.';
             else if (selected.some((line) => !line.product?.value)) error = 'Select a product for every quantity entered.';
             else if (selected.some((line) => line.product.dataset.priced !== '1')) error = 'The selected SKU has no current price. Ask an administrator to update Pricelists.';
             if (error) {
