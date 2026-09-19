@@ -103,7 +103,7 @@ trait QuickSaleRouting
         $db = \db();
         try {
             $company = $this->tenant->companyId();
-            if (!(new SalesHierarchyScope())->canManage($company, $actor)) throw new RuntimeException('Sales confirmation permission is required.');
+            if (!(new SalesHierarchyScope())->canReviewSalesReport($company, $actor)) throw new RuntimeException('Sales report review permission is required.');
             $db->beginTransaction();
             $statement = $db->prepare(
                 "SELECT r.finance_invoice_id,r.finance_handoff_at FROM sales_quick_sales qs

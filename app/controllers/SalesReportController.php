@@ -20,7 +20,10 @@ final class SalesReportController
 
     public function index(): void
     {
-        $this->authorization->requireModulePermission('sales', 'sales.view');
+        $this->authorization->requireAnyModulePermission([
+            ['sales', 'sales.report.submit'],
+            ['sales', 'sales.report.review'],
+        ]);
 
         $report = $this->reports->report(
             (int) ($_SESSION['auth']['user_id'] ?? 0),

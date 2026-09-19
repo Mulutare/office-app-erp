@@ -109,7 +109,8 @@ final class SalesQuickSaleService
                 trim((string) ($context['job_title'] ?? ''))
             );
 
-            if ((new SalesHierarchyScope())->canManage($companyId, $actorId)) {
+            if ((new SalesHierarchyScope())->canReviewQuickSale($companyId, $actorId)
+                || (new SalesHierarchyScope())->canReviewSalesReport($companyId, $actorId)) {
                 return [
                     'eligible' => true,
                     'mode' => 'manager',
@@ -468,7 +469,7 @@ final class SalesQuickSaleService
                 : '';
 
             if (!in_array($jobTitle, ['dsa', 'dsp'], true)
-                || !(new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view')) {
+                || !(new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.report.submit')) {
                 throw new RuntimeException(
                     'Only the assigned DSA/DSP can submit this sales report.'
                 );
@@ -1042,7 +1043,7 @@ final class SalesQuickSaleService
                 )
                 : '';
 
-            if (!(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
+            if (!(new SalesHierarchyScope())->canReviewSalesReport($companyId, $actorId)) {
                 throw new RuntimeException(
                     'Only the assigned Shop Manager may confirm this sales report.'
                 );
@@ -1792,7 +1793,7 @@ final class SalesQuickSaleService
                 )
                 : '';
 
-            if (!(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
+            if (!(new SalesHierarchyScope())->canReviewSalesReport($companyId, $actorId)) {
                 throw new RuntimeException(
                     'Only the assigned Shop Manager may return this report.'
                 );
@@ -2069,14 +2070,20 @@ final class SalesQuickSaleService
             $isOwner =
                 (int) $row['user_id'] === $actorId
                 && in_array($jobTitle, ['dsa', 'dsp'], true)
-                && (new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view');
+                && ((new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.quick_sale.use')
+                    || (new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.report.submit'));
 
             $isManager =
                 (int) $row['manager_user_id'] === $actorId
-                && (new SalesHierarchyScope())->canManage($companyId, $actorId);
+                && ((new SalesHierarchyScope())->canReviewQuickSale($companyId, $actorId)
+                    || (new SalesHierarchyScope())->canReviewSalesReport($companyId, $actorId))
+                && ((new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.quick_sale.review')
+                    || (new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.report.review'));
 
             $scope = new SalesHierarchyScope();
-            $privilegedReviewer = $scope->canReadOwner($companyId, $actorId, (int) $row['user_id']);
+            $privilegedReviewer = $privilegedReviewer
+                && ($scope->canReadOwner($companyId, $actorId, (int) $row['user_id'])
+                    || (new ModuleRoleService())->permissionAllowed($companyId, $actorId, 'finance.records.view'));
             if (
                 !$isOwner
                 && !$isManager
@@ -2283,10 +2290,12 @@ final class SalesQuickSaleService
                 'isAuthorizedReviewer' => $privilegedReviewer,
                 'canConfirm' =>
                     $isManager
+                    && $scope->hasPermission($companyId, $actorId, 'sales.quick_sale.review')
                     && $row['status'] === 'submitted'
                     && (string) ($row['fulfilment_state'] ?? 'at_origin') !== 'awaiting_transfer',
                 'canReport' =>
                     $isOwner
+                    && $scope->hasPermission($companyId, $actorId, 'sales.report.submit')
                     && $reportLines !== []
                     && (
                         $row['status'] === 'allocated'
@@ -2302,7 +2311,7 @@ final class SalesQuickSaleService
                 'reportLines' => $reportLines,
                 'canViewReport' =>
                     (
-                        $isManager
+                        ($isManager && $scope->hasPermission($companyId, $actorId, 'sales.report.review'))
                         || $privilegedReviewer
                     )
                     && $row['status'] === 'reported'
@@ -2310,6 +2319,7 @@ final class SalesQuickSaleService
                     && $managerReportLines !== [],
                 'canReviewReport' =>
                     $isManager
+                    && $scope->hasPermission($companyId, $actorId, 'sales.report.review')
                     && $row['status'] === 'reported'
                     && is_array($managerReport)
                     && (string) (
@@ -2388,7 +2398,7 @@ final class SalesQuickSaleService
                 trim((string) ($context['job_title'] ?? ''))
             );
 
-            if (!(new SalesHierarchyScope())->canManage($companyId, $actorId)) {
+            if (!(new SalesHierarchyScope())->canReviewQuickSale($companyId, $actorId)) {
                 return [
                     'successful' => false,
                     'errors' => [
@@ -3174,7 +3184,7 @@ final class SalesQuickSaleService
         );
 
         if (!in_array($jobTitle, ['dsa', 'dsp'], true)
-            || !(new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.view')) {
+            || !(new SalesHierarchyScope())->hasPermission($companyId, $actorId, 'sales.quick_sale.use')) {
             throw new RuntimeException(
                 'Quick Sale is available only to DSA/DSP users.'
             );

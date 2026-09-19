@@ -72,7 +72,8 @@ final class ActionRequiredCountService
             $add("SELECT r.request_id id,r.request_number reference FROM inventory_stock_requests r JOIN inventory_stock_authorities a ON a.company_id=r.company_id AND a.user_id=r.current_handler_user_id AND a.active=TRUE WHERE r.company_id=:company_id AND r.current_handler_user_id=:user_id AND r.status='pending_review'",$parameters,'stock_request','Stock request awaiting allocation decision','decide_stock_request','/inventory/stock-requests/{id}');
             $add("SELECT p.proposal_id id,p.proposal_number reference FROM inventory_peer_proposals p JOIN inventory_stock_authorities a ON a.company_id=p.company_id AND a.authority_id=p.source_authority_id AND a.active=TRUE AND a.user_id=p.source_owner_user_id WHERE p.company_id=:company_id AND p.source_owner_user_id=:user_id AND p.state='proposed'",$parameters,'peer_proposal','Peer stock transfer approval required','decide_peer','/inventory/stock-requests');
         }
-        if ($module === 'sales' && $section === 'quick_sale' && $can('sales.view')) {
+        if ($module === 'sales' && $section === 'quick_sale') {
+            if ($can('sales.quick_sale.review')) {
             $add(
                 "SELECT
                     qs.quick_sale_id id,
@@ -102,6 +103,8 @@ final class ActionRequiredCountService
                 '/sales/quick-sale/{id}'
             );
 
+            }
+            if ($can('sales.report.review')) {
             $add(
                 "SELECT
                     qs.quick_sale_id id,
@@ -145,6 +148,8 @@ final class ActionRequiredCountService
                 '/sales/quick-sale/{id}'
             );
 
+            }
+            if ($can('sales.quick_sale.use')) {
             $add(
                 "SELECT
                     qs.quick_sale_id id,
@@ -170,6 +175,8 @@ final class ActionRequiredCountService
                 '/sales/quick-sale/{id}'
             );
 
+            }
+            if ($can('sales.report.submit')) {
             $add(
                 "SELECT
                     qs.quick_sale_id id,
@@ -201,6 +208,7 @@ final class ActionRequiredCountService
                 'review_quick_sale',
                 '/sales/quick-sale/{id}'
             );
+            }
         } elseif ($module === 'sales' && $section === 'quotations' && $can('sales.orders.submit')) {
             $add("SELECT q.quotation_id id,q.quotation_number reference FROM sales_quotations q WHERE q.company_id=:company_id AND q.status='draft' AND (q.expiration_date IS NULL OR q.expiration_date>=CURRENT_DATE) AND NOT EXISTS(SELECT 1 FROM sales_quick_sales qs WHERE qs.company_id=q.company_id AND qs.quotation_id=q.quotation_id)", $parameters, 'quotation', 'Mark sent or confirm', 'advance_quotation', '/sales/quotations/{id}');
             $add("SELECT q.quotation_id id,q.quotation_number reference FROM sales_quotations q WHERE q.company_id=:company_id AND q.status='sent' AND (q.expiration_date IS NULL OR q.expiration_date>=CURRENT_DATE) AND NOT EXISTS(SELECT 1 FROM sales_quick_sales qs WHERE qs.company_id=q.company_id AND qs.quotation_id=q.quotation_id)", $parameters, 'quotation', 'Confirm quotation', 'confirm_quotation', '/sales/quotations/{id}');
@@ -282,7 +290,7 @@ final class ActionRequiredCountService
         $can = static fn (string $permission): bool => in_array($permission, $permissions, true);
         $connection = \db();
 
-        if ($can('sales.view')) {
+        if ($can('sales.quick_sale.review') || $can('sales.report.review') || $can('sales.quick_sale.use') || $can('sales.report.submit')) {
             $managerQuickSales = $this->scalar(
                 $connection,
                 "SELECT COUNT(*)
@@ -290,9 +298,9 @@ final class ActionRequiredCountService
                  WHERE company_id=:company_id
                    AND manager_user_id=:user_id
                    AND (
-                       status='submitted'
+                       (status='submitted' AND :can_quick_review=1)
                        OR (
-                           status='reported'
+                           status='reported' AND :can_report_review=1
                            AND EXISTS(
                                SELECT 1
                                FROM sales_quick_sale_reports latest_report
@@ -311,6 +319,8 @@ final class ActionRequiredCountService
                 [
                     'company_id' => $companyId,
                     'user_id' => $userId,
+                    'can_quick_review' => $can('sales.quick_sale.review') ? 1 : 0,
+                    'can_report_review' => $can('sales.report.review') ? 1 : 0,
                 ]
             );
 
@@ -321,12 +331,12 @@ final class ActionRequiredCountService
                  WHERE company_id=:company_id
                    AND user_id=:user_id
                    AND (
-                       status IN(
+                       :can_quick_use=1 AND status IN(
                            'allocated',
                            'return_requested'
                        )
                        OR (
-                           status='reported'
+                           status='reported' AND :can_report_submit=1
                            AND EXISTS(
                                SELECT 1
                                FROM sales_quick_sale_reports latest_report
@@ -345,10 +355,11 @@ final class ActionRequiredCountService
                 [
                     'company_id' => $companyId,
                     'user_id' => $userId,
+                    'can_quick_use' => $can('sales.quick_sale.use') ? 1 : 0,
+                    'can_report_submit' => $can('sales.report.submit') ? 1 : 0,
                 ]
             );
-            $counts['sales']['quick_sale'] =
-                $managerQuickSales + $dsaQuickSales;
+            $counts['sales']['quick_sale'] = $managerQuickSales + $dsaQuickSales;
         }
 
         $procurement = $this->row($connection, <<<'SQL'

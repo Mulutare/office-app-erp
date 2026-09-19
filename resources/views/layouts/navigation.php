@@ -50,6 +50,13 @@ foreach ($enabledModules as $module) {
     $routePath = (string) (
         $module['route_path'] ?? ''
     );
+    if ($simpleSalesUser && (string) ($module['code'] ?? '') === 'sales') {
+        $routePath = in_array('sales.quick_sale.use', $permissions, true)
+            ? 'sales/quick-sale'
+            : (in_array('sales.report.submit', $permissions, true)
+                ? 'sales/dsa-dsp-report'
+                : 'sales/incentives');
+    }
     $namespace = (string) (
         $module['permission_namespace'] ?? ''
     );

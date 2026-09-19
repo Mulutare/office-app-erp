@@ -90,7 +90,7 @@ final class AuthorizationService
             $companyId = (int) ($_SESSION['auth']['company']['company_id'] ?? 0);
             $userId = (int) ($_SESSION['auth']['user_id'] ?? 0);
             if ((new SalesHierarchyScope())->isAgent($companyId, $userId)
-                && !in_array($permissionCode, ['sales.view', 'sales.incentive.view', 'sales.incentive.submit'], true)) {
+                && !in_array($permissionCode, ['sales.view', 'sales.quick_sale.use', 'sales.report.submit', 'sales.incentive.view', 'sales.incentive.submit'], true)) {
                 $this->deny();
             }
         }

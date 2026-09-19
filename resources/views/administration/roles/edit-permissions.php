@@ -85,7 +85,9 @@ foreach ($permissions as $permission) {
         <p class="form-help">
             Select only the capabilities required by this
             role. View access and management access are
-            deliberately separate.
+            deliberately separate. A grant permits the function;
+            company membership, assigned hierarchy, record state,
+            and maker/checker rules still limit the data and actions.
         </p>
 
         <?php if (!empty(

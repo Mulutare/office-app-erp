@@ -51,6 +51,10 @@ final class SalesController
 
         $managerMode =
             ($quickSale['mode'] ?? '') === 'manager';
+        $this->authorization->requireModulePermission(
+            'sales',
+            $managerMode ? 'sales.quick_sale.review' : 'sales.quick_sale.use'
+        );
 
         \view('layouts.app', [
             'applicationName' =>
@@ -93,7 +97,12 @@ public function showQuickSale(string $id): void
             || $this->can('finance.settlements.approve');
 
         if (!$privilegedReviewer) {
-            $this->authorize('sales.view');
+            $this->authorization->requireAnyModulePermission([
+                ['sales', 'sales.quick_sale.use'],
+                ['sales', 'sales.quick_sale.review'],
+                ['sales', 'sales.report.submit'],
+                ['sales', 'sales.report.review'],
+            ]);
         }
 
         $detail = $this->quickSales->detail(
@@ -155,7 +164,10 @@ public function showQuickSale(string $id): void
             || $this->can('finance.settlements.approve');
 
         if (!$privilegedReviewer) {
-            $this->authorize('sales.view');
+            $this->authorization->requireAnyModulePermission([
+                ['sales', 'sales.report.submit'],
+                ['sales', 'sales.report.review'],
+            ]);
         }
 
         $evidence = $this->quickSales->reportEvidence(
@@ -215,7 +227,7 @@ public function showQuickSale(string $id): void
 
     public function confirmQuickSale(string $id): void
     {
-        $this->authorize('sales.view');
+        $this->authorization->requireModulePermission('sales', 'sales.quick_sale.review');
         $this->requireCsrf('quick_sale_confirm');
 
         $result = $this->quickSales->confirm(
@@ -262,7 +274,7 @@ public function showQuickSale(string $id): void
 
     public function handoffQuickSale(string $id, string $reportId): void
     {
-        $this->authorize('sales.orders.confirm');
+        $this->authorization->requireModulePermission('sales', 'sales.report.review');
         $this->requireCsrf('quick_sale_handoff');
         $result = $this->quickSales->handoffToFinance((int) $id, (int) $reportId, $this->actorId());
         $this->finishTo($result, 'quick_sale_handoff', 'Confirmed sale sent to Finance.', [],
@@ -273,7 +285,7 @@ public function showQuickSale(string $id): void
         string $id,
         string $reportId
     ): void {
-        $this->authorize('sales.view');
+        $this->authorization->requireModulePermission('sales', 'sales.report.review');
         $this->requireCsrf('quick_sale_report_confirm');
 
         $result = $this->quickSales->confirmReport(
@@ -296,7 +308,7 @@ public function showQuickSale(string $id): void
         string $id,
         string $reportId
     ): void {
-        $this->authorize('sales.view');
+        $this->authorization->requireModulePermission('sales', 'sales.report.review');
         $this->requireCsrf('quick_sale_report_correction');
 
         $result = $this->quickSales->requestReportCorrection(
@@ -318,7 +330,7 @@ public function showQuickSale(string $id): void
 
     public function reportQuickSale(string $id): void
     {
-        $this->authorize('sales.view');
+        $this->authorization->requireModulePermission('sales', 'sales.report.submit');
         $this->requireCsrf('quick_sale_report');
 
         $lines = [];
@@ -374,7 +386,7 @@ public function showQuickSale(string $id): void
 
     public function storeQuickSale(): void
     {
-        $this->authorize('sales.view');
+        $this->authorization->requireModulePermission('sales', 'sales.quick_sale.use');
         $this->requireCsrf('quick_sale');
 
         $lines = [];
@@ -458,8 +470,8 @@ public function showQuickSale(string $id): void
     {$this->authorizeInventoryDelivery();$this->requireCsrf('sales_delivery_reserve');$result=$this->sales->reserveDelivery((int)$id,$this->actorId());$this->finishTo($result,'sales_delivery_reserve','Stock reserved. The delivery is ready for validation.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)$id);}
     public function createReturn(string $id): void
     {$this->authorizeInventoryDelivery();$this->requireCsrf('sales_delivery_return');$result=$this->sales->createReturn((int)$id,$_POST,$this->actorId());$this->finishTo($result,'sales_delivery_return','Return document created. Validate it to move returned stock.',[],'/sales/deliveries/'.(int)$id,'/sales/deliveries/'.(int)($result['returnPickingId']??$id));}
-    public function showPricelist(string $id): void{$this->authorize('sales.view');$this->renderCommercial('pricelist',(int)$id);}
-    public function showTeam(string $id): void{$this->authorize('sales.view');$this->renderCommercial('team',(int)$id);}
+    public function showPricelist(string $id): void{$this->authorize('sales.pricing.view');$this->renderCommercial('pricelist',(int)$id);}
+    public function showTeam(string $id): void{$this->authorize('sales.catalogue.manage');$this->renderCommercial('team',(int)$id);}
     private function renderCommercial(string $type,int $id): void
     {
         $this->redirectSimpleSalesUser();$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();$canManage=$type==='pricelist'?$this->can('sales.pricing.manage')&&!(new \App\Services\SalesHierarchyScope())->isAgent((new TenantContext())->companyId(),$this->actorId()):$this->can('sales.catalogue.manage');\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$canManage]+$workspace);}
@@ -529,6 +541,12 @@ public function showQuickSale(string $id): void
     {
         $this->redirectSimpleSalesUser();
         $this->authorize('sales.view');
+        if (in_array($section, ['pricing', 'pricelists'], true)) {
+            $this->authorize('sales.pricing.view');
+        }
+        if (in_array($section, ['product_variants', 'teams'], true)) {
+            $this->authorize('sales.catalogue.manage');
+        }
         $workspace = $this->sales->workspace();
         $pricingData = [];
         $canManagePricing = false;

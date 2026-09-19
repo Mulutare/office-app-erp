@@ -13,7 +13,7 @@ final class SalesProductVariantController
     private function permit(string $permission): void { (new AuthorizationService())->requireModulePermission('sales',$permission); }
     public function index(): void
     {
-        $this->permit('sales.view');
+        $this->permit('sales.catalogue.manage');
         $variants=(new SalesProductVariantService())->options();
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Product Variants','pageDescription'=>'Company-scoped Mobile and MiFi classification for real SKUs.','contentView'=>'sales.product-variants','user'=>$_SESSION['auth'],'variants'=>$variants,'canManageVariants'=>(new \App\Services\ModuleRoleService())->permissionAllowed((new \App\Services\TenantContext())->companyId(),$this->actor(),'sales.catalogue.manage'),'notice'=>\getFlash('variant_notice'),'error'=>\getFlash('variant_error')]);
     }

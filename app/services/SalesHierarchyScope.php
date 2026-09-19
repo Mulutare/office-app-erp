@@ -37,6 +37,18 @@ final class SalesHierarchyScope
             && $this->hasPermission($companyId, $actorId, 'sales.orders.confirm');
     }
 
+    public function canReviewQuickSale(int $companyId, int $actorId): bool
+    {
+        return !$this->isAgent($companyId, $actorId)
+            && $this->hasPermission($companyId, $actorId, 'sales.quick_sale.review');
+    }
+
+    public function canReviewSalesReport(int $companyId, int $actorId): bool
+    {
+        return !$this->isAgent($companyId, $actorId)
+            && $this->hasPermission($companyId, $actorId, 'sales.report.review');
+    }
+
     public function canReadOwner(int $companyId, int $actorId, int $ownerId): bool
     {
         return $this->hasPermission($companyId, $actorId, 'sales.view')
