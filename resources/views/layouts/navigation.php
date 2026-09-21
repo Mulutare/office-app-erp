@@ -22,11 +22,6 @@ $enabledModules = is_array(
 $companyId = (int) ($user['company']['company_id'] ?? 0);
 $userId = (int) ($user['user_id'] ?? 0);
 
-$simpleSalesUser =
-    $companyId > 0
-    && $userId > 0
-    && (new \App\Services\SalesHierarchyScope())
-        ->isAgent($companyId, $userId);
 $navigation = [
     [
         'label' => 'Dashboard',
@@ -43,19 +38,15 @@ foreach ($enabledModules as $module) {
     if (!is_array($module)) {
         continue;
     }
-    if ($simpleSalesUser && (string) ($module['code'] ?? '') === 'inventory') {
-        continue;
-    }
 
     $routePath = (string) (
         $module['route_path'] ?? ''
     );
-    if ($simpleSalesUser && (string) ($module['code'] ?? '') === 'sales') {
-        $routePath = in_array('sales.quick_sale.use', $permissions, true)
-            ? 'sales/quick-sale'
-            : (in_array('sales.report.submit', $permissions, true)
-                ? 'sales/dsa-dsp-report'
-                : 'sales/incentives');
+    $moduleCode = (string) ($module['code'] ?? '');
+    if (isset(\App\Services\WorkspaceAccessService::definitions()[$moduleCode])) {
+        $landing = \App\Services\WorkspaceAccessService::landing($moduleCode);
+        if ($landing === null) continue;
+        $routePath = ltrim($landing, '/');
     }
     $namespace = (string) (
         $module['permission_namespace'] ?? ''

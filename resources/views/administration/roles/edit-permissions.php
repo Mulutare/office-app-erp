@@ -24,6 +24,7 @@ $errors = is_array($data['errors'] ?? null)
     ? $data['errors']
     : [];
 $permissionGroups = [];
+$moduleGates = [];
 
 foreach ($permissions as $permission) {
     if (!is_array($permission)) {
@@ -33,6 +34,11 @@ foreach ($permissions as $permission) {
     $module = (string) (
         $permission['module'] ?? 'Other'
     );
+    if (str_ends_with((string)$permission['code'], '.module.enabled')) {
+        $moduleGates[$module] = $permission;
+        continue;
+    }
+    $module = ['audit'=>'administration','organization'=>'administration'][$module] ?? $module;
     $codeParts = explode('.', (string)($permission['code'] ?? ''));
     $area = count($codeParts) > 2 ? (string)$codeParts[1] : 'General';
     $permissionGroups[$module][$area][] = $permission;
@@ -64,7 +70,7 @@ foreach ($permissions as $permission) {
                 <h2 class="card-title">
                     <?= e($role['name'] ?? '') ?>
                 </h2>
-                <code><?= e($role['code'] ?? '') ?></code>
+
             </div>
 
             <span
@@ -105,7 +111,14 @@ foreach ($permissions as $permission) {
         ): ?>
             <fieldset class="permission-editor-group">
                 <legend><?= e(ucwords($module)) ?></legend>
+                <?php if (isset($moduleGates[$module])): $gate = $moduleGates[$module]; ?>
+                <label class="permission-option">
+                    <input type="checkbox" name="permission_ids[]" value="<?= e($gate['permission_id']) ?>" <?= in_array((int)$gate['permission_id'], $selectedPermissionIds, true) ? 'checked' : '' ?>>
+                    <span><strong>Enable module</strong><small>Turning this off hides the workspace. Function selections are retained for when you enable it again.</small></span>
+                </label>
+                <?php endif; ?>
 
+                <details><summary>Configure functions</summary>
                 <?php foreach ($areas as $area => $items): ?>
                     <h3 class="permission-area-heading"><?= e(ucwords(str_replace('_',' ',$area))) ?></h3>
                 <?php foreach ($items as $permission): ?>
@@ -135,12 +148,7 @@ foreach ($permissions as $permission) {
                                     $permission['name'] ?? ''
                                 ) ?>
                             </strong>
-                            <code>
-                                <?= e(
-                                    $permission['code'] ?? ''
-                                ) ?>
-                            </code>
-                            <small>
+<small>
                                 <?= e(
                                     $permission[
                                         'description'
@@ -151,6 +159,7 @@ foreach ($permissions as $permission) {
                     </label>
                 <?php endforeach; ?>
                 <?php endforeach; ?>
+                </details>
             </fieldset>
         <?php endforeach; ?>
     </div>

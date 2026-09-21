@@ -23,11 +23,11 @@ $modules = [
             'administration.users.manage',
     ],
     [
-        'title' => 'Roles and permissions',
+        'title' => 'Access Control',
         'description' =>
             'Control access to ERP modules and operations.',
         'path' =>
-            appBasePath() . '/administration/roles',
+            appBasePath() . '/administration/access-control',
         'permission' =>
             'administration.roles.manage',
     ],

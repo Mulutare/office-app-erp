@@ -44,7 +44,6 @@ final class SalesIncentiveService
     public function submitClaim(array $input,int $actor): int
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.submit');
-        if(!(new SalesHierarchyScope())->isAgent($company,$actor))throw new RuntimeException('Only a DSA/DSP may submit their incentive claim.');
         $reportId=(int)($input['report_id']??0);$floatId=(int)($input['float_id']??0);$proposed=$this->money($input['proposed_amount']??null);
         $externalReference=trim((string)($input['external_reference']??''))?:null;
         if($externalReference!==null&&strlen($externalReference)>190)throw new RuntimeException('Safaricom reference is too long.');

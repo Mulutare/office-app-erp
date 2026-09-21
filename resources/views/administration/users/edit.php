@@ -41,6 +41,10 @@ $managerUserId = (int) (
     </div>
 <?php endif; ?>
 
+<?php if ((new \App\Services\AuthService())->can('administration.roles.manage') && empty($profile['is_platform_admin'])): ?>
+<p><a class="btn btn-secondary" href="#user-function-access">Edit this user's function access</a></p>
+<?php endif; ?>
+
 <form
     method="post"
     action="<?= e(appBasePath()) ?>/administration/users/update"
@@ -354,3 +358,12 @@ $managerUserId = (int) (
         </button>
     </div>
 </form>
+
+<?php if ((new \App\Services\AuthService())->can('administration.roles.manage')):
+    $notice=\getFlash('user_access_notice'); $error=\getFlash('user_access_error'); ?>
+    <?php if ($notice): ?><p class="alert alert-success" role="status"><?= e($notice) ?></p><?php endif; ?>
+    <?php if ($error): ?><p class="alert alert-danger" role="alert"><?= e($error) ?></p><?php endif; ?>
+    <?php if (empty($profile['is_platform_admin'])) \view('administration.user-function-access',[
+        'access'=>(new \App\Services\UserPermissionOverrideService())->formData((int)$profile['user_id']),
+        'returnTo'=>'user_edit']); ?>
+<?php endif; ?>

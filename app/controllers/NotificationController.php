@@ -35,6 +35,6 @@ final class NotificationController
     {
         [$company,$user] = $this->context();
         (new UserNotificationService())->markAllRead($company,$user);
-        \redirect('/dashboard');
+        \redirect(\App\Services\WorkspaceAccessService::firstLanding());
     }
 }

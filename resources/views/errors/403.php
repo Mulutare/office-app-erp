@@ -41,10 +41,10 @@
 
             <div class="page-actions">
                 <a
-                    href="<?= e(appBasePath()) ?>/dashboard"
+                    href="<?= e(appBasePath() . \App\Services\WorkspaceAccessService::firstLanding()) ?>"
                     class="btn btn-primary"
                 >
-                    Return to dashboard
+                    Return to workspace
                 </a>
 
                 <form

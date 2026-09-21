@@ -86,14 +86,6 @@ final class AuthorizationService
         string $permissionCode
     ): void {
         $this->requireModule($moduleCode);
-        if ($moduleCode === 'sales') {
-            $companyId = (int) ($_SESSION['auth']['company']['company_id'] ?? 0);
-            $userId = (int) ($_SESSION['auth']['user_id'] ?? 0);
-            if ((new SalesHierarchyScope())->isAgent($companyId, $userId)
-                && !in_array($permissionCode, ['sales.view', 'sales.quick_sale.use', 'sales.report.submit', 'sales.incentive.view', 'sales.incentive.submit'], true)) {
-                $this->deny();
-            }
-        }
         $this->requireTenantPermission($permissionCode);
     }
 
@@ -134,7 +126,7 @@ final class AuthorizationService
             $this->deny();
         }
 
-        http_response_code(404);
+        http_response_code(403);
 
         \view('errors.module-disabled', [
             'applicationName' => \config(
@@ -157,7 +149,7 @@ final class AuthorizationService
             return;
         }
 
-        http_response_code(404);
+        http_response_code(403);
 
         \view('errors.module-disabled', [
             'applicationName' => \config(
@@ -209,7 +201,7 @@ final class AuthorizationService
             return;
         }
 
-        http_response_code(404);
+        http_response_code(403);
 
         \view('errors.module-disabled', [
             'applicationName' => \config(
@@ -225,9 +217,6 @@ final class AuthorizationService
     {
         $companyId = (int) ($_SESSION['auth']['company']['company_id'] ?? 0);
         $userId = (int) ($_SESSION['auth']['user_id'] ?? 0);
-        if ($module === 'inventory' && (new SalesHierarchyScope())->isAgent($companyId, $userId)) {
-            return false;
-        }
         return (new ModuleRoleService())->entitled($companyId, $userId, $module);
     }
 

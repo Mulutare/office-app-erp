@@ -153,7 +153,7 @@ final class RoleAdministrationController
                 'environment',
                 'unknown'
             ),
-            'pageTitle' => 'Edit Role Permissions',
+            'pageTitle' => 'Access Control',
             'pageDescription' =>
                 'Apply least-privilege access to this role.',
             'contentView' =>

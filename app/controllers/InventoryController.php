@@ -23,7 +23,7 @@ final class InventoryController
 
     public function index(): void
     {
-        $this->authorize('inventory.view');
+        $this->authorize('inventory.stock.view');
 
         \view('layouts.app', [
             'applicationName' =>

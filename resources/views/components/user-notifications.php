@@ -19,6 +19,10 @@ if ($notificationCompany !== null && $notificationUser > 0):
         </form>
         <?php if ($notifications === []): ?><p>No notifications</p><?php endif; ?>
         <?php foreach ($notifications as $notification): ?>
+        <?php $target = \App\Services\WorkspaceAccessService::forPath((string)$notification['action_url']);
+        if ($target !== null && !\App\Services\WorkspaceAccessService::allowed($target)): ?>
+        <div class="notification-item"><strong><?= e($notification['title']) ?></strong><span><?= e(mb_strimwidth($notification['message'],0,180,'…')) ?></span><time><?= e($notification['created_at']) ?></time></div>
+        <?php continue; endif; ?>
         <form method="post" action="<?= e(appBasePath()) ?>/notifications/<?= e($notification['notification_id']) ?>/read">
             <?= csrfField() ?>
             <button class="notification-item <?= $notification['read_at'] === null ? 'notification-unread' : '' ?>" aria-label="<?= e($notification['title'].' — '.$notification['message']) ?>">

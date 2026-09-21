@@ -182,10 +182,11 @@ class CompanyMembershipRepository extends MySqlRepository
      */
     public function permissionCodes(
         int $userId,
-        int $companyId
+        int $companyId,
+        bool $includeUserOverrides = true
     ): array {
         $statement = $this->connection()->prepare(
-            'SELECT DISTINCT permissions.code, roles.code role_code
+            'SELECT DISTINCT permissions.code, permissions.module, roles.role_id
              FROM company_user_roles assignments
              INNER JOIN roles
                  ON roles.role_id =
@@ -208,11 +209,16 @@ class CompanyMembershipRepository extends MySqlRepository
             'company_id' => $companyId,
         ]);
 
-        $codes = [];
-        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $grant) {
-            if (\App\Services\ModuleRoleService::grantAllowed($grant['role_code'], $grant['code'])) $codes[$grant['code']] = true;
+        $enabled = array_column((new \App\Models\CompanyModule())->enabledForCompany($companyId), 'code');
+        // Dashboard and Administration are core workspaces, not licensed modules.
+        $enabled = array_values(array_unique(array_merge($enabled, ['dashboard','administration'])));
+        $overrides = [];
+        if ($includeUserOverrides) {
+            $query = $this->connection()->prepare('SELECT p.code,p.module,o.allowed FROM company_user_permission_overrides o JOIN permissions p ON p.permission_id=o.permission_id AND p.active=TRUE WHERE o.company_id=? AND o.user_id=?');
+            $query->execute([$companyId,$userId]);
+            $overrides = $query->fetchAll(\PDO::FETCH_ASSOC);
         }
-        return array_keys($codes);
+        return \App\Services\EffectivePermissionPolicy::resolve($statement->fetchAll(\PDO::FETCH_ASSOC), $enabled, $overrides);
     }
 
     public function add(

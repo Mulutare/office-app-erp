@@ -40,6 +40,8 @@ final class ActionRequiredCountService
         }
 
         $can = static fn (string $permission): bool => in_array($permission, $permissions, true);
+        $landing = WorkspaceAccessService::definitions()[$module][$section] ?? null;
+        if ($landing !== null && !WorkspaceAccessService::allowed($landing, $permissions)) return [];
         $items = [];
         $add = function (string $sql, array $parameters, string $entity, string $action, string $key, string $declaredUrl) use (&$items, $companyId, $userId, $module): void {
             if ($declaredUrl !== $this->targetTemplate($key)) {
@@ -60,7 +62,7 @@ final class ActionRequiredCountService
         };
         $parameters = ['company_id' => $companyId, 'user_id' => $userId];
 
-        if ($module==='sales' && $section==='incentives' && $can('sales.incentive.approve')) {
+        if ($module==='sales' && $section==='incentives' && $can('sales.incentive.view') && $can('sales.incentive.approve')) {
             $add("SELECT incentive_claim_id id,CONCAT('Safaricom #',incentive_claim_id) reference FROM sales_incentive_claims WHERE company_id=:company_id AND responsible_manager_id=:user_id AND status='submitted' AND submitted_by<>:submitter_id",$parameters + ['submitter_id'=>$userId],'incentive_claim','Review DSA/DSP incentive','approve_incentive','/sales/incentives/{id}');
         }
 
@@ -379,20 +381,12 @@ SELECT
     ),FALSE)=FALSE
     OR (
      po.created_by<>:approval_actor
-     AND EXISTS (
-      SELECT 1 FROM company_user_roles roles
-      INNER JOIN company_role_permissions grants ON grants.company_id=roles.company_id AND grants.role_id=roles.role_id
-      INNER JOIN permissions permission ON permission.permission_id=grants.permission_id AND permission.active=TRUE
-      WHERE roles.company_id=po.company_id AND roles.user_id=:approval_user
-       AND permission.code=(
-        SELECT policy.required_permission FROM company_approval_policies policy
+     AND JSON_CONTAINS(:approval_permissions,JSON_QUOTE((SELECT policy.required_permission FROM company_approval_policies policy
         WHERE policy.company_id=po.company_id AND policy.action_type='purchase_order.approve'
          AND policy.active=TRUE
          AND policy.minimum_amount<=po.total_amount
          AND (policy.maximum_amount IS NULL OR policy.maximum_amount>=po.total_amount)
-        ORDER BY policy.minimum_amount DESC,policy.approval_policy_id DESC LIMIT 1
-       )
-     )
+        ORDER BY policy.minimum_amount DESC,policy.approval_policy_id DESC LIMIT 1)))
     )
    )) submitted_orders,
  (SELECT COUNT(*) FROM purchase_orders WHERE company_id=:c3 AND status='approved') approved_orders,
@@ -408,7 +402,7 @@ SELECT
    AND EXISTS(SELECT 1 FROM purchase_order_lines pol WHERE pol.company_id=po.company_id AND pol.purchase_order_id=po.purchase_order_id AND pol.received_quantity<pol.ordered_quantity)) receipts_to_create
  ,(SELECT COUNT(*) FROM purchase_orders po WHERE po.company_id=:c12 AND po.status IN('partially_received','received','partially_billed')
    AND EXISTS(SELECT 1 FROM purchase_order_lines pol WHERE pol.company_id=po.company_id AND pol.purchase_order_id=po.purchase_order_id AND pol.billed_quantity<pol.received_quantity-pol.returned_quantity)) bills_to_create
-SQL, ['c1'=>$companyId,'a1'=>$userId,'c8'=>$companyId,'a3'=>$userId,'c2'=>$companyId,'approval_actor'=>$userId,'approval_user'=>$userId,'c3'=>$companyId,'c9'=>$companyId,'a4'=>$userId,'c13'=>$companyId,'c10'=>$companyId,'c4'=>$companyId,'a2'=>$userId,'c5'=>$companyId,'c6'=>$companyId,'c7'=>$companyId,'c11'=>$companyId,'c12'=>$companyId]);
+SQL, ['c1'=>$companyId,'a1'=>$userId,'c8'=>$companyId,'a3'=>$userId,'c2'=>$companyId,'approval_actor'=>$userId,'approval_permissions'=>json_encode($permissions,JSON_THROW_ON_ERROR),'c3'=>$companyId,'c9'=>$companyId,'a4'=>$userId,'c13'=>$companyId,'c10'=>$companyId,'c4'=>$companyId,'a2'=>$userId,'c5'=>$companyId,'c6'=>$companyId,'c7'=>$companyId,'c11'=>$companyId,'c12'=>$companyId]);
 
         $counts['procurement']['requisitions'] = ($can('procurement.requisitions.create') ? $procurement['draft_requisitions'] : 0)
             + ($can('procurement.requisitions.approve') ? $procurement['requisitions'] : 0);
@@ -527,6 +521,11 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
                 ['company'=>$companyId,'actor'=>$userId]);
         }
         foreach ($counts as $moduleCode=>&$moduleCounts) {
+            foreach ($moduleCounts as $sectionKey => &$count) {
+                $landing = WorkspaceAccessService::definitions()[$moduleCode][$sectionKey] ?? null;
+                if ($landing !== null && !WorkspaceAccessService::allowed($landing, $permissions)) $count = 0;
+            }
+            unset($count);
             if (isset(ModuleRoleService::OWNERS[$moduleCode]) && !(new ModuleRoleService())->entitled($companyId,$userId,$moduleCode)) $moduleCounts=array_fill_keys(array_keys($moduleCounts),0);
         }
         unset($moduleCounts);
@@ -598,7 +597,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
                 $add("SELECT r.requisition_id id,r.requisition_number reference FROM purchase_requisitions r WHERE r.company_id=:company_id AND r.status='approved' AND NOT EXISTS(SELECT 1 FROM purchase_orders po WHERE po.company_id=r.company_id AND po.requisition_id=r.requisition_id) AND NOT EXISTS(SELECT 1 FROM purchase_requisition_lines l WHERE l.company_id=r.company_id AND l.requisition_id=r.requisition_id AND l.estimated_unit_price<=0)", $parameters, 'requisition', 'Create purchase order', 'create_purchase_order', '/procurement?section=orders');
                 $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders WHERE company_id=:company_id AND status='billed'", $parameters, 'purchase_order', 'Close PO', 'close_purchase_order', '/procurement/{id}');
             }
-            if ($can('procurement.orders.approve')) $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status='submitted' AND (COALESCE((SELECT p.maker_checker_enabled FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1),FALSE)=FALSE OR (po.created_by<>:approval_actor AND EXISTS(SELECT 1 FROM company_user_roles ur INNER JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id INNER JOIN permissions pm ON pm.permission_id=rp.permission_id AND pm.active=TRUE WHERE ur.company_id=po.company_id AND ur.user_id=:approval_user AND pm.code=(SELECT p.required_permission FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1))))", $parameters + ['approval_actor'=>$parameters['user_id'],'approval_user'=>$parameters['user_id']], 'purchase_order', 'Approve purchase order', 'approve_purchase_order', '/procurement/{id}');
+            if ($can('procurement.orders.approve')) $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status='submitted' AND (COALESCE((SELECT p.maker_checker_enabled FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1),FALSE)=FALSE OR (po.created_by<>:approval_actor AND JSON_CONTAINS(:approval_permissions,JSON_QUOTE((SELECT p.required_permission FROM company_approval_policies p WHERE p.company_id=po.company_id AND p.action_type='purchase_order.approve' AND p.active=TRUE AND p.minimum_amount<=po.total_amount AND (p.maximum_amount IS NULL OR p.maximum_amount>=po.total_amount) ORDER BY p.minimum_amount DESC,p.approval_policy_id DESC LIMIT 1)))))", $parameters + ['approval_actor'=>$parameters['user_id'],'approval_permissions'=>json_encode((new \App\Models\CompanyMembership())->permissionCodes($parameters['user_id'],$parameters['company_id']),JSON_THROW_ON_ERROR)], 'purchase_order', 'Approve purchase order', 'approve_purchase_order', '/procurement/{id}');
             if ($can('procurement.orders.confirm')) $add("SELECT purchase_order_id id,po_number reference FROM purchase_orders WHERE company_id=:company_id AND status='approved'", $parameters, 'purchase_order', 'Confirm purchase order', 'confirm_purchase_order', '/procurement/{id}');
             return;
         }
@@ -633,9 +632,9 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             if ($can('finance.requests.approve')) $add("SELECT loan_id id,loan_number reference FROM finance_staff_loans WHERE company_id=:company_id AND status='submitted' AND created_by<>:user_id", $parameters, 'staff_loan', 'Review staff loan', 'approve_staff_loan', '/finance/staff-loans/{id}');
             if ($can('finance.records.manage')) $add("SELECT loan_id id,loan_number reference FROM finance_staff_loans WHERE company_id=:company_id AND status='approved' AND approved_by<>:user_id", $parameters, 'staff_loan', 'Disburse approved staff loan', 'disburse_staff_loan', '/finance/staff-loans/{id}');
         } elseif ($section === 'settlements') {
-            if ($can('finance.bank_confirmations.create')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status IN('submitted','supervisor_reviewed') AND reconciliation_status='awaiting_confirmation'", $parameters, 'settlement', 'Add bank confirmation', 'add_bank_confirmation', '/sales/settlements/{id}');
-            if ($can('finance.settlements.reconcile')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='supervisor_reviewed' AND reconciliation_status IN('matched','partial','mismatch','review_required')", $parameters, 'settlement', 'Reconcile settlement', 'reconcile_settlement', '/sales/settlements/{id}');
-            if ($can('finance.settlements.approve')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='finance_reconciled' AND reconciliation_status='matched' AND created_by<>:user_id", $parameters, 'settlement', 'Approve settlement', 'approve_settlement', '/sales/settlements/{id}');
+            if ($can('finance.bank_confirmations.create')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status IN('submitted','supervisor_reviewed') AND reconciliation_status='awaiting_confirmation'", $parameters, 'settlement', 'Add bank confirmation', 'add_bank_confirmation', '/finance/settlements/{id}');
+            if ($can('finance.settlements.reconcile')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='supervisor_reviewed' AND reconciliation_status IN('matched','partial','mismatch','review_required')", $parameters, 'settlement', 'Reconcile settlement', 'reconcile_settlement', '/finance/settlements/{id}');
+            if ($can('finance.settlements.approve')) $add("SELECT settlement_id id,settlement_number reference FROM sales_settlements WHERE company_id=:company_id AND workflow_status='finance_reconciled' AND reconciliation_status='matched' AND created_by<>:user_id", $parameters, 'settlement', 'Approve settlement', 'approve_settlement', '/finance/settlements/{id}');
         }
     }
 
@@ -646,7 +645,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             'advance_quotation', 'confirm_quotation' => '/sales/quotations/{id}',
             'resubmit_order', 'submit_order', 'approve_order', 'confirm_order', 'prepare_delivery', 'create_invoice', 'record_payment' => '/sales/orders/{id}',
             'validate_delivery' => '/sales/deliveries/{id}',
-            'submit_settlement', 'review_settlement', 'add_bank_confirmation', 'reconcile_settlement', 'approve_settlement' => '/sales/settlements/{id}',
+            'submit_settlement', 'review_settlement' => '/sales/settlements/{id}',
+            'add_bank_confirmation', 'reconcile_settlement', 'approve_settlement' => '/finance/settlements/{id}',
             'create_settlement' => '/sales/settlements#create-settlement',
             'resubmit_requisition' => '/procurement/requisitions/{id}',
             'submit_requisition', 'approve_requisition' => '/procurement?section=requisitions',

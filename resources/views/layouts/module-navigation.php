@@ -19,92 +19,8 @@ if ($module === '') {
     }
 }
 
-$definitions = [
-    'sales' => [
-        'quick_sale' => ['Quick Sale', '/sales/quick-sale', 'sales.quick_sale.review'],
-        'dsa_dsp_report' => ['DSA/DSP Sales Report', '/sales/dsa-dsp-report', 'sales.report.review'],
-        'incentives' => ['Incentives', '/sales/incentives', 'sales.incentive.view'],
-        'orders' => ['Sales Orders', '/sales/orders', 'sales.view'],
-        'quotations' => ['Quotations', '/sales/quotations', 'sales.view'],
-        'customers' => ['Customers', '/sales/customers', 'sales.view'],
-        'products' => ['Products', '/sales/products', 'sales.view'],
-        'pricing' => ['Selling Terms', '/sales/pricing', 'sales.pricing.view'],
-        'product_variants' => ['Mobile / MiFi Variants', '/sales/product-variants', 'sales.catalogue.manage'],
-        'pricelists' => ['Pricelists', '/sales/pricelists', 'sales.pricing.view'],
-        'teams' => ['DSA / DSP & Teams', '/sales/teams', 'sales.catalogue.manage'],
-        'deliveries' => ['Deliveries', '/sales/deliveries', 'sales.view'],
-        'settlements' => ['Settlements', '/sales/settlements', 'sales.settlements.view'],
-    ],
-    'procurement' => [
-        'overview' => ['Overview', '/procurement?section=overview', 'procurement.view'],
-        'requisitions' => ['Requisitions', '/procurement?section=requisitions', 'procurement.view'],
-        'orders' => ['Purchase Orders', '/procurement?section=orders', 'procurement.view'],
-        'suppliers' => ['Suppliers', '/procurement?section=suppliers', 'procurement.view'],
-        'receipts' => ['Receipts', '/procurement?section=receipts', 'procurement.receipts.create'],
-        'bills' => ['Supplier Bills', '/procurement?section=bills', 'procurement.view'],
-        'payments' => ['Payments', '/procurement?section=payments', 'procurement.payments.post'],
-        'returns' => ['Returns', '/procurement?section=returns', 'procurement.returns.post'],
-    ],
-    'finance' => [
-        'dashboard' => ['Dashboard', '/finance', 'finance.records.view'],
-        'receivables' => ['Receivables', '/finance?section=receivables', 'finance.records.view'],
-        'invoices' => ['Customer Invoices', '/finance/customer-invoices', 'finance.records.view'],
-        'receipts' => ['Receipts', '/finance?section=receipts', 'finance.records.view'],
-        'settlements' => ['Sales Settlement Reconciliation', '/finance/settlements', 'finance.settlements.view'],
-        'payables' => ['Payables', '/finance/accounting/payables', 'finance.records.view'],
-        'expenses' => ['Expenses', '/finance/expenses', 'finance.records.view'],
-        'legacy-expenses' => ['Expense History', '/finance?section=expenses', 'finance.records.view'],
-        'staff-loans' => ['Staff Loans & Advances', '/finance/staff-loans', 'finance.records.view'],
-        'cash-bank' => ['Cash & Bank', '/finance/accounting/cash-bank', 'finance.records.view'],
-        'bank-reconciliation' => ['Bank Reconciliation', '/finance/bank-reconciliation', 'finance.bank_reconciliation.view'],
-        'accounts' => ['Chart of Accounts', '/finance/accounting/accounts', 'finance.records.view'],
-        'journals' => ['Journals', '/finance?section=journals', 'finance.records.view'],
-        'ledger' => ['General Ledger', '/finance/accounting/ledger', 'finance.records.view'],
-        'periods' => ['Accounting Periods', '/finance/accounting-periods', 'finance.period.view'],
-        'reports' => ['Reports', '/finance/accounting/reports', 'finance.records.view'],
-    ],
-    'inventory' => [
-        'stock' => ['Current Stock', '/inventory?section=stock', 'inventory.stock.view'],
-        'stock_requests' => ['Stock Requests', '/inventory/stock-requests', 'inventory.stock_requests.view'],
-        'stock_daily_history' => ['Daily Stock History', '/inventory/stock-daily-history', 'inventory.stock.view'],
-        'movements' => ['Movements', '/inventory?section=movements', 'inventory.stock.view'],
-        'receipts' => ['Receipts', '/inventory/receipts', 'inventory.receipts.view'],
-        'transfers' => ['Transfers', '/inventory/transfers', 'inventory.transfers.view'],
-        'warehouses' => ['Warehouses', '/inventory/warehouses', 'inventory.warehouses.view'],
-        'locations' => ['Locations', '/inventory/locations', 'inventory.warehouses.view'],
-    ],
-    'assets' => [
-        'register' => ['Asset Register', '/assets-management?section=register', 'assets.view'],
-        'direct' => ['Direct Assets', '/assets-management?section=direct', 'assets.manage'],
-        'categories' => ['Asset Categories', '/assets-management?section=categories', 'assets.manage'],
-        'capitalization' => ['Capitalization', '/assets-management?section=capitalization', 'assets.inventory.capitalize'],
-    ],
-];
+$definitions = \App\Services\WorkspaceAccessService::definitions();
 
-$simpleSalesUser = !empty(
-    $data['simpleSalesUser'] ?? false
-);
-
-if (
-    $simpleSalesUser
-    && $module === 'sales'
-) {
-    $definitions['sales'] = [
-        'quick_sale' => [
-            'Quick Sale',
-            '/sales/quick-sale',
-            'sales.quick_sale.use',
-        ],
-        'dsa_dsp_report' => [
-            'Sales Report',
-            '/sales/dsa-dsp-report',
-            'sales.report.submit',
-        ],
-        'incentives' => ['Incentives', '/sales/incentives', 'sales.incentive.view'],
-    ];
-
-    $section = $section !== '' ? $section : 'quick_sale';
-}
 if ($section === '') {
     if ($module === 'sales') {
         foreach (['dsa-dsp-report', 'incentives', 'quotations', 'orders', 'customers', 'product-variants', 'products', 'pricing', 'pricelists', 'teams', 'deliveries', 'settlements'] as $candidate) {
@@ -148,7 +64,7 @@ if ($module === 'assets' && !in_array($section, ['register', 'direct', 'categori
 }
 
 $items = $definitions[$module] ?? [];
-if ($items !== []):
+if (array_filter($items, [\App\Services\WorkspaceAccessService::class, 'allowed']) !== []):
 ?>
 <?php if ($module === 'finance'):
     $financeGroups = [
@@ -159,7 +75,7 @@ if ($items !== []):
         'accounting' => ['Accounting', ['accounts', 'journals', 'ledger', 'periods']],
         'reporting' => ['Reports', ['reports']],
     ];
-    $financeLinks = array_replace($items, ['invoices' => ['Customer Invoices', '/finance/customer-invoices', 'finance.records.view']]) + [
+    $financeLinks = $items + [
         'ar-aging' => ['AR Aging', '/finance/accounting/receivables', 'finance.records.view'],
         'customer-statements' => ['Customer Statements', '/finance/statements/customer', 'finance.records.view'],
         'ar-reconciliation' => ['AR / GL Reconciliation', '/finance/reconciliation', 'finance.records.view'],
@@ -174,7 +90,7 @@ if ($items !== []):
     foreach ($financeGroups as $groupKey => [, $keys]) {
         if (in_array($section, $keys, true)) { $currentGroup = $groupKey; break; }
     }
-    $linkVisible = static fn (array $item): bool => !isset($item[2]) || $can($item[2]);
+    $linkVisible = static fn (array $item): bool => \App\Services\WorkspaceAccessService::allowed(\App\Services\WorkspaceAccessService::forPath($item[1]) ?? $item);
 ?>
 <nav class="finance-workspace-nav" aria-label="Finance workspace">
     <div class="finance-primary-nav" aria-label="Finance work centers">
@@ -205,7 +121,7 @@ if ($items !== []):
 <nav class="module-tabs<?= $module === 'finance' ? ' finance-module-tabs' : '' ?>" aria-label="<?= e(ucfirst($module)) ?> sections">
     <?php foreach ($items as $key => $item): ?>
         <?php [$label, $path] = $item; $permission = $item[2] ?? null; ?>
-        <?php if ($permission !== null && !$can($permission) && !($permission === 'inventory.warehouses.view' && $can('inventory.warehouses.manage'))) continue; ?>
+        <?php if (!\App\Services\WorkspaceAccessService::allowed(\App\Services\WorkspaceAccessService::forPath($item[1]) ?? $item)) continue; ?>
         <?php $actionCount = (int) ($actionRequiredCounts[$module][$key] ?? 0); ?>
         <span class="module-tab-wrap<?= $actionCount > 0 ? ' has-action-badge' : '' ?>">
         <a class="module-tab <?= $section === $key ? 'active' : '' ?>" href="<?= e(appBasePath() . $path) ?>"<?= $section === $key ? ' aria-current="page"' : '' ?>>

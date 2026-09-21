@@ -85,6 +85,7 @@ final class Router
                     static fn (mixed $key): bool => is_string($key),
                     ARRAY_FILTER_USE_KEY
                 );
+                \App\Services\WorkspaceAccessService::requirePath($path . (isset($_SERVER['QUERY_STRING']) ? '?'.$_SERVER['QUERY_STRING'] : ''));
                 ($route['handler'])(...array_values($arguments));
                 return;
             }
@@ -93,6 +94,7 @@ final class Router
             return;
         }
 
+        \App\Services\WorkspaceAccessService::requirePath($path . (isset($_SERVER['QUERY_STRING']) ? '?'.$_SERVER['QUERY_STRING'] : ''));
         $handler();
     }
 

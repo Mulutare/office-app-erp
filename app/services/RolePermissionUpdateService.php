@@ -115,17 +115,6 @@ final class RolePermissionUpdateService
             $submittedPermissionIds
         );
 
-        if ($permissionIds === []) {
-            return [
-                'successful' => false,
-                'notFound' => false,
-                'errors' => [
-                    'permissions' =>
-                        'Select at least one permission.',
-                ],
-            ];
-        }
-
         $includePlatformPermissions = !empty(
             $_SESSION['auth']['is_platform_admin']
         );
@@ -220,16 +209,17 @@ final class RolePermissionUpdateService
                     $companyId,
                     $roleId
                 );
+            // Preserve grants absent from the editable catalogue (for example an unlicensed module).
+            $validPermissionIds = array_values(array_unique(array_merge($validPermissionIds,
+                array_diff($existingIds, array_keys($codeMap)))));
+            sort($validPermissionIds);
             sort($existingIds);
 
             $permissionGrantError =
                 $this->privilegeProtection
                     ->permissionGrantError(
                         array_values(array_unique(
-                            array_merge(
-                                $existingIds,
-                                $validPermissionIds
-                            )
+                            array_merge(array_diff($existingIds, $validPermissionIds), array_diff($validPermissionIds, $existingIds))
                         )),
                         $updatedBy,
                         $companyId

@@ -430,13 +430,6 @@ final class InventoryOperationalAccessService
 
     private function hasPermission(int $companyId, int $userId, string $permission): bool
     {
-        $statement = \db()->prepare(
-            'SELECT COUNT(*) FROM company_user_roles ur
-             INNER JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id
-             INNER JOIN permissions p ON p.permission_id=rp.permission_id AND p.active=TRUE
-             WHERE ur.company_id=:company_id AND ur.user_id=:user_id AND p.code=:permission'
-        );
-        $statement->execute(['company_id'=>$companyId,'user_id'=>$userId,'permission'=>$permission]);
-        return (int) $statement->fetchColumn() > 0;
+        return (new ModuleRoleService())->permissionAllowed($companyId,$userId,$permission);
     }
 }

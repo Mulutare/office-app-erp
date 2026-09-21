@@ -257,7 +257,7 @@ final class AuthService
                         $currentCompanyId
                     );
 
-        $_SESSION['auth']['modules'] = $this->entitledModules($_SESSION['auth']['modules'], $_SESSION['auth']['roles']);
+        $_SESSION['auth']['modules'] = $this->entitledModules($_SESSION['auth']['modules'], $_SESSION['auth']['permissions']);
 
         if (!$this->authenticatedSessions->touchOrRegister(
             $currentCompanyId,
@@ -378,10 +378,8 @@ public function hasRole(string $roleCode): bool
  */
 public function can(string $permissionCode): bool
 {
-    $module = explode('.', $permissionCode, 2)[0];
-    if (isset(ModuleRoleService::OWNERS[$module])
-        && (!ModuleRoleService::rolesOwn((array) ($_SESSION['auth']['roles'] ?? []), $module)
-            || !$this->companyModules->isEnabled($module))) return false;
+    $module = EffectivePermissionPolicy::module($permissionCode);
+    if ($module !== null && !in_array($module.'.module.enabled', (array)($_SESSION['auth']['permissions'] ?? []), true)) return false;
     $permissions =
         $_SESSION['auth']['permissions'] ?? [];
 
@@ -636,7 +634,7 @@ private function completeLogin(array $user): array
                 ->enabledNavigationModules(
                     $companyId
                 );
-        $modules = $this->entitledModules($modules, $roles);
+        $modules = $this->entitledModules($modules, $permissions);
 
         $this->auditLogs->record(
             $userId,
@@ -831,9 +829,9 @@ private function completeLogin(array $user): array
         $_SESSION['auth']['modules'] = $this->entitledModules($_SESSION['auth']['modules'], $_SESSION['auth']['roles']);
     }
 
-    private function entitledModules(array $modules, array $roles): array
+    private function entitledModules(array $modules, array $permissions): array
     {
-        return array_values(array_filter($modules, static fn(array $module): bool => ModuleRoleService::rolesOwn($roles, (string) $module['code'])));
+        return array_values(array_filter($modules, static fn(array $module): bool => in_array((string)$module['code'].'.module.enabled', $permissions, true)));
     }
 
     private function invalidateLocalSession(): void

@@ -33,20 +33,17 @@ final class SalesHierarchyScope
 
     public function canManage(int $companyId, int $actorId): bool
     {
-        return !$this->isAgent($companyId, $actorId)
-            && $this->hasPermission($companyId, $actorId, 'sales.orders.confirm');
+        return $this->hasPermission($companyId, $actorId, 'sales.orders.confirm');
     }
 
     public function canReviewQuickSale(int $companyId, int $actorId): bool
     {
-        return !$this->isAgent($companyId, $actorId)
-            && $this->hasPermission($companyId, $actorId, 'sales.quick_sale.review');
+        return $this->hasPermission($companyId, $actorId, 'sales.quick_sale.review');
     }
 
     public function canReviewSalesReport(int $companyId, int $actorId): bool
     {
-        return !$this->isAgent($companyId, $actorId)
-            && $this->hasPermission($companyId, $actorId, 'sales.report.review');
+        return $this->hasPermission($companyId, $actorId, 'sales.report.review');
     }
 
     public function canReadOwner(int $companyId, int $actorId, int $ownerId): bool
@@ -60,12 +57,7 @@ final class SalesHierarchyScope
     {
         if ($this->isAgent($companyId, $actorId)
             || !$this->hasPermission($companyId, $actorId, 'sales.view')) return false;
-        $statement = \db()->prepare("SELECT COUNT(*) FROM company_user_roles ur
-            INNER JOIN roles r ON r.role_id=ur.role_id
-            WHERE ur.company_id=? AND ur.user_id=?
-              AND r.code IN ('company_owner','system_administrator')");
-        $statement->execute([$companyId, $actorId]);
-        return (int) $statement->fetchColumn() > 0;
+        return $this->hasPermission($companyId, $actorId, 'sales.scope.company');
     }
 
     /** Apply reporting scope to operational Sales rows; preserve explicitly granted admin access. */

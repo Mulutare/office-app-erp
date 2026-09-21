@@ -35,10 +35,11 @@ try {
     $finance = $create('finance', null, 'finance_officer');
     $admin = $create('owner', null, 'company_owner');
     $scope = new SalesHierarchyScope();
-    $check($scope->userIds($company, $top) === [$top, $middle, $leaf], 'Top manager recursively sees only own descendants');
+    $check($scope->userIds($company, $top) === [$top, $middle], 'Manager without stock authority sees self and direct reports only');
     $check($scope->userIds($company, $middle) === [$middle, $leaf], 'Middle manager cannot see ancestors or another branch');
     $check($scope->userIds($company, $leaf) === [$leaf], 'Leaf sees only self');
-    $check($scope->canReadOwner($company, $top, $leaf), 'Parent reads descendant owner without job-title matching');
+    $check($scope->canReadOwner($company, $top, $middle), 'Parent reads direct-report owner without job-title matching');
+    $check(!$scope->canReadOwner($company, $top, $leaf), 'Legacy manager links cannot impersonate recursive stock authority');
     $check(!$scope->canReadOwner($company, $other, $leaf), 'Unrelated manager denied');
     $check(!$scope->canReadSalesRow($company, $finance, ['created_by' => $leaf]), 'Finance permission does not grant Sales operational access');
     $check(!$scope->hasCompanyWideAccess($company, $top), 'Sales manager catalogue permissions do not grant global scope');

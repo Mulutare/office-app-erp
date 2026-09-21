@@ -384,7 +384,8 @@ final class SalesWorkflowTraceService
         );
         foreach ($rows as &$row) {
             $row['reference'] = $row['settlement_number'];
-            $row['url'] = '/sales/settlements/' . $row['settlement_id'];
+            $base = (new AuthService())->can('sales.settlements.view') ? '/sales/settlements/' : '/finance/settlements/';
+            $row['url'] = $base . $row['settlement_id'];
         }
         return $rows;
     }

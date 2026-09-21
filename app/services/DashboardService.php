@@ -33,6 +33,7 @@ final class DashboardService
      */
     public function statistics(): array
     {
+        if (!(new AuthService())->can('audit.logs.view')) return [];
         return $this->statistics->statistics(
             $this->tenant->companyId()
         );

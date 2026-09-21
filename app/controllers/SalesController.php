@@ -34,27 +34,17 @@ final class SalesController
     public function showProduct(string $id): void{$this->authorize('sales.view');$this->renderMaster('product',(int)$id);}
     private function renderMaster(string $type,int $id): void
     {
-        $this->redirectSimpleSalesUser();$record=$type==='customer'?$this->sales->customer($id):$this->sales->product($id);if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='customer'?'Customer commercial master.':'Shared Sales and Inventory product master.','contentView'=>'sales.master','masterType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
+$record=$type==='customer'?$this->sales->customer($id):$this->sales->product($id);if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='customer'?'Customer commercial master.':'Shared Sales and Inventory product master.','contentView'=>'sales.master','masterType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$this->can('sales.catalogue.manage')]+$workspace);}
     public function quotations(): void { $this->renderWorkspace('quotations'); }
     public function orders(): void { $this->renderWorkspace('orders'); }
     public function quickSale(): void
     {
-        $this->authorize('sales.view');
-
-        $quickSale = $this->quickSales->workspace(
-            $this->actorId()
-        );
-
-        if (empty($quickSale['eligible'])) {
-            http_response_code(403);
-        }
-
-        $managerMode =
-            ($quickSale['mode'] ?? '') === 'manager';
-        $this->authorization->requireModulePermission(
-            'sales',
-            $managerMode ? 'sales.quick_sale.review' : 'sales.quick_sale.use'
-        );
+        $this->authorization->requireAnyModulePermission([
+            ['sales', 'sales.quick_sale.use'],
+            ['sales', 'sales.quick_sale.review'],
+        ]);
+        $quickSale = $this->quickSales->workspace($this->actorId());
+        $managerMode = ($quickSale['mode'] ?? '') === 'manager';
 
         \view('layouts.app', [
             'applicationName' =>
@@ -429,7 +419,7 @@ public function showQuickSale(string $id): void
     }
     public function showOrder(string $id): void
     {
-        $this->redirectSimpleSalesUser();
+
         $this->authorize('sales.view');
         $order=$this->sales->orderDetail((int)$id);
         if($order===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
@@ -439,21 +429,21 @@ public function showQuickSale(string $id): void
     }
     public function createInvoice(string $id): void
     {
-        $this->redirectSimpleSalesUser();$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createInvoice((int)$id,\postString('invoice_policy')?:'delivered',$this->actorId());$this->finishTo($result,'sales_invoice','Customer invoice created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
     public function createCreditNote(string $id): void
     {
-        $this->redirectSimpleSalesUser();$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createCreditNote((int)$id,$this->actorId());$this->finishTo($result,'sales_invoice','Customer credit note created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
+$this->authorize('sales.view');$this->authorization->requireModulePermission('finance','finance.records.manage');$this->requireCsrf('sales_invoice');$result=$this->sales->createCreditNote((int)$id,$this->actorId());$this->finishTo($result,'sales_invoice','Customer credit note created.',[],'/sales/orders/'.(int)$id,'/sales/orders/'.(int)$id);}
     public function pricelists(): void { $this->renderWorkspace('pricelists'); }
     public function teams(): void { $this->renderWorkspace('teams'); }
     public function deliveries(): void
     {
-        $this->redirectSimpleSalesUser();
+
         $this->authorize('sales.view');
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Deliveries','pageDescription'=>'Authoritative Inventory pickings created from Sales Orders.','contentView'=>'sales.deliveries','deliveries'=>$this->sales->deliveries(),'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[])]);
     }
     public function showDelivery(string $id): void
     {
-        $this->redirectSimpleSalesUser();
+
         $this->authorize('sales.view');$delivery=$this->sales->delivery((int)$id);
         if($delivery===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.deliveries.validate'),'canReturn'=>$this->can('inventory.deliveries.validate'),'workflowTrace'=>$this->workflowTrace('delivery',(int)$delivery['picking_id'])]);
@@ -474,7 +464,7 @@ public function showQuickSale(string $id): void
     public function showTeam(string $id): void{$this->authorize('sales.catalogue.manage');$this->renderCommercial('team',(int)$id);}
     private function renderCommercial(string $type,int $id): void
     {
-        $this->redirectSimpleSalesUser();$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();$canManage=$type==='pricelist'?$this->can('sales.pricing.manage')&&!(new \App\Services\SalesHierarchyScope())->isAgent((new TenantContext())->companyId(),$this->actorId()):$this->can('sales.catalogue.manage');\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$canManage]+$workspace);}
+$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();$canManage=$type==='pricelist'?$this->can('sales.pricing.manage')&&!(new \App\Services\SalesHierarchyScope())->isAgent((new TenantContext())->companyId(),$this->actorId()):$this->can('sales.catalogue.manage');\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$canManage]+$workspace);}
 
     public function createQuotation(): void
     {
@@ -496,7 +486,7 @@ public function showQuickSale(string $id): void
 
     private function renderQuotationPage(string $mode, ?int $quotationId = null): void
     {
-        $this->redirectSimpleSalesUser();
+
 
         if ($quotationId !== null) {
             $this->guardQuickSaleQuotation($quotationId);
@@ -539,7 +529,7 @@ public function showQuickSale(string $id): void
 
     private function renderWorkspace(string $section): void
     {
-        $this->redirectSimpleSalesUser();
+
         $this->authorize('sales.view');
         if (in_array($section, ['pricing', 'pricelists'], true)) {
             $this->authorize('sales.pricing.view');
@@ -854,16 +844,6 @@ public function showQuickSale(string $id): void
         exit;
     }
 
-    private function redirectSimpleSalesUser(): void
-    {
-        if (
-            $this->quickSales->isSimpleSalesUser(
-                $this->actorId()
-            )
-        ) {
-            \redirect('/sales/quick-sale');
-        }
-    }
     private function guardQuickSaleQuotation(
         int $quotationId
     ): void {
@@ -888,15 +868,6 @@ public function showQuickSale(string $id): void
     }
     private function authorize(string $permission): void
     {
-        if (
-            $permission !== 'sales.view'
-            && $this->quickSales->isSimpleSalesUser(
-                $this->actorId()
-            )
-        ) {
-            \redirect('/sales/quick-sale');
-        }
-
         $this->authorization->requireModulePermission(
             'sales',
             $permission
@@ -905,7 +876,7 @@ public function showQuickSale(string $id): void
 
     private function authorizeInventoryDelivery(): void
     {
-        $this->redirectSimpleSalesUser();
+
         $this->authorization->requireModule('sales');
         $this->authorization->requireModulePermission(
             'inventory',

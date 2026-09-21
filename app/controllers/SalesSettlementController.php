@@ -28,18 +28,15 @@ final class SalesSettlementController
     public function evidence(string $id,string $confirmationId): void{$this->permitSharedView();$e=$this->service->evidence((int)$id,(int)$confirmationId);if($e===null||!is_file($e['evidence_path'])){http_response_code(404);return;}header('Content-Type: '.$e['evidence_mime']);header('Content-Length: '.(string)$e['evidence_size']);header('Content-Disposition: attachment; filename="'.rawurlencode($e['evidence_original_name']).'"');header('X-Content-Type-Options: nosniff');readfile($e['evidence_path']);exit;}
     private function permit(string $module,string $permission): void
     {
-        if (
-            $this->quickSales->isSimpleSalesUser(
-                $this->actor()
-            )
-        ) {
-            \redirect('/sales/quick-sale');
-        }
-
         $this->auth->requireModulePermission(
             $module,
             $permission
         );
+    }
+
+    private function basePath(): string
+    {
+        return str_contains((string)($_SERVER['REQUEST_URI'] ?? ''), '/finance/') ? '/finance/settlements' : '/sales/settlements';
     }
 
     private function actor(): int
@@ -47,20 +44,12 @@ final class SalesSettlementController
         return (int) (
             $_SESSION['auth']['user_id'] ?? 0
         );
-    }private function csrf(): void{if(!\verifyCsrfToken(\postString('_token'))){\flash('settlement_errors',['form'=>'The form session expired.']);\redirect('/sales/settlements');}}
-    private function finish(array $r,?int $id): never{if(empty($r['successful']))\flash('settlement_errors',$r['errors']??[]);else \flash('settlement_notice',['message'=>'Settlement action completed.']);\redirect($id?'/sales/settlements/'.$id:'/sales/settlements');}
+    }private function csrf(): void{if(!\verifyCsrfToken(\postString('_token'))){\flash('settlement_errors',['form'=>'The form session expired.']);\redirect($this->basePath());}}
+    private function finish(array $r,?int $id): never{if(empty($r['successful']))\flash('settlement_errors',$r['errors']??[]);else \flash('settlement_notice',['message'=>'Settlement action completed.']);\redirect($this->basePath().($id?'/'.$id:''));}
     private function pdf(array $d): never{header('Content-Type: application/pdf');header('Content-Disposition: attachment; filename="'.rawurlencode($d['filename']).'"');header('Content-Length: '.strlen($d['content']));echo $d['content'];exit;}
-    private function document(int $id,string $type): never{$this->permitSharedView();$doc=(new SalesSettlementDocumentService())->settlement((new TenantContext())->companyId(),$id,$type);$this->pdf($doc);}
+    private function document(int $id,string $type): never{$this->permitSharedView();if($this->service->find($id)===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);exit;}$doc=(new SalesSettlementDocumentService())->settlement((new TenantContext())->companyId(),$id,$type);$this->pdf($doc);}
     private function permitSharedView(): void
     {
-        if (
-            $this->quickSales->isSimpleSalesUser(
-                $this->actor()
-            )
-        ) {
-            \redirect('/sales/quick-sale');
-        }
-
         $this->auth->requireAnyModulePermission([
             [
                 'sales',

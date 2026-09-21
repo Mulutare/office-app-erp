@@ -385,42 +385,9 @@ public function passwordHashById(int $userId): ?string
  *
  * @return list<string>
  */
-public function permissionCodes(
-    int $companyId,
-    int $userId
-): array
+public function permissionCodes(int $companyId,int $userId): array
 {
-    $statement = $this->connection()->prepare(
-        'SELECT DISTINCT p.code
-         FROM permissions p
-         INNER JOIN company_role_permissions rp
-             ON rp.permission_id = p.permission_id
-         INNER JOIN company_user_roles ur
-             ON ur.company_id = rp.company_id
-            AND ur.role_id = rp.role_id
-         INNER JOIN roles r
-             ON r.role_id = ur.role_id
-         WHERE ur.user_id = :user_id
-           AND ur.company_id = :company_id
-           AND p.active = TRUE
-           AND r.active = TRUE
-         ORDER BY p.code'
-    );
-
-    $statement->execute([
-        'company_id' => $companyId,
-        'user_id' => $userId,
-    ]);
-
-    $permissions = $statement->fetchAll(
-        \PDO::FETCH_COLUMN
-    );
-
-    return array_values(
-        array_filter(
-            array_map('strval', $permissions)
-        )
-    );
+    return (new CompanyMembershipRepository())->permissionCodes($userId,$companyId);
 }
 /**
  * Count users matching administration filters.
@@ -1147,48 +1114,17 @@ public function roleIds(
 }
 
 /**
- * Return effective permissions inherited through active roles.
+ * Return effective permissions after company, role and user rules.
  *
  * @return list<array<string, mixed>>
  */
-public function administrationPermissions(
-    int $companyId,
-    int $userId
-): array
+public function administrationPermissions(int $companyId,int $userId): array
 {
-    $statement = $this->connection()->prepare(
-        'SELECT DISTINCT
-            p.permission_id,
-            p.code,
-            p.name,
-            p.module,
-            p.description
-         FROM permissions p
-         INNER JOIN company_role_permissions rp
-             ON rp.permission_id = p.permission_id
-         INNER JOIN company_user_roles ur
-             ON ur.company_id = rp.company_id
-            AND ur.role_id = rp.role_id
-         INNER JOIN roles r
-             ON r.role_id = ur.role_id
-         WHERE ur.user_id = :user_id
-           AND ur.company_id = :company_id
-           AND p.active = TRUE
-           AND r.active = TRUE
-         ORDER BY p.module, p.name'
-    );
-
-    $statement->execute([
-        'user_id' => $userId,
-        'company_id' => $companyId,
-    ]);
-
-    $permissions = $statement->fetchAll(
-        \PDO::FETCH_ASSOC
-    );
-
-    return is_array($permissions)
-        ? $permissions
-        : [];
+    $codes=$this->permissionCodes($companyId,$userId);
+    if ($codes===[]) return [];
+    $placeholders=implode(',',array_fill(0,count($codes),'?'));
+    $statement=$this->connection()->prepare("SELECT permission_id,code,name,module,description FROM permissions WHERE active=TRUE AND code IN ($placeholders) ORDER BY module,name");
+    $statement->execute($codes);
+    return $statement->fetchAll(\PDO::FETCH_ASSOC);
 }
 }

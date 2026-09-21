@@ -13,10 +13,18 @@ final class HomeController
         $auth = new AuthService();
 
         if ($auth->check()) {
-            \redirect('/dashboard');
+            \redirect(\App\Services\WorkspaceAccessService::firstLanding());
         }
 
         \redirect('/login');
+    }
+
+    public function account(): void
+    {
+        (new \App\Services\AuthorizationService())->requireAuthentication();
+        \view('layouts.app', ['applicationName'=>\config('name','OfficeApp ERP'), 'pageTitle'=>'Your account',
+            'pageDescription'=>'No workspaces are currently assigned. Contact your company administrator.',
+            'contentView'=>'account.empty', 'user'=>$_SESSION['auth']]);
     }
 
     public function health(): void

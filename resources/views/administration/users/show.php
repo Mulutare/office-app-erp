@@ -451,8 +451,8 @@ if (!empty($profile['is_locked'])) {
                 Effective permissions
             </h2>
             <p>
-                Active permissions inherited through
-                assigned roles.
+                Current access after company limits,
+                role defaults and user overrides.
             </p>
         </div>
         <span class="count-pill">

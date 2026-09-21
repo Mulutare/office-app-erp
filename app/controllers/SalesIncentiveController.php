@@ -15,7 +15,7 @@ final class SalesIncentiveController
     {
         $company=(new \App\Services\TenantContext())->companyId();$permissions=new \App\Services\ModuleRoleService();
         $agent=(new \App\Services\SalesHierarchyScope())->isAgent($company,$this->actor());
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$title,'pageDescription'=>'Cash float, manager-approved Safaricom incentive variance and external settlement.','contentView'=>$content,'user'=>$_SESSION['auth'],'simpleSalesUser'=>$agent,'moduleContext'=>['module'=>'sales','section'=>'incentives'],'notice'=>\getFlash('incentive_notice'),'error'=>\getFlash('incentive_error'),'canIssueFloat'=>!$agent && $permissions->permissionAllowed($company,$this->actor(),'sales.incentive.approve'),'canSubmitIncentive'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.submit'),'canApproveIncentive'=>!$agent && $permissions->permissionAllowed($company,$this->actor(),'sales.incentive.approve'),'canSettleIncentive'=>!$agent && $permissions->permissionAllowed($company,$this->actor(),'sales.incentive.settle')]+$extra);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$title,'pageDescription'=>'Cash float, manager-approved Safaricom incentive variance and external settlement.','contentView'=>$content,'user'=>$_SESSION['auth'],'simpleSalesUser'=>$agent,'moduleContext'=>['module'=>'sales','section'=>'incentives'],'notice'=>\getFlash('incentive_notice'),'error'=>\getFlash('incentive_error'),'canIssueFloat'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.approve'),'canSubmitIncentive'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.submit'),'canApproveIncentive'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.approve'),'canSettleIncentive'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.settle')]+$extra);
     }
     public function index(): void { $this->permit('view');$this->render('DSA/DSP Incentives','sales.incentives',['incentiveData'=>(new SalesIncentiveService())->register($this->actor(),$_GET)]); }
     public function show(string $id): void
@@ -30,7 +30,7 @@ final class SalesIncentiveController
     public function settle(string $id): void { $this->mutate('settle',fn()=>(new SalesIncentiveService())->settle((int)$id,$_POST,$this->actor()),'Safaricom settlement recorded.',(int)$id); }
     private function mutate(string $permission,callable $work,string $message,?int $id=null): void
     {
-        $this->permit($permission);$target=$id?'/sales/incentives/'.$id:'/sales/incentives';
+        $this->permit('view');$this->permit($permission);$target=$id?'/sales/incentives/'.$id:'/sales/incentives';
         if(!\verifyCsrfToken(\postString('_token'))){\flash('incentive_error','The form session expired.');\redirect($target);}
         try{$work();\flash('incentive_notice',$message);}catch(\Throwable $e){\flash('incentive_error',$e->getMessage());}
         \redirect($target);

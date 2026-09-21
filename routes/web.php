@@ -134,7 +134,11 @@ $router->get('/api/v1/sales/receivables', [$apiV1SalesController, 'receivables']
 $router->get('/api/v1/sales/receivables/{id}', [$apiV1SalesController, 'receivable']);
 $router->get('/api/v1/sales/reports/summary', [$apiV1SalesController, 'reportSummary']);
 
+$accessControlController = new \App\Controllers\AccessControlController();
+$router->get('/administration/access-control', [$accessControlController, 'index']);
+$router->post('/administration/access-control', [$accessControlController, 'save']);
 $homeController = new HomeController();
+$router->get('/account', [$homeController, 'account']);
 $authController = new AuthController();
 $dashboardController =
     new DashboardController();
@@ -390,6 +394,16 @@ $router->get('/sales/settlements/{id}/confirmations/{confirmationId}/evidence', 
 $router->get('/sales/settlements/{id}/deposit-advice.pdf', [$salesSettlementController, 'depositAdvice']);
 $router->get('/sales/settlements/{id}/reconciliation.pdf', [$salesSettlementController, 'reconciliation']);
 $router->get('/finance/settlements', [$salesSettlementController, 'finance']);
+$router->post('/finance/settlements', [$salesSettlementController, 'create']);
+$router->get('/finance/settlements/{id}', [$salesSettlementController, 'show']);
+$router->post('/finance/settlements/{id}/submit', [$salesSettlementController, 'submit']);
+$router->post('/finance/settlements/{id}/review', [$salesSettlementController, 'review']);
+$router->post('/finance/settlements/{id}/reconcile', [$salesSettlementController, 'reconcile']);
+$router->post('/finance/settlements/{id}/approve', [$salesSettlementController, 'approve']);
+$router->post('/finance/settlements/{id}/confirmations', [$salesSettlementController, 'confirmation']);
+$router->get('/finance/settlements/{id}/confirmations/{confirmationId}/evidence', [$salesSettlementController, 'evidence']);
+$router->get('/finance/settlements/{id}/deposit-advice.pdf', [$salesSettlementController, 'depositAdvice']);
+$router->get('/finance/settlements/{id}/reconciliation.pdf', [$salesSettlementController, 'reconciliation']);
 $router->post('/finance/company-bank-accounts', [$salesSettlementController, 'bankAccount']);
 $router->get('/sales/quotations/{id}/proforma.pdf', [$commercialDocumentController, 'proforma']);
 $router->get('/finance/customer-invoices/{id}/invoice.pdf', [$commercialDocumentController, 'invoice']);

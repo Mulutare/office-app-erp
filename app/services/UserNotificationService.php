@@ -41,12 +41,12 @@ final class UserNotificationService
         string $type, string $title, string $message, string $referenceType,
         int $referenceId, string $actionUrl, string $eventKey): void
     {
-        $query=$this->connection->prepare('SELECT DISTINCT u.user_id,r.code role_code FROM company_users cu JOIN companies c ON c.company_id=cu.company_id JOIN users u ON u.user_id=cu.user_id JOIN company_user_roles ur ON ur.company_id=cu.company_id AND ur.user_id=cu.user_id JOIN roles r ON r.role_id=ur.role_id JOIN company_role_permissions rp ON rp.company_id=ur.company_id AND rp.role_id=ur.role_id JOIN permissions p ON p.permission_id=rp.permission_id WHERE cu.company_id=:company AND cu.active=TRUE AND c.active=TRUE AND c.deleted_at IS NULL AND u.active=TRUE AND u.deleted_at IS NULL AND u.is_platform_admin=FALSE AND r.active=TRUE AND p.active=TRUE AND p.code=:permission AND u.user_id<>:excluded');
-        $query->execute(['company'=>$companyId,'permission'=>$permission,'excluded'=>$excludedUserId]);
+        $query=$this->connection->prepare('SELECT u.user_id FROM company_users cu JOIN companies c ON c.company_id=cu.company_id JOIN users u ON u.user_id=cu.user_id WHERE cu.company_id=:company AND cu.active=TRUE AND c.active=TRUE AND c.deleted_at IS NULL AND u.active=TRUE AND u.deleted_at IS NULL AND u.is_platform_admin=FALSE AND u.user_id<>:excluded');
+        $query->execute(['company'=>$companyId,'excluded'=>$excludedUserId]);
         $sent=[];
         foreach($query->fetchAll(PDO::FETCH_ASSOC) as $row){
             $userId=(int)$row['user_id'];
-            if(isset($sent[$userId]) || !ModuleRoleService::roleOwns((string)$row['role_code'],'finance'))continue;
+            if(isset($sent[$userId]) || !(new ModuleRoleService())->permissionAllowed($companyId,$userId,$permission))continue;
             $this->notify($companyId,$userId,$type,$title,$message,$referenceType,$referenceId,$actionUrl,$eventKey);
             $sent[$userId]=true;
         }

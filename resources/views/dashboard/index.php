@@ -25,6 +25,7 @@ $sessionError = is_string($data['sessionError'] ?? null)
     <div class="alert alert-danger" role="alert"><?= e($sessionError) ?></div>
 <?php endif; ?>
 
+<?php if ($statistics !== []): ?>
 <section class="card-grid">
     <article class="card">
         <p class="metric-label">
@@ -75,6 +76,7 @@ $sessionError = is_string($data['sessionError'] ?? null)
         </p>
     </article>
 </section>
+<?php endif; ?>
 
 <section class="content-grid">
     <article class="card">
