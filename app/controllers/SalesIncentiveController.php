@@ -24,13 +24,14 @@ final class SalesIncentiveController
         try{$detail=(new SalesIncentiveService())->detail((int)$id,$this->actor());}catch(\Throwable $e){http_response_code(404);echo \e($e->getMessage());return;}
         $this->render('Safaricom Incentive','sales.incentive-detail',['incentiveDetail'=>$detail]);
     }
-    public function issueFloat(): void { $this->mutate('approve',fn()=>(new SalesIncentiveService())->issueFloat($_POST,$this->actor()),'Cash float issued.'); }
+    public function issueFloat(): void { $this->mutate('approve',fn()=>(new SalesIncentiveService())->issueFloat($_POST,$this->actor()),'Cash float issued.',null,max(0,(int)($_POST['report_id']??0))); }
     public function submit(): void { $this->mutate('submit',fn()=>(new SalesIncentiveService())->submitClaim($_POST,$this->actor()),'Incentive claim sent to the responsible manager.'); }
     public function decide(string $id): void { $this->mutate('approve',fn()=>(new SalesIncentiveService())->decideClaim((int)$id,\postString('decision')==='approve',$_POST['approved_amount']??null,\postString('reason'),$this->actor()),'Incentive decision recorded.',(int)$id); }
     public function settle(string $id): void { $this->mutate('settle',fn()=>(new SalesIncentiveService())->settle((int)$id,$_POST,$this->actor()),'Safaricom settlement recorded.',(int)$id); }
-    private function mutate(string $permission,callable $work,string $message,?int $id=null): void
+    private function mutate(string $permission,callable $work,string $message,?int $id=null,int $reportId=0): void
     {
         $this->permit('view');$this->permit($permission);$target=$id?'/sales/incentives/'.$id:'/sales/incentives';
+        if($id===null&&$reportId>0)$target.='?report_id='.$reportId;
         if(!\verifyCsrfToken(\postString('_token'))){\flash('incentive_error','The form session expired.');\redirect($target);}
         try{$work();\flash('incentive_notice',$message);}catch(\Throwable $e){\flash('incentive_error',$e->getMessage());}
         \redirect($target);

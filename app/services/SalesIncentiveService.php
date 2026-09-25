@@ -25,20 +25,36 @@ final class SalesIncentiveService
     private function directManager(int $company,int $dsa,int $manager): void
     {
         $scope=new SalesHierarchyScope();
-        if(!$scope->isAgent($company,$dsa)||$scope->parentId($company,$dsa)!==$manager||!(new ModuleRoleService())->permissionAllowed($company,$manager,'sales.incentive.approve'))throw new RuntimeException('Only the DSA/DSP direct authorized manager may perform this action.');
+        if($dsa===$manager||$scope->isAgent($company,$manager)||!$scope->isAgent($company,$dsa)||$scope->parentId($company,$dsa)!==$manager||!(new ModuleRoleService())->permissionAllowed($company,$manager,'sales.incentive.approve'))throw new RuntimeException('Only the DSA/DSP direct authorized manager may perform this action.');
+    }
+
+    private function floatProduct(int $company): ?array
+    {
+        $query=\db()->prepare("SELECT product_id,sku,name FROM sales_products WHERE company_id=? AND sku='FLOAT' AND active=TRUE AND deleted_at IS NULL");
+        $query->execute([$company]);
+        return $query->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     public function issueFloat(array $input,int $actor): int
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.approve');
         $dsa=(int)($input['dsa_dsp_user_id']??0);$this->directManager($company,$dsa,$actor);
+        if((int)($input['report_id']??0)>0){
+            $report=$this->report(\db(),$company,(int)$input['report_id']);
+            if((int)$report['dsa_dsp_user_id']!==$dsa)throw new RuntimeException('Select the DSA/DSP of the confirmed report, or clear the report selection before issuing to another DSA/DSP.');
+        }
+        $product=$this->floatProduct($company);
+        if($product===null)throw new RuntimeException('Active FLOAT product is not configured in Sales Products.');
+        if((int)($input['product_id']??0)!==(int)$product['product_id'])throw new RuntimeException('Select the active FLOAT product from this company’s Sales Products.');
         $amount=$this->money($input['amount']??null);$reference=trim((string)($input['reference']??''));$date=trim((string)($input['issued_date']??''));
         $parsed=\DateTimeImmutable::createFromFormat('!Y-m-d',$date);
         if(!$parsed||$parsed->format('Y-m-d')!==$date||$reference===''||strlen($reference)>120)throw new RuntimeException('Enter an issuance date and unique reference.');
         $currency=\db()->prepare('SELECT default_currency FROM companies WHERE company_id=?');$currency->execute([$company]);$code=strtoupper((string)$currency->fetchColumn());
         if(preg_match('/^[A-Z]{3}$/',$code)!==1)throw new RuntimeException('Company currency is not configured.');
-        $insert=\db()->prepare("INSERT INTO sales_dsa_float_issuances(company_id,dsa_dsp_user_id,manager_user_id,amount,currency,issued_date,reference,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,'issued',?,NOW())");
-        $insert->execute([$company,$dsa,$actor,$amount,$code,$date,$reference,$actor]);return (int)\db()->lastInsertId();
+        $insert=\db()->prepare("INSERT INTO sales_dsa_float_issuances(company_id,dsa_dsp_user_id,manager_user_id,product_id,amount,currency,issued_date,reference,status,created_by,created_at) SELECT ?,?,?,?,?,?,?,?,'issued',?,NOW() FROM sales_products WHERE company_id=? AND product_id=? AND sku='FLOAT' AND active=TRUE AND deleted_at IS NULL");
+        $insert->execute([$company,$dsa,$actor,$product['product_id'],$amount,$code,$date,$reference,$actor,$company,$product['product_id']]);
+        if($insert->rowCount()!==1)throw new RuntimeException('Active FLOAT product is not configured in Sales Products.');
+        return (int)\db()->lastInsertId();
     }
 
     public function submitClaim(array $input,int $actor): int
@@ -54,8 +70,10 @@ final class SalesIncentiveService
             $manager=(new SalesHierarchyScope())->parentId($company,$actor);
             if($manager===null)$this->directManager($company,$actor,0);
             $this->directManager($company,$actor,(int)$manager);
+            $product=$this->floatProduct($company);
+            if($product===null)throw new RuntimeException('Active FLOAT product is not configured in Sales Products.');
             $floatQuery=$connection->prepare('SELECT * FROM sales_dsa_float_issuances WHERE company_id=? AND float_id=? FOR UPDATE');$floatQuery->execute([$company,$floatId]);$float=$floatQuery->fetch(PDO::FETCH_ASSOC);
-            if(!$float||$float['status']!=='issued'||(int)$float['dsa_dsp_user_id']!==$actor||(int)$float['manager_user_id']!==(int)$manager||$float['currency']!==$report['currency'])throw new RuntimeException('Choose your issued cash float in the same currency and manager scope.');
+            if(!$float||$float['status']!=='issued'||(int)$float['product_id']!==(int)$product['product_id']||(int)$float['dsa_dsp_user_id']!==$actor||(int)$float['manager_user_id']!==(int)$manager||$float['currency']!==$report['currency'])throw new RuntimeException('Choose your issued cash float in the same currency and manager scope.');
             if($proposed>round((float)$float['amount']-(float)$report['sold_amount'],2))throw new RuntimeException('Proposed incentive exceeds the float less confirmed sold amount.');
             $duplicate=$connection->prepare('SELECT COUNT(*) FROM sales_incentive_claims WHERE company_id=? AND (originating_report_id=? OR float_id=?)');$duplicate->execute([$company,$reportId,$floatId]);
             if((int)$duplicate->fetchColumn()>0)throw new RuntimeException('The report or float is already linked to an active incentive claim.');
@@ -125,7 +143,8 @@ final class SalesIncentiveService
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.view');
         $scope=new SalesHierarchyScope();$visible=$scope->hasCompanyWideAccess($company,$actor)?null:$scope->userIds($company,$actor);
-        if($visible===[])return ['claims'=>[],'floats'=>[],'reports'=>[],'users'=>[],'managers'=>[]];
+        $options=$this->issuanceOptions($actor,(int)($filters['report_id']??0));
+        if($visible===[])return ['claims'=>[],'users'=>[],'managers'=>[]]+$options;
         $params=[$company];$where=['c.company_id=?'];
         if($visible!==null){$where[]='c.dsa_dsp_user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$params=array_merge($params,$visible);}
         $status=(string)($filters['status']??'');
@@ -147,11 +166,52 @@ final class SalesIncentiveService
         $managerParams=[$company];
         if($visible!==null){$managerSql.=' AND cu.user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$managerParams=array_merge($managerParams,$visible);}
         $managers=\db()->prepare($managerSql.' ORDER BY m.display_name');$managers->execute($managerParams);
-        $floats=\db()->prepare('SELECT f.* FROM sales_dsa_float_issuances f WHERE f.company_id=? ORDER BY f.issued_date DESC,f.float_id DESC LIMIT 300');$floats->execute([$company]);
-        $floatRows=array_values(array_filter($floats->fetchAll(PDO::FETCH_ASSOC),static fn(array $f):bool=>$visible===null||in_array((int)$f['dsa_dsp_user_id'],$visible,true)));
-        $reports=\db()->prepare("SELECT r.report_id,qs.user_id dsa_dsp_user_id,r.created_at FROM sales_quick_sale_reports r JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id WHERE r.company_id=? AND r.status='confirmed' AND qs.status='closed' AND r.finance_invoice_id IS NOT NULL AND r.report_id=(SELECT MAX(latest.report_id) FROM sales_quick_sale_reports latest WHERE latest.company_id=r.company_id AND latest.quick_sale_id=r.quick_sale_id) ORDER BY r.report_id DESC LIMIT 300");$reports->execute([$company]);
-        $reportRows=array_values(array_filter($reports->fetchAll(PDO::FETCH_ASSOC),static fn(array $r):bool=>$visible===null||in_array((int)$r['dsa_dsp_user_id'],$visible,true)));
-        return ['claims'=>$claims,'floats'=>$floatRows,'reports'=>$reportRows,'users'=>$users->fetchAll(PDO::FETCH_ASSOC),'managers'=>$managers->fetchAll(PDO::FETCH_ASSOC)];
+        return ['claims'=>$claims,'users'=>$users->fetchAll(PDO::FETCH_ASSOC),'managers'=>$managers->fetchAll(PDO::FETCH_ASSOC)]+$options;
+    }
+
+    /** Cash choices are scoped before they reach the view; product prices are never money issued. */
+    private function issuanceOptions(int $actor,int $reportId): array
+    {
+        $company=$this->company();$scope=new SalesHierarchyScope();$product=$this->floatProduct($company);
+        $canIssue=!(new SalesHierarchyScope())->isAgent($company,$actor)
+            && (new ModuleRoleService())->permissionAllowed($company,$actor,'sales.incentive.approve');
+        $issuableUsers=[];
+        if($canIssue){
+            $query=\db()->prepare('SELECT cu.user_id,u.display_name FROM company_users cu JOIN users u ON u.user_id=cu.user_id AND u.active=TRUE AND u.deleted_at IS NULL WHERE cu.company_id=? AND cu.manager_user_id=? AND cu.active=TRUE AND cu.user_id<>? ORDER BY u.display_name');
+            $query->execute([$company,$actor,$actor]);
+            foreach($query->fetchAll(PDO::FETCH_ASSOC) as $user){
+                try{$this->directManager($company,(int)$user['user_id'],$actor);$issuableUsers[]=$user;}catch(RuntimeException){continue;}
+            }
+        }
+        $reports=\db()->prepare("SELECT r.report_id,qs.user_id dsa_dsp_user_id,u.display_name dsa_name,r.created_at
+            FROM sales_quick_sale_reports r
+            JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id
+            JOIN company_users cu ON cu.company_id=qs.company_id AND cu.user_id=qs.user_id AND cu.active=TRUE
+            JOIN users u ON u.user_id=cu.user_id AND u.active=TRUE AND u.deleted_at IS NULL
+            WHERE r.company_id=? AND (qs.user_id=? OR cu.manager_user_id=?)
+              AND r.status='confirmed' AND qs.status='closed' AND r.finance_invoice_id IS NOT NULL
+              AND r.report_id=(SELECT MAX(latest.report_id) FROM sales_quick_sale_reports latest WHERE latest.company_id=r.company_id AND latest.quick_sale_id=r.quick_sale_id)
+              AND NOT EXISTS(SELECT 1 FROM sales_incentive_claims c WHERE c.company_id=r.company_id AND c.originating_report_id=r.report_id)
+            ORDER BY r.report_id DESC LIMIT 300");
+        $reports->execute([$company,$actor,$canIssue?$actor:0]);
+        $reportRows=$reports->fetchAll(PDO::FETCH_ASSOC);$selected=null;$floatRows=[];
+        foreach($reportRows as $row){if((int)$row['report_id']===$reportId){$selected=$row+$this->report(\db(),$company,$reportId);break;}}
+        if($selected!==null&&$product!==null){
+            $manager=$scope->parentId($company,(int)$selected['dsa_dsp_user_id']);
+            try{$this->directManager($company,(int)$selected['dsa_dsp_user_id'],(int)$manager);}catch(RuntimeException){$manager=null;}
+            if($manager!==null){
+                $floats=\db()->prepare("SELECT f.*,m.display_name manager_name FROM sales_dsa_float_issuances f
+                    JOIN users m ON m.user_id=f.manager_user_id
+                    WHERE f.company_id=? AND f.dsa_dsp_user_id=? AND f.manager_user_id=? AND f.product_id=?
+                      AND f.status='issued' AND f.currency=? AND ROUND(f.amount-?,2)>0
+                      AND NOT EXISTS(SELECT 1 FROM sales_incentive_claims c WHERE c.company_id=f.company_id AND c.float_id=f.float_id)
+                    ORDER BY f.issued_date DESC,f.float_id DESC");
+                $floats->execute([$company,$selected['dsa_dsp_user_id'],$manager,$product['product_id'],$selected['currency'],$selected['sold_amount']]);
+                $floatRows=$floats->fetchAll(PDO::FETCH_ASSOC);
+            }
+        }
+        return ['floatProduct'=>$product,'canIssueFloat'=>$canIssue&&$issuableUsers!==[],
+            'issuableUsers'=>$issuableUsers,'reports'=>$reportRows,'selectedReport'=>$selected,'floats'=>$floatRows];
     }
 
     public function detail(int $id,int $actor): array
