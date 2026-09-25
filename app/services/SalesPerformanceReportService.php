@@ -278,8 +278,38 @@ final class SalesPerformanceReportService
         return $ids;
     }
 
-    private function baseSql(string $scopeSql, string $filters): string
+    /**
+     * All-time confirmed sales using the exact same row/value rules as report().
+     * The caller must authorize the company and employee before exposing results.
+     * Reports are retained as audit context; currencies are never combined.
+     *
+     * @return list<array{currency:string,sales_amount:string,report_count:int,reports:array}>
+     */
+    public function cumulativeConfirmedSales(int $companyId, int $employeeId): array
     {
+        $base = $this->baseSql(' AND quick_sales.user_id=:employee_id', '', true);
+        $query = \db()->prepare("SELECT report_id,currency,SUM(sales_amount) sales_amount
+            FROM ($base) confirmed_sales GROUP BY report_id,currency ORDER BY currency,report_id");
+        $query->execute(['company_id'=>$companyId,'employee_id'=>$employeeId]);
+        $positions = [];
+        foreach ($query->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $currency = (string) $row['currency'];
+            $positions[$currency] ??= ['currency'=>$currency,'cents'=>0,'report_count'=>0,'reports'=>[]];
+            $positions[$currency]['cents'] += (int) round((float) $row['sales_amount'] * 100);
+            ++$positions[$currency]['report_count'];
+            $positions[$currency]['reports'][] = ['report_id'=>(int)$row['report_id'],'sales_amount'=>$row['sales_amount']];
+        }
+        foreach ($positions as &$position) {
+            $position['sales_amount'] = number_format($position['cents'] / 100, 2, '.', '');
+            unset($position['cents']);
+        }
+        unset($position);
+        return array_values($positions);
+    }
+
+    private function baseSql(string $scopeSql, string $filters, bool $allTime = false): string
+    {
+        $dateFilter = $allTime ? '' : ' AND business_dates.business_date>=:date_start AND business_dates.business_date<:date_end';
         return "SELECT reports.report_id, quick_sales.user_id employee_user_id,
                        employee.display_name employee_name,
                        quick_sales.origin_warehouse_id shop_id,
@@ -334,9 +364,7 @@ final class SalesPerformanceReportService
                       WHERE latest_report.company_id=reports.company_id
                         AND latest_report.quick_sale_id=reports.quick_sale_id
                   )
-                  AND business_dates.business_date>=:date_start
-                  AND business_dates.business_date<:date_end
-                  {$scopeSql}{$filters}
+                  {$dateFilter}{$scopeSql}{$filters}
                 GROUP BY reports.report_id, quick_sales.user_id,
                          employee.display_name, quick_sales.origin_warehouse_id,
                          shops.name, report_lines.product_id, products.sku,

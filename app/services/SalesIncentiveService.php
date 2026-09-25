@@ -7,7 +7,7 @@ namespace App\Services;
 use PDO;
 use RuntimeException;
 
-/** Operational cash-float and Safaricom claims; deliberately never posts Finance GL. */
+/** Cumulative Safaricom incentives and historical cash floats; never posts Finance GL. */
 final class SalesIncentiveService
 {
     private function company(): int { return (new TenantContext())->companyId(); }
@@ -60,26 +60,32 @@ final class SalesIncentiveService
     public function submitClaim(array $input,int $actor): int
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.submit');
-        $reportId=(int)($input['report_id']??0);$floatId=(int)($input['float_id']??0);$proposed=$this->money($input['proposed_amount']??null);
-        $externalReference=trim((string)($input['external_reference']??''))?:null;
-        if($externalReference!==null&&strlen($externalReference)>190)throw new RuntimeException('Safaricom reference is too long.');
+        $scope=new SalesHierarchyScope();
+        if(!$scope->isAgent($company,$actor))throw new RuntimeException('Only a DSA/DSP may submit their own incentive.');
+        if(isset($input['dsa_dsp_user_id'])&&(int)$input['dsa_dsp_user_id']!==$actor)throw new RuntimeException('You may only submit your own incentive.');
+        $proposed=$this->money($input['proposed_amount']??null);
+        $reference=trim((string)($input['external_reference']??''));
+        if($reference===''||strlen($reference)>190)throw new RuntimeException('Enter a Safaricom reference of at most 190 characters.');
         $connection=\db();$connection->beginTransaction();
         try{
-            $report=$this->report($connection,$company,$reportId);
-            if((int)$report['dsa_dsp_user_id']!==$actor)throw new RuntimeException('Only the reporting DSA/DSP may claim incentive.');
-            $manager=(new SalesHierarchyScope())->parentId($company,$actor);
-            if($manager===null)$this->directManager($company,$actor,0);
+            $lock=$connection->prepare('SELECT user_id FROM company_users WHERE company_id=? AND user_id=? AND active=TRUE FOR UPDATE');
+            $lock->execute([$company,$actor]);
+            if(!$lock->fetchColumn())throw new RuntimeException('Active company membership is required.');
+            $manager=$scope->parentId($company,$actor);
             $this->directManager($company,$actor,(int)$manager);
-            $product=$this->floatProduct($company);
-            if($product===null)throw new RuntimeException('Active FLOAT product is not configured in Sales Products.');
-            $floatQuery=$connection->prepare('SELECT * FROM sales_dsa_float_issuances WHERE company_id=? AND float_id=? FOR UPDATE');$floatQuery->execute([$company,$floatId]);$float=$floatQuery->fetch(PDO::FETCH_ASSOC);
-            if(!$float||$float['status']!=='issued'||(int)$float['product_id']!==(int)$product['product_id']||(int)$float['dsa_dsp_user_id']!==$actor||(int)$float['manager_user_id']!==(int)$manager||$float['currency']!==$report['currency'])throw new RuntimeException('Choose your issued cash float in the same currency and manager scope.');
-            if($proposed>round((float)$float['amount']-(float)$report['sold_amount'],2))throw new RuntimeException('Proposed incentive exceeds the float less confirmed sold amount.');
-            $duplicate=$connection->prepare('SELECT COUNT(*) FROM sales_incentive_claims WHERE company_id=? AND (originating_report_id=? OR float_id=?)');$duplicate->execute([$company,$reportId,$floatId]);
-            if((int)$duplicate->fetchColumn()>0)throw new RuntimeException('The report or float is already linked to an active incentive claim.');
-            $insert=$connection->prepare("INSERT INTO sales_incentive_claims(company_id,originating_report_id,float_id,dsa_dsp_user_id,responsible_manager_id,currency,proposed_amount,external_body,external_reference,status,submitted_by,submitted_at) VALUES(?,?,?,?,?,?,?,'Safaricom',?,'submitted',?,NOW())");
-            $insert->execute([$company,$reportId,$floatId,$actor,$manager,$report['currency'],$proposed,$externalReference,$actor]);
-            $id=(int)$connection->lastInsertId();$this->event($connection,$company,$id,'submitted',null,'submitted',$actor,$externalReference);
+            $positions=(new SalesPerformanceReportService())->cumulativeConfirmedSales($company,$actor);
+            if($positions===[])throw new RuntimeException('A confirmed DSA/DSP sales position is required.');
+            $currency=count($positions)===1?$positions[0]['currency']:strtoupper(trim((string)($input['currency']??'')));
+            $position=null;
+            foreach($positions as $candidate)if($candidate['currency']===$currency)$position=$candidate;
+            if($position===null)throw new RuntimeException('Select a currency from your confirmed sales position.');
+            $key=hash('sha256',$company.'|'.$actor.'|'.mb_strtolower($reference));
+            $duplicate=$connection->prepare('SELECT 1 FROM sales_incentive_claims WHERE company_id=? AND submission_key=?');
+            $duplicate->execute([$company,$key]);
+            if($duplicate->fetchColumn())throw new RuntimeException('This Safaricom reference has already been submitted.');
+            $insert=$connection->prepare("INSERT INTO sales_incentive_claims(company_id,dsa_dsp_user_id,responsible_manager_id,currency,proposed_amount,external_body,external_reference,status,submitted_by,submitted_at,claim_basis,confirmed_sales_snapshot,confirmed_reports_snapshot,submission_key) VALUES(?,?,?,?,?,'Safaricom',?,'submitted',?,NOW(),'cumulative_sales',?,?,?)");
+            $insert->execute([$company,$actor,$manager,$currency,$proposed,$reference,$actor,$position['sales_amount'],json_encode($position['reports'],JSON_THROW_ON_ERROR),$key]);
+            $id=(int)$connection->lastInsertId();$this->event($connection,$company,$id,'submitted',null,'submitted',$actor,$reference);
             (new UserNotificationService($connection))->notify($company,(int)$manager,'sales.incentive.review','Incentive approval required','Review the Safaricom incentive proposed by your DSA/DSP.','sales_incentive_claim',$id,'/sales/incentives/'.$id,'sales-incentive:'.$id.':review');
             $connection->commit();return $id;
         }catch(\Throwable $e){if($connection->inTransaction())$connection->rollBack();throw $e;}
@@ -105,7 +111,7 @@ final class SalesIncentiveService
                 $connection->prepare("UPDATE sales_incentive_claims SET status='rejected',rejected_by=?,rejected_at=NOW(),rejection_reason=? WHERE company_id=? AND incentive_claim_id=? AND status='submitted'")->execute([$actor,$reason,$company,$id]);
                 $this->event($connection,$company,$id,'rejected','submitted','rejected',$actor,$reason);
             }
-            (new UserNotificationService($connection))->notify($company,(int)$claim['dsa_dsp_user_id'],$approve?'sales.incentive.approved':'sales.incentive.rejected',$approve?'Safaricom incentive approved':'Safaricom incentive rejected',$approve?'The approved amount now reduces your unexplained float variance.':$reason,'sales_incentive_claim',$id,'/sales/incentives/'.$id,'sales-incentive:'.$id.':'.($approve?'approved':'rejected'));
+            (new UserNotificationService($connection))->notify($company,(int)$claim['dsa_dsp_user_id'],$approve?'sales.incentive.approved':'sales.incentive.rejected',$approve?'Safaricom incentive approved':'Safaricom incentive rejected',$approve?'The approved company-funded amount remains a negative variance until Safaricom settles it.':$reason,'sales_incentive_claim',$id,'/sales/incentives/'.$id,'sales-incentive:'.$id.':'.($approve?'approved':'rejected'));
             $connection->commit();
         }catch(\Throwable $e){if($connection->inTransaction())$connection->rollBack();throw $e;}
     }
@@ -143,21 +149,28 @@ final class SalesIncentiveService
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.view');
         $scope=new SalesHierarchyScope();$visible=$scope->hasCompanyWideAccess($company,$actor)?null:$scope->userIds($company,$actor);
-        $options=$this->issuanceOptions($actor,(int)($filters['report_id']??0));
+        $options=['positions'=>[],'dsaName'=>null,'managerName'=>null];
+        if($scope->isAgent($company,$actor)){
+            $options['positions']=$this->cumulativePosition($company,$actor);
+            $manager=$scope->parentId($company,$actor);
+            $names=\db()->prepare('SELECT user_id,display_name FROM users WHERE user_id IN (?,?)');$names->execute([$actor,$manager]);
+            $names=array_column($names->fetchAll(PDO::FETCH_ASSOC),'display_name','user_id');
+            $options['dsaName']=$names[$actor]??'';$options['managerName']=$names[$manager]??'Not assigned';
+        }
         if($visible===[])return ['claims'=>[],'users'=>[],'managers'=>[]]+$options;
         $params=[$company];$where=['c.company_id=?'];
         if($visible!==null){$where[]='c.dsa_dsp_user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$params=array_merge($params,$visible);}
         $status=(string)($filters['status']??'');
-        if(in_array($status,['outstanding','partially_settled','settled'],true)){
+        if(in_array($status,['outstanding','submitted','approved','rejected','partially_settled','settled'],true)){
             $where[]=$status==='outstanding'?"c.status='approved'":"c.status=?";
             if($status!=='outstanding')$params[]=$status;
         }
         foreach(['dsa_dsp_user_id','responsible_manager_id'] as $key){if((int)($filters[$key]??0)>0){$where[]='c.'.$key.'=?';$params[]=(int)$filters[$key];}}
         $date=(string)($filters['date']??'');if(preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)){ $where[]='DATE(c.submitted_at)=?';$params[]=$date; }
         $reference=trim((string)($filters['safaricom_reference']??''));if($reference!==''){ $where[]='(c.external_reference LIKE ? OR EXISTS(SELECT 1 FROM sales_incentive_settlements sx WHERE sx.company_id=c.company_id AND sx.incentive_claim_id=c.incentive_claim_id AND sx.external_payment_reference LIKE ?))';$params[]='%'.$reference.'%';$params[]='%'.$reference.'%'; }
-        $sql='SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,u.display_name dsa_name,m.display_name manager_name,COALESCE((SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount,COALESCE((SELECT SUM(s.amount) FROM sales_incentive_settlements s WHERE s.company_id=c.company_id AND s.incentive_claim_id=c.incentive_claim_id AND s.reversed_at IS NULL),0) settled_amount FROM sales_incentive_claims c JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE '.implode(' AND ',$where).' ORDER BY c.submitted_at DESC,c.incentive_claim_id DESC LIMIT 300';
+        $sql='SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,u.display_name dsa_name,m.display_name manager_name,COALESCE(c.confirmed_sales_snapshot,(SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount,COALESCE((SELECT SUM(s.amount) FROM sales_incentive_settlements s WHERE s.company_id=c.company_id AND s.incentive_claim_id=c.incentive_claim_id AND s.reversed_at IS NULL),0) settled_amount FROM sales_incentive_claims c LEFT JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id LEFT JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE '.implode(' AND ',$where).' ORDER BY c.submitted_at DESC,c.incentive_claim_id DESC LIMIT 300';
         $query=\db()->prepare($sql);$query->execute($params);$claims=$query->fetchAll(PDO::FETCH_ASSOC);
-        foreach($claims as &$claim){$claim['outstanding']=max(0,round((float)($claim['approved_amount']??0)-(float)$claim['settled_amount'],2));$claim['unexplained_variance']=round((float)$claim['float_amount']-(float)$claim['sold_amount']-(float)($claim['approved_amount']??0),2);}unset($claim);
+        foreach($claims as &$claim){$claim['outstanding']=max(0,round((float)($claim['approved_amount']??0)-(float)$claim['settled_amount'],2));$claim['unexplained_variance']=$claim['claim_basis']==='legacy_float'?round((float)$claim['float_amount']-(float)$claim['sold_amount']-(float)($claim['approved_amount']??0),2):-$claim['outstanding'];}unset($claim);
         $userSql='SELECT cu.user_id,u.display_name FROM company_users cu JOIN users u ON u.user_id=cu.user_id WHERE cu.company_id=? AND cu.active=TRUE';
         $userParams=[$company];
         if($visible!==null){$userSql.=' AND cu.user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$userParams=array_merge($userParams,$visible);}
@@ -169,62 +182,43 @@ final class SalesIncentiveService
         return ['claims'=>$claims,'users'=>$users->fetchAll(PDO::FETCH_ASSOC),'managers'=>$managers->fetchAll(PDO::FETCH_ASSOC)]+$options;
     }
 
-    /** Cash choices are scoped before they reach the view; product prices are never money issued. */
-    private function issuanceOptions(int $actor,int $reportId): array
+    /** Current amounts are separate from the immutable claim snapshots. */
+    private function cumulativePosition(int $company,int $dsa): array
     {
-        $company=$this->company();$scope=new SalesHierarchyScope();$product=$this->floatProduct($company);
-        $canIssue=!(new SalesHierarchyScope())->isAgent($company,$actor)
-            && (new ModuleRoleService())->permissionAllowed($company,$actor,'sales.incentive.approve');
-        $issuableUsers=[];
-        if($canIssue){
-            $query=\db()->prepare('SELECT cu.user_id,u.display_name FROM company_users cu JOIN users u ON u.user_id=cu.user_id AND u.active=TRUE AND u.deleted_at IS NULL WHERE cu.company_id=? AND cu.manager_user_id=? AND cu.active=TRUE AND cu.user_id<>? ORDER BY u.display_name');
-            $query->execute([$company,$actor,$actor]);
-            foreach($query->fetchAll(PDO::FETCH_ASSOC) as $user){
-                try{$this->directManager($company,(int)$user['user_id'],$actor);$issuableUsers[]=$user;}catch(RuntimeException){continue;}
-            }
+        $positions=(new SalesPerformanceReportService())->cumulativeConfirmedSales($company,$dsa);
+        $approved=\db()->prepare("SELECT currency,SUM(approved_amount) amount FROM sales_incentive_claims WHERE company_id=? AND dsa_dsp_user_id=? AND status IN('approved','partially_settled','settled') GROUP BY currency");
+        $approved->execute([$company,$dsa]);
+        $totals=array_column($approved->fetchAll(PDO::FETCH_ASSOC),'amount','currency');
+        $settled=\db()->prepare("SELECT c.currency,SUM(s.amount) amount FROM sales_incentive_settlements s
+            JOIN sales_incentive_claims c ON c.company_id=s.company_id AND c.incentive_claim_id=s.incentive_claim_id
+            WHERE c.company_id=? AND c.dsa_dsp_user_id=? AND c.status IN('approved','partially_settled','settled')
+              AND s.reversed_at IS NULL GROUP BY c.currency");
+        $settled->execute([$company,$dsa]);
+        $payments=array_column($settled->fetchAll(PDO::FETCH_ASSOC),'amount','currency');
+        foreach(array_diff(array_keys($totals),array_column($positions,'currency')) as $currency){
+            $positions[]=['currency'=>$currency,'sales_amount'=>'0.00','report_count'=>0,'reports'=>[]];
         }
-        $reports=\db()->prepare("SELECT r.report_id,qs.user_id dsa_dsp_user_id,u.display_name dsa_name,r.created_at
-            FROM sales_quick_sale_reports r
-            JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id
-            JOIN company_users cu ON cu.company_id=qs.company_id AND cu.user_id=qs.user_id AND cu.active=TRUE
-            JOIN users u ON u.user_id=cu.user_id AND u.active=TRUE AND u.deleted_at IS NULL
-            WHERE r.company_id=? AND (qs.user_id=? OR cu.manager_user_id=?)
-              AND r.status='confirmed' AND qs.status='closed' AND r.finance_invoice_id IS NOT NULL
-              AND r.report_id=(SELECT MAX(latest.report_id) FROM sales_quick_sale_reports latest WHERE latest.company_id=r.company_id AND latest.quick_sale_id=r.quick_sale_id)
-              AND NOT EXISTS(SELECT 1 FROM sales_incentive_claims c WHERE c.company_id=r.company_id AND c.originating_report_id=r.report_id)
-            ORDER BY r.report_id DESC LIMIT 300");
-        $reports->execute([$company,$actor,$canIssue?$actor:0]);
-        $reportRows=$reports->fetchAll(PDO::FETCH_ASSOC);$selected=null;$floatRows=[];
-        foreach($reportRows as $row){if((int)$row['report_id']===$reportId){$selected=$row+$this->report(\db(),$company,$reportId);break;}}
-        if($selected!==null&&$product!==null){
-            $manager=$scope->parentId($company,(int)$selected['dsa_dsp_user_id']);
-            try{$this->directManager($company,(int)$selected['dsa_dsp_user_id'],(int)$manager);}catch(RuntimeException){$manager=null;}
-            if($manager!==null){
-                $floats=\db()->prepare("SELECT f.*,m.display_name manager_name FROM sales_dsa_float_issuances f
-                    JOIN users m ON m.user_id=f.manager_user_id
-                    WHERE f.company_id=? AND f.dsa_dsp_user_id=? AND f.manager_user_id=? AND f.product_id=?
-                      AND f.status='issued' AND f.currency=? AND ROUND(f.amount-?,2)>0
-                      AND NOT EXISTS(SELECT 1 FROM sales_incentive_claims c WHERE c.company_id=f.company_id AND c.float_id=f.float_id)
-                    ORDER BY f.issued_date DESC,f.float_id DESC");
-                $floats->execute([$company,$selected['dsa_dsp_user_id'],$manager,$product['product_id'],$selected['currency'],$selected['sold_amount']]);
-                $floatRows=$floats->fetchAll(PDO::FETCH_ASSOC);
-            }
+        foreach($positions as &$position){
+            $position['approved_incentives']=$totals[$position['currency']]??'0.00';
+            $position['settled_incentives']=$payments[$position['currency']]??'0.00';
+            // Company-funded approved incentives remain negative until Safaricom reimburses them.
+            $position['unexplained_variance']=round((float)$position['settled_incentives']-(float)$position['approved_incentives'],2);
         }
-        return ['floatProduct'=>$product,'canIssueFloat'=>$canIssue&&$issuableUsers!==[],
-            'issuableUsers'=>$issuableUsers,'reports'=>$reportRows,'selectedReport'=>$selected,'floats'=>$floatRows];
+        unset($position);
+        return $positions;
     }
 
     public function detail(int $id,int $actor): array
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.view');
-        $query=\db()->prepare('SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,f.status float_status,r.quick_sale_id,r.finance_invoice_id,qs.user_id report_dsa_user_id,u.display_name dsa_name,m.display_name manager_name,COALESCE((SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount FROM sales_incentive_claims c JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE c.company_id=? AND c.incentive_claim_id=?');$query->execute([$company,$id]);$claim=$query->fetch(PDO::FETCH_ASSOC);
+        $query=\db()->prepare('SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,f.status float_status,r.quick_sale_id,r.finance_invoice_id,qs.user_id report_dsa_user_id,u.display_name dsa_name,m.display_name manager_name,COALESCE(c.confirmed_sales_snapshot,(SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount FROM sales_incentive_claims c LEFT JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id LEFT JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id LEFT JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE c.company_id=? AND c.incentive_claim_id=?');$query->execute([$company,$id]);$claim=$query->fetch(PDO::FETCH_ASSOC);
         if(!$claim)throw new RuntimeException('Incentive claim not found.');
         $scope=new SalesHierarchyScope();
         if(!$scope->hasCompanyWideAccess($company,$actor)&&!in_array((int)$claim['dsa_dsp_user_id'],$scope->userIds($company,$actor),true))throw new RuntimeException('Incentive claim is outside your reporting scope.');
         $settlements=\db()->prepare('SELECT * FROM sales_incentive_settlements WHERE company_id=? AND incentive_claim_id=? ORDER BY settlement_date,incentive_settlement_id');$settlements->execute([$company,$id]);$settlementRows=$settlements->fetchAll(PDO::FETCH_ASSOC);
         $events=\db()->prepare('SELECT * FROM sales_incentive_events WHERE company_id=? AND incentive_claim_id=? ORDER BY occurred_at,incentive_event_id');$events->execute([$company,$id]);
         $paid=0.0;foreach($settlementRows as $row)if($row['reversed_at']===null)$paid+=(float)$row['amount'];
-        $claim['settled_amount']=round($paid,2);$claim['outstanding']=max(0,round((float)($claim['approved_amount']??0)-$paid,2));$claim['unexplained_variance']=round((float)$claim['float_amount']-(float)$claim['sold_amount']-(float)($claim['approved_amount']??0),2);
+        $claim['settled_amount']=round($paid,2);$claim['outstanding']=max(0,round((float)($claim['approved_amount']??0)-$paid,2));$claim['unexplained_variance']=$claim['claim_basis']==='legacy_float'?round((float)$claim['float_amount']-(float)$claim['sold_amount']-(float)($claim['approved_amount']??0),2):-$claim['outstanding'];
         return ['claim'=>$claim,'settlements'=>$settlementRows,'events'=>$events->fetchAll(PDO::FETCH_ASSOC)];
     }
 
