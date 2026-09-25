@@ -132,6 +132,46 @@ final class StockRequestService
 
         $canProcess = $managerRole !== null;
 
+        if (is_array($request) && $canProcess && is_array($authority)
+            && (int) $request['current_handler_user_id'] === $actorId
+            && $this->actorCan($companyId, $actorId, 'inventory.stock_requests.process')) {
+            try {
+                // Use the signed-in manager's represented location, never company totals.
+                // The existing availability service enforces warehouse/location access.
+                $stock = (new InventoryOperationalAccessService())->availability(
+                    $companyId, $actorId, (int) $authority['warehouse_id'],
+                    (int) $authority['location_id'], array_column($request['lines'], 'product_id')
+                );
+                foreach ($request['lines'] as &$line) {
+                    $line['manager_available_quantity'] = max(
+                        0.0, (float) ($stock[(int) $line['product_id']]['quantity_available'] ?? 0)
+                    );
+                    // allocated_quantity is the existing sum of non-released SR
+                    // allocations. Pending proposals are not actual fulfillment.
+                    $line['still_required_quantity'] = max(0.0, round(
+                        (float) $line['requested_quantity'] - (float) $line['allocated_quantity'], 3
+                    ));
+                    $line['manager_can_provide_quantity'] = min(
+                        $line['still_required_quantity'], $line['manager_available_quantity']
+                    );
+                    $line['remaining_after_manager_quantity'] = max(0.0, round(
+                        $line['still_required_quantity'] - $line['manager_can_provide_quantity'], 3
+                    ));
+                    $line['manager_fulfillment_status'] = $line['still_required_quantity'] <= 0
+                        ? 'FULFILLED'
+                        : ($line['manager_available_quantity'] <= 0
+                            ? 'NO STOCK'
+                            : ($line['manager_available_quantity'] >= $line['still_required_quantity']
+                                ? 'CAN FULLY FULFILL' : 'CAN PARTIALLY FULFILL'));
+                }
+                unset($line);
+                $request['manager_stock_scope'] = $authority;
+            } catch (RuntimeException $exception) {
+                // Keep the SR readable when stock access is unavailable; do not imply zero stock.
+                $request['manager_stock_error'] = $exception->getMessage();
+            }
+        }
+
         $canManageReorder =
             $managerRole === 'regional'
             && $this->actorCan(

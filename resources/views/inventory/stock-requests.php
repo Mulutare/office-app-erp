@@ -352,8 +352,21 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
   <?php if(!empty($request['notes'])):?><p><strong>Notes:</strong> <?=e($request['notes'])?></p><?php endif;?>
 </section>
 
-<section class="card stock-request-lines-card"><h3>Request lines</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Product</th><th>Requested</th><th>Allocated</th><th>Pending proposals</th><th>Uncommitted</th><th>Remaining to receive / issue</th><th><?=($request['request_kind']??'employee_issue')==='manager_replenishment'?'Received':'Ready at Shop'?></th></tr></thead><tbody>
-<?php foreach($request['lines']??[] as $line):?><tr><td><?=e($line['sku'].' — '.$line['name'])?></td><td><?=e($line['requested_quantity'].' '.$line['unit_of_measure'])?></td><td><?=e($line['allocated_quantity'])?></td><td><?=e($line['proposed_quantity']??0)?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['allocated_quantity']-(float)($line['proposed_quantity']??0)))?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['ready_quantity']))?></td><td><?=e($line['ready_quantity'])?></td></tr><?php endforeach;?>
+<section class="card stock-request-lines-card"><h3>Request lines</h3>
+<?php if(!empty($request['manager_stock_scope'])):?><p>Your stock: <?=e($request['manager_stock_scope']['warehouse_name'].' / '.$request['manager_stock_scope']['location_name'])?>. Available quantities exclude reserved stock and are refreshed when you reload this page.</p><?php endif;?>
+<?php if(!empty($request['manager_stock_error'])):?><div class="notice notice-error">Your current stock could not be shown: <?=e($request['manager_stock_error'])?></div><?php endif;?>
+<div class="table-responsive"><table class="data-table"><thead><tr><th>Product</th><th>Requested</th><th>Allocated</th><th>Pending proposals</th><th>Uncommitted</th><th>Remaining to receive / issue</th><th><?=($request['request_kind']??'employee_issue')==='manager_replenishment'?'Received':'Ready at Shop'?></th></tr></thead><tbody>
+<?php foreach($request['lines']??[] as $line):?><tr><td><?=e($line['sku'].' — '.$line['name'])?>
+<?php if(array_key_exists('manager_available_quantity',$line)):?>
+  <div class="detail-grid">
+    <div><strong>Still required</strong><br><?=e($line['still_required_quantity'].' '.$line['unit_of_measure'])?></div>
+    <div><strong>Your current available stock</strong><br><?=e($line['manager_available_quantity'].' '.$line['unit_of_measure'])?></div>
+    <div><strong>You can provide</strong><br><?=e($line['manager_can_provide_quantity'].' '.$line['unit_of_measure'])?></div>
+    <div><strong>Remaining after you</strong><br><?=e($line['remaining_after_manager_quantity'].' '.$line['unit_of_measure'])?></div>
+  </div>
+  <span class="status <?=in_array($line['manager_fulfillment_status'],['FULFILLED','CAN FULLY FULFILL'],true)?'status-success':($line['manager_fulfillment_status']==='NO STOCK'?'status-danger':'status-warning')?>"><?=e($line['manager_fulfillment_status'])?></span>
+<?php endif;?>
+</td><td><?=e($line['requested_quantity'].' '.$line['unit_of_measure'])?></td><td><?=e($line['allocated_quantity'])?></td><td><?=e($line['proposed_quantity']??0)?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['allocated_quantity']-(float)($line['proposed_quantity']??0)))?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['ready_quantity']))?></td><td><?=e($line['ready_quantity'])?></td></tr><?php endforeach;?>
 </tbody></table></div></section>
 
 <?php if(!empty($request['events'])):?><section class="card"><h3>Immutable request history</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Reason</th><th>Previous values</th><th>New values</th></tr></thead><tbody><?php foreach($request['events'] as $event):?><tr><td><?=e($event['occurred_at'])?></td><td><?=e(str_replace('_',' ',$event['event_type']))?></td><td><?=e($event['actor_id'])?></td><td><?=e($event['reason']??'—')?></td><td><details><summary>View snapshot</summary><pre><?=e($event['previous_values_json']??'—')?></pre></details></td><td><details><summary>View snapshot</summary><pre><?=e($event['new_values_json']??'—')?></pre></details></td></tr><?php endforeach;?></tbody></table></div></section><?php endif;?>
