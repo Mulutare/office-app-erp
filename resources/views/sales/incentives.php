@@ -63,14 +63,18 @@ $canSubmit=!empty($data['canSubmitIncentive'])&&($incentiveData['dsaName']??null
 <section class="card table-card">
     <h3>Incentive register</h3>
     <div class="table-responsive"><table class="data-table">
-        <thead><tr><th>Submitted</th><th>DSA/DSP</th><th>Manager</th><th>Confirmed-sales snapshot</th><th>Incentive amount</th><th>Safaricom reference</th><th>Approved</th><th>Outstanding</th><th>Status</th><th>Review / detail</th></tr></thead>
+        <thead><tr><th>Submitted</th><th>DSA/DSP</th><th>Manager</th><th>Confirmed-sales snapshot</th><th>Incentive amount</th><th>Safaricom reference</th><th>Approved</th><th>Safaricom settled</th><th>Outstanding</th><th>Variance</th><th>Status</th><th>Review / detail</th></tr></thead>
         <tbody>
-        <?php if($claims===[]): ?><tr><td colspan="10">No claims match the filters.</td></tr><?php endif; ?>
+        <?php if($claims===[]): ?><tr><td colspan="12">No claims match the filters.</td></tr><?php endif; ?>
         <?php foreach($claims as $claim): ?><tr>
             <td><?=e($claim['submitted_at'])?></td><td><?=e($claim['dsa_name'])?></td><td><?=e($claim['manager_name'])?></td>
             <td><?php if($claim['claim_basis']==='cumulative_sales'): ?><?=e($claim['currency'].' '.number_format((float)$claim['confirmed_sales_snapshot'],2))?><?php else: ?>Historical claim<?php endif; ?></td>
             <td><?=e($claim['currency'].' '.$claim['proposed_amount'])?></td><td><?=e($claim['external_reference']??'—')?></td>
-            <td><?=e($claim['approved_amount']??'0.00')?></td><td><?=e($claim['outstanding'])?></td><td><?=e(str_replace('_',' ',$claim['status']))?></td>
+            <td><?=e(number_format((float)($claim['approved_amount']??0),2))?></td>
+            <td><?=e(number_format((float)$claim['settled_amount'],2))?></td>
+            <td><?=e(number_format((float)$claim['outstanding'],2))?></td>
+            <td><strong><?=e(number_format((float)$claim['unexplained_variance'],2))?></strong></td>
+            <td><?=e(str_replace('_',' ',$claim['status']))?></td>
             <td><a class="btn btn-secondary btn-compact" href="<?=e(appBasePath())?>/sales/incentives/<?=(int)$claim['incentive_claim_id']?>"><?=$claim['status']==='submitted'?'Review claim':'Open'?></a></td>
         </tr><?php endforeach; ?>
         </tbody>
