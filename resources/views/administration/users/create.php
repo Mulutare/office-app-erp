@@ -215,8 +215,9 @@ $selectedRoles = is_array(
         </h2>
 
         <p class="form-help">
-            Assign only the roles required for this
-            employee’s responsibilities.
+            Only roles you are authorized to assign are shown.
+            Roles provide the normal job/responsibility baseline.
+            Function Access provides individual function allow/deny overrides.
         </p>
 
         <?php if (
@@ -227,6 +228,10 @@ $selectedRoles = is_array(
             </div>
         <?php endif; ?>
 
+        <h3>Available roles</h3>
+        <?php if ($roles === []): ?>
+            <p class="form-help">No roles are available to assign.</p>
+        <?php endif; ?>
         <div class="role-grid">
             <?php foreach ($roles as $role): ?>
                 <?php

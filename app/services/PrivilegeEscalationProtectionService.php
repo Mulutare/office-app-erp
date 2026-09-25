@@ -20,6 +20,42 @@ final class PrivilegeEscalationProtectionService
     }
 
     /**
+     * Use the same company authority check as POST validation for role choices.
+     * Existing roles outside that authority are retained, including inactive roles.
+     *
+     * @param list<int> $assignedRoleIds
+     * @return array{assignableRoles: array, protectedAssignedRoles: array}
+     */
+    public function roleChoices(
+        int $actorId,
+        int $companyId,
+        array $assignedRoleIds = [],
+        bool $protectAll = false
+    ): array {
+        $assignableRoles = [];
+        if (!$protectAll) {
+            foreach ($this->roles->activeRoles(false) as $role) {
+                if ($this->roleAssignmentError(
+                    [(int) $role['role_id']], $actorId, $companyId
+                ) === null) {
+                    $assignableRoles[] = $role;
+                }
+            }
+        }
+
+        $assignableIds = array_map('intval', array_column($assignableRoles, 'role_id'));
+        $protectedAssignedRoles = [];
+        foreach (array_diff($assignedRoleIds, $assignableIds) as $roleId) {
+            $role = $this->roles->findForAdministration($roleId);
+            if ($role !== null) {
+                $protectedAssignedRoles[] = $role;
+            }
+        }
+
+        return compact('assignableRoles', 'protectedAssignedRoles');
+    }
+
+    /**
      * @param list<int> $roleIds
      */
     public function roleAssignmentError(
@@ -37,7 +73,7 @@ final class PrivilegeEscalationProtectionService
             $requestedPermissionCodes,
             $actorId,
             $companyId,
-            'You cannot assign a role containing permissions you do not hold.',
+            'One or more selected roles cannot be assigned by your account.',
             true
         );
     }

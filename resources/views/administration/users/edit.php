@@ -7,9 +7,10 @@ $data = is_array($data ?? null) ? $data : [];
 $profile = is_array($data['profile'] ?? null)
     ? $data['profile']
     : [];
-$roles = is_array($data['roles'] ?? null)
-    ? $data['roles']
+$roles = is_array($data['assignableRoles'] ?? null)
+    ? $data['assignableRoles']
     : [];
+$protectedAssignedRoles = $data['protectedAssignedRoles'] ?? [];
 $managers = is_array(
     $data['managers'] ?? null
 )
@@ -225,8 +226,9 @@ $managerUserId = (int) (
         <h2 class="card-title">Access roles</h2>
 
         <p class="form-help">
-            Assign only the roles required for this
-            employee's responsibilities.
+            Only roles you are authorized to assign are shown.
+            Roles provide the normal job/responsibility baseline.
+            Function Access provides individual function allow/deny overrides.
         </p>
 
         <?php if ($isSelf): ?>
@@ -249,6 +251,10 @@ $managerUserId = (int) (
             </div>
         <?php endif; ?>
 
+        <h3>Available roles</h3>
+        <?php if ($roles === []): ?>
+            <p class="form-help">No roles are available to assign.</p>
+        <?php endif; ?>
         <div class="role-grid">
             <?php foreach ($roles as $role): ?>
                 <?php
@@ -273,17 +279,6 @@ $managerUserId = (int) (
                             : '' ?>
                     >
 
-                    <?php if (
-                        $isAccessProtected
-                        && $selected
-                    ): ?>
-                        <input
-                            type="hidden"
-                            name="role_ids[]"
-                            value="<?= e($roleId) ?>"
-                        >
-                    <?php endif; ?>
-
                     <span>
                         <strong>
                             <?= e($role['name'] ?? '') ?>
@@ -299,6 +294,19 @@ $managerUserId = (int) (
                 </label>
             <?php endforeach; ?>
         </div>
+        <?php if ($protectedAssignedRoles !== []): ?>
+            <h3>Protected roles</h3>
+            <div class="role-grid">
+                <?php foreach ($protectedAssignedRoles as $role): ?>
+                    <div class="role-option">
+                        <span>
+                            <strong><?= e($role['name'] ?? '') ?></strong>
+                            <small>Protected role — cannot be changed by your account.</small>
+                        </span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
     </section>
 
     <section class="form-section">

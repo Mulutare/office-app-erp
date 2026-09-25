@@ -40,7 +40,10 @@ final class UserCreationService
      */
     public function roles(): array
     {
-        return $this->roles->activeRoles(false);
+        return $this->privilegeProtection->roleChoices(
+            (int) ($_SESSION['auth']['user_id'] ?? 0),
+            $this->tenant->companyId()
+        )['assignableRoles'];
     }
 
     /**

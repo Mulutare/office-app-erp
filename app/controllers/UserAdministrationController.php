@@ -592,7 +592,8 @@ final class UserAdministrationController
                 'administration.users.edit',
             'user' => $_SESSION['auth'],
             'profile' => $formData['profile'],
-            'roles' => $formData['roles'],
+            'assignableRoles' => $formData['assignableRoles'],
+            'protectedAssignedRoles' => $formData['protectedAssignedRoles'],
             'managers' =>
                 $formData['managers'],
             'managerRequired' =>

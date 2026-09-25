@@ -63,14 +63,18 @@ final class UserUpdateService
                 $userId
             );
 
+        $actorId = (int) ($_SESSION['auth']['user_id'] ?? 0);
+        $choices = $this->privilegeProtection->roleChoices(
+            $actorId,
+            $companyId,
+            $user['role_ids'],
+            $userId === $actorId || !empty($user['is_platform_admin']) || $isPrimaryOwner
+        );
+
         return [
             'profile' => $user,
-            'roles' => $this->roles
-                ->activeRoles(
-                    !empty(
-                        $user['is_platform_admin']
-                    )
-                ),
+            'assignableRoles' => $choices['assignableRoles'],
+            'protectedAssignedRoles' => $choices['protectedAssignedRoles'],
             'managers' =>
                 $this->memberships
                     ->managerOptions(
@@ -171,6 +175,20 @@ final class UserUpdateService
         $roleIds = $this->normalizeRoleIds(
             $input['role_ids'] ?? []
         );
+        $existingRoleIds = $this->users->roleIds($companyId, $userId);
+        sort($existingRoleIds);
+        $choices = $this->privilegeProtection->roleChoices(
+            $updatedBy,
+            $companyId,
+            $existingRoleIds,
+            $userId === $updatedBy || !empty($existing['is_platform_admin'])
+        );
+        $protectedRoleIds = array_map('intval', array_column(
+            $choices['protectedAssignedRoles'], 'role_id'
+        ));
+        // Protected assignments come from the database, never from form fields.
+        $requestedRoleIds = array_values(array_diff($roleIds, $protectedRoleIds));
+        $roleIds = array_values(array_unique(array_merge($requestedRoleIds, $protectedRoleIds)));
 
         $errors = $this->validate(
             $userId,
@@ -210,7 +228,7 @@ final class UserUpdateService
 
         $validRoleIds = $this->roles
             ->validActiveRoleIds(
-                $roleIds,
+                $requestedRoleIds,
                 !empty(
                     $existing[
                         'is_platform_admin'
@@ -218,6 +236,7 @@ final class UserUpdateService
                 )
             );
 
+        $validRoleIds = array_values(array_unique(array_merge($validRoleIds, $protectedRoleIds)));
         sort($roleIds);
         sort($validRoleIds);
 
@@ -225,13 +244,6 @@ final class UserUpdateService
             $errors['roles'] =
                 'One or more selected roles are invalid.';
         }
-
-        $existingRoleIds = $this->users
-            ->roleIds(
-                $companyId,
-                $userId
-            );
-        sort($existingRoleIds);
 
         if (
             !empty(
@@ -247,7 +259,7 @@ final class UserUpdateService
             $roleAssignmentError =
                 $this->privilegeProtection
                     ->roleAssignmentError(
-                        $validRoleIds,
+                        $requestedRoleIds,
                         $updatedBy,
                         $companyId
                     );
@@ -316,7 +328,7 @@ final class UserUpdateService
                 $roleAssignmentError =
                     $this->privilegeProtection
                         ->roleAssignmentError(
-                            $validRoleIds,
+                            $requestedRoleIds,
                             $updatedBy,
                             $companyId
                         );
