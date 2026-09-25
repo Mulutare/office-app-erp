@@ -14,7 +14,7 @@ final class ProcurementController
     private AuthorizationService $auth; private ProcurementService $service;
     public function __construct(){ $this->auth=new AuthorizationService();$this->service=new ProcurementService(); }
     public function index():void{$this->auth->requireModulePermission('procurement','procurement.view');$this->render();}
-    public function showOrder(string $id):void{$this->auth->requireModulePermission('procurement','procurement.view');if(!$this->service->orderAccessible((int)$id,$this->actor())){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$this->render((int)$id);}
+    public function showOrder(string $id):void{$this->auth->requireModulePermission('procurement','procurement.view');if(!$this->service->orderAccessible((int)$id,$this->actor())){http_response_code(404);\view('errors.purchase-order-not-found',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$this->render((int)$id);}
     public function supplier():void{$this->mutate('procurement.suppliers.manage',fn()=>$this->service->createSupplier($_POST,$this->actor()),'/procurement');}
     public function updateSupplier(string $id):void{$this->mutate('procurement.suppliers.manage',fn()=>$this->service->updateSupplier((int)$id,$_POST,$this->actor()),'/procurement');}
     public function supplierActive(string $id):void{$this->mutate('procurement.suppliers.manage',fn()=>$this->service->setSupplierActive((int)$id,\postString('active')==='1',$this->actor()),'/procurement');}

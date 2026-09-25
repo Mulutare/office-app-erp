@@ -28,6 +28,33 @@ final class ProcurementService
         try{$this->assertOrderAccess($orderId,$actor);return true;}catch(RuntimeException){return false;}
     }
 
+    /**
+     * Batch counterpart of orderAccessible for task candidates. Fetch only orders
+     * in the active company and reuse the same record authorization predicate.
+     * Orders sharing a destination need just one operational access check.
+     *
+     * @param list<int> $orderIds
+     * @return list<int>
+     */
+    public function accessibleOrderIds(int $companyId, int $actor, array $orderIds): array
+    {
+        if ($companyId !== $this->tenant->companyId() || $actor < 1) return [];
+        $orderIds = array_values(array_unique(array_filter($orderIds, static fn (int $id): bool => $id > 0)));
+        $allowed = [];
+        $destinations = [];
+        foreach (array_chunk($orderIds, 500) as $batch) {
+            $placeholders = implode(',', array_fill(0, count($batch), '?'));
+            $statement = \db()->prepare("SELECT purchase_order_id,warehouse_id,destination_location_id FROM purchase_orders WHERE company_id=? AND purchase_order_id IN ($placeholders)");
+            $statement->execute(array_merge([$companyId], $batch));
+            foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $order) {
+                $destination = (int) $order['warehouse_id'] . ':' . (int) $order['destination_location_id'];
+                $destinations[$destination] ??= $this->canAccessOrder($order, $actor);
+                if ($destinations[$destination]) $allowed[] = (int) $order['purchase_order_id'];
+            }
+        }
+        return $allowed;
+    }
+
     /** @param array<string,mixed> $order */
     private function canAccessOrder(array $order,int $actor): bool
     {

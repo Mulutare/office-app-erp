@@ -43,11 +43,25 @@ final class ActionRequiredCountService
         $landing = WorkspaceAccessService::definitions()[$module][$section] ?? null;
         if ($landing !== null && !WorkspaceAccessService::allowed($landing, $permissions)) return [];
         $items = [];
-        $add = function (string $sql, array $parameters, string $entity, string $action, string $key, string $declaredUrl) use (&$items, $companyId, $userId, $module): void {
+        $add = function (string $sql, array $parameters, string $entity, string $action, string $key, string $declaredUrl) use (&$items, $companyId, $userId, $module, $can): void {
             if ($declaredUrl !== $this->targetTemplate($key)) {
                 throw new \LogicException('Action-required target does not match its registered workflow.');
             }
-            foreach ($this->rows(\db(), $sql, $parameters) as $row) {
+            // A task must satisfy the destination route as well as its action permission.
+            $hasOrder = in_array($entity, ['purchase_order', 'supplier_bill'], true);
+            if ($hasOrder && (!$can('procurement.view')
+                || !(new ModuleRoleService())->entitled($companyId, $userId, 'procurement'))) return;
+            if ($entity === 'goods_receipt' && (!$can('inventory.receipts.view')
+                || !(new ModuleRoleService())->entitled($companyId, $userId, 'inventory'))) return;
+            $rows = $this->rows(\db(), $sql, $parameters);
+            $orderKey = $entity === 'purchase_order' ? 'id' : 'purchase_order_id';
+            $accessibleOrders = $hasOrder
+                ? array_fill_keys((new ProcurementService())->accessibleOrderIds(
+                    $companyId, $userId, array_map('intval', array_column($rows, $orderKey))
+                ), true)
+                : [];
+            foreach ($rows as $row) {
+                if ($hasOrder && !isset($accessibleOrders[(int) ($row[$orderKey] ?? 0)])) continue;
                 if (!$this->visibleAction($companyId,$userId,$module,$entity,(int)$row['id'],$key)) continue;
                 $items[] = [
                     'id' => (int) $row['id'],
@@ -512,7 +526,7 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
             );
         }
 
-        foreach (['sales'=>['quick_sale','orders','quotations','pricing','incentives','deliveries','settlements'], 'inventory'=>['receipts','transfers','stock_requests']] as $moduleCode=>$sections) {
+        foreach (['sales'=>['quick_sale','orders','quotations','pricing','incentives','deliveries','settlements'], 'inventory'=>['receipts','transfers','stock_requests'], 'procurement'=>['orders','receipts','bills','payments']] as $moduleCode=>$sections) {
             foreach ($sections as $section) $counts[$moduleCode][$section]=count($this->itemsFor($companyId,$userId,$permissions,$moduleCode,$section));
         }
         if($can('procurement.requisitions.create')) {
@@ -549,7 +563,8 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
         $scope=new SalesHierarchyScope();$access=new InventoryOperationalAccessService();
         if (in_array($entity,['quotation','sales_order'],true)) return $scope->canReadSalesRow($company,$actor,$row);
         if ($entity==='quick_sale') return (int)$row['manager_user_id']===$actor || $scope->canReadOwner($company,$actor,(int)$row['user_id']);
-        if ($entity==='goods_receipt') return $access->canAccessRecord($company,$actor,$row,'warehouse_id','destination_location_id');
+        if ($entity==='goods_receipt') return $access->canAccessRecord($company,$actor,$row,'warehouse_id','destination_location_id')
+            && (new InventoryReadScope())->location($company,$actor,(int)$row['warehouse_id'],(int)$row['destination_location_id']);
         if ($entity==='transfer') {
             $s=\db()->prepare('SELECT p.source_owner_user_id,p.destination_owner_user_id FROM inventory_peer_proposals p JOIN inventory_transfer_lines l ON l.company_id=p.company_id AND l.transfer_line_id=p.transfer_line_id WHERE l.company_id=? AND l.transfer_id=?');
             $s->execute([$company,$id]); $peer=$s->fetch(PDO::FETCH_ASSOC);
@@ -603,11 +618,11 @@ SQL, ['company_id'=>$companyId,'user_id'=>$userId]);
         }
         if ($section === 'receipts') { $this->addReceiptItems($items, $add, $parameters, $can); return; }
         if ($section === 'bills') {
-            if ($can('procurement.bills.post')) $add("SELECT invoice_id id,invoice_number reference FROM finance_invoices WHERE company_id=:company_id AND document_type='vendor_bill' AND status='draft'", $parameters, 'supplier_bill', 'Post supplier bill', 'post_supplier_bill', '/procurement?section=bills');
+            if ($can('procurement.bills.post')) $add("SELECT invoice_id id,invoice_number reference,purchase_order_id FROM finance_invoices WHERE company_id=:company_id AND document_type='vendor_bill' AND status='draft'", $parameters, 'supplier_bill', 'Post supplier bill', 'post_supplier_bill', '/procurement?section=bills');
             if ($can('procurement.bills.create')) $add("SELECT po.purchase_order_id id,po.po_number reference FROM purchase_orders po WHERE po.company_id=:company_id AND po.status IN('partially_received','received','partially_billed') AND EXISTS(SELECT 1 FROM purchase_order_lines l WHERE l.company_id=po.company_id AND l.purchase_order_id=po.purchase_order_id AND l.billed_quantity<l.received_quantity-l.returned_quantity)", $parameters, 'purchase_order', 'Create supplier bill', 'create_supplier_bill', '/procurement/{id}');
             return;
         }
-        if ($section === 'payments' && $can('procurement.payments.post')) $add("SELECT invoice_id id,invoice_number reference FROM finance_invoices WHERE company_id=:company_id AND document_type='vendor_bill' AND status='posted' AND residual_amount>0", $parameters, 'supplier_bill', 'Post supplier payment', 'post_supplier_payment', '/procurement?section=payments');
+        if ($section === 'payments' && $can('procurement.payments.post')) $add("SELECT invoice_id id,invoice_number reference,purchase_order_id FROM finance_invoices WHERE company_id=:company_id AND document_type='vendor_bill' AND status='posted' AND residual_amount>0", $parameters, 'supplier_bill', 'Post supplier payment', 'post_supplier_payment', '/procurement?section=payments');
     }
 
     /** @param list<array<string, int|string>> $items */
