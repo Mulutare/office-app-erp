@@ -117,15 +117,29 @@ function userStatusClass(array $user): string
         </p>
     </section>
 <?php endif; ?>
-<section class="toolbar">
-<?php view('administration.list-controls',['listing'=>$data['listing'],'entity'=>'users','path'=>appBasePath().'/administration/users']); ?>
+<section class="administration-smart-list-toolbar">
+    <div class="administration-smart-list-controls">
+        <?php
+        view(
+            'administration.list-controls',
+            [
+                'listing' => $data['listing'],
+                'entity' => 'users',
+                'path' => appBasePath() . '/administration/users',
+                'showPagination' => false,
+            ]
+        );
+        ?>
+    </div>
 
-    <a
-        href="<?= e(appBasePath()) ?>/administration/users/create"
-        class="btn btn-primary"
-    >
-        Create user
-    </a>
+    <div class="administration-smart-list-primary-action">
+        <a
+            href="<?= e(appBasePath()) ?>/administration/users/create"
+            class="btn btn-primary"
+        >
+            Create user
+        </a>
+    </div>
 </section>
 
 <section class="card table-card">
