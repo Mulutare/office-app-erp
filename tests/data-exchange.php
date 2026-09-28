@@ -36,7 +36,9 @@ try{
     $check(str_starts_with($xlsx,'PK'),'XLSX writer creates a real ZIP-based workbook');
     $check((new FileGuard())->validate($xlsxPath,'customers.xlsx')==='xlsx','File guard validates XLSX structure and MIME');
     $xlsxRead=(new SpreadsheetCodec())->read($xlsxPath);$check($xlsxRead['headers']===['External ID','Name'],'XLSX output can be reopened by the spreadsheet library');
-    $products=$schemas->get('products');$typed=(new SpreadsheetCodec())->write(['SKU','Sale Price'],[['sku'=>'=unsafe','unit_price'=>125.5]],$products);file_put_contents($directory.'/typed.xlsx',$typed);$typedBook=IOFactory::load($directory.'/typed.xlsx');
+    // Export field types are independent of the fields safe to import into a master.
+    $products=new App\Services\DataExchange\ExchangeSchema('products','Products','sales',[new ExchangeField('sku','SKU'),new ExchangeField('unit_price','Sale Price',false,'decimal')],false,true);
+    $typed=(new SpreadsheetCodec())->write(['SKU','Sale Price'],[['sku'=>'=unsafe','unit_price'=>125.5]],$products);file_put_contents($directory.'/typed.xlsx',$typed);$typedBook=IOFactory::load($directory.'/typed.xlsx');
     $check($typedBook->getActiveSheet()->getCell('B2')->getDataType()===DataType::TYPE_NUMERIC,'XLSX export preserves numeric business cells');
     $check(str_starts_with((string)$typedBook->getActiveSheet()->getCell('A2')->getValue(),"'="),'XLSX export neutralizes formula-like user text');$typedBook->disconnectWorksheets();
     $formulaBook=new Spreadsheet();$formulaBook->getActiveSheet()->setCellValue('A1','Name')->setCellValue('A2','=2+2');(new Xlsx($formulaBook))->save($directory.'/formula.xlsx');

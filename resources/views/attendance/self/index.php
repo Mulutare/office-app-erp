@@ -1168,10 +1168,16 @@ $formatDate = static function (
             <h2>Attendance activity</h2>
         </div>
         <span class="badge badge-info">
-            <?= e(count($records)) ?> entries
+            <?= e($data['historyList']['pagination']['total']??count($records)) ?> entries
         </span>
     </div>
 
+    <?php if(!empty($data['historyList'])):
+        $history=$data['historyList'];$path=appBasePath().'/attendance/me';
+        view('components.list-filters',['path'=>$path,'query'=>$history['query']]+$data['historyControls']);
+        view('components.list-download',['path'=>$path,'query'=>$history['query'],'allowed'=>true,'actions'=>['register'=>'history']]);
+        view('components.list-pagination',['path'=>$path,'query'=>$history['query'],'pagination'=>$history['pagination']]);
+    endif; ?>
     <?php if ($records === []): ?>
         <div class="attendance-empty-state">
             <strong>No attendance recorded</strong>

@@ -10,8 +10,25 @@ use App\Services\AuthorizationService;
 final class AssetController
 {
     public function __construct(private ?AuthorizationService $authorization=null,private ?AssetService $assets=null){$this->authorization??=new AuthorizationService();$this->assets??=new AssetService();}
-    public function index(): void{$this->authorize('assets.view');$this->render('assets.index',$this->assets->workspace(),'Fixed Assets','Capitalization, depreciation, custody and disposal.');}
-    public function show(string $id): void{$this->authorize('assets.view');$asset=$this->assets->asset((int)$id);if(!$asset){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->assets->workspace();$workspace['asset']=$asset;$this->render('assets.show',$workspace,(string)$asset['asset_number'],'Asset lifecycle, accounting and traceability.');}
+    public function index(): void
+    {
+        $this->authorize('assets.view');$workspace=$this->assets->workspace($_GET);$this->download($workspace);
+        $this->render('assets.index',$workspace,'Fixed Assets','Capitalization, depreciation, custody and disposal.');
+    }
+    public function show(string $id): void
+    {
+        $this->authorize('assets.view');$workspace=(new \App\Services\Lists\AssetListService())->workspace($_GET,(int)$id);$asset=$workspace['asset'];
+        if(!$asset){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
+        $this->download($workspace);$this->render('assets.show',$workspace,(string)$asset['asset_number'],'Asset lifecycle, accounting and traceability.');
+    }
+    private function download(array $workspace): void
+    {
+        if(!isset($_GET['download']))return;
+        $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'register');
+        if($entity==='categories')$this->authorize('assets.manage');
+        if(!isset($workspace['exportLists'][$entity])){http_response_code(400);echo 'Choose an asset register.';exit;}
+        \App\Services\Lists\ListDownload::send('assets-'.$entity,$workspace['exportLists'][$entity],(new \App\Services\Lists\AssetListService())->columns($entity),$_GET['download']);
+    }
     public function storeCategory(): void{$this->mutate('assets.manage','/assets-management?section=categories',fn()=>$this->assets->createCategory($_POST,$this->actor()),'Asset category created.');}
     public function storeAsset(): void{$this->mutate('assets.manage','/assets-management',fn()=>$this->assets->createAsset($_POST,$this->actor()),'Draft asset created.');}
     public function capitalize(): void{$this->mutate('assets.inventory.capitalize','/assets-management',fn()=>$this->assets->capitalizeFromInventory($_POST,$this->actor()),'Inventory issued and capitalized as a draft asset.');}

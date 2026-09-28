@@ -30,6 +30,33 @@ final class ExportService
         return $this->file($definition['filename'].'_'.date('Y-m-d'),$format,$headers,$output,$exportSchema);
     }
 
+    /** Export-only registers use the same codecs and formula protection as data exchange.
+     * Columns must be a controller-owned whitelist, never spreadsheet/request keys.
+     */
+    public function register(string $name,string $format,array $columns,array $rows): array
+    {
+        $fields=[];$output=[];
+        foreach($columns as $key=>$label) {
+            $type=$this->registerType($key);
+            if($type==='date')foreach($rows as $row)if(preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/',(string)($row[$key]??''))){$type='datetime';break;}
+            $fields[]=new ExchangeField($key,$label,false,$type);
+        }
+        foreach($rows as $row) $output[]=array_map(static fn(string $key):mixed=>$row[$key]??'',array_keys($columns));
+        $schema=new ExchangeSchema($name,$name,'', $fields,false,true,false);
+        return $this->file($name.'_'.date('Y-m-d'),$format,array_values($columns),$output,$schema);
+    }
+
+    /** Only controller-owned business field names determine types; codes remain text. */
+    private function registerType(string $key): string
+    {
+        if(preg_match('/(?:_amount|_quantity|_price|_days|_rate|_percent|_cost|_value|_due|_paid)$/',$key)
+            ||in_array($key,['amount','quantity','debit','credit','balance','total','residual','outstanding','on_hand','reserved','available','beginning','ending','annual_entitlement','minimum_quantity','percentage_adjustment','quantity_on_hand','quantity_reserved','quantity_available','cost','book_value_after','balance_difference','reservation_difference'],true))return 'decimal';
+        if(preg_match('/(?:_minutes|_count|_months)$/',$key)||in_array($key,['attempts','priority','sequence','revision_number','version','period_number','installment_number'],true))return 'integer';
+        if(preg_match('/(?:_date)$/',$key)||in_array($key,['date','date_from','date_to','effective_from','effective_to','valid_from','valid_to'],true))return 'date';
+        if(str_ends_with($key,'_at'))return 'datetime';
+        return 'string';
+    }
+
     /** @param list<string> $headers @param list<array<string,mixed>> $rows @return array{contents:string,mime:string,filename:string} */
     private function file(string $base,string $format,array $headers,array $rows,?ExchangeSchema $schema):array
     {

@@ -40,15 +40,15 @@ trait StockRequestPeerWorkflow
         return $result;
     }
 
-    private function peerWorkspace(int $company,int $actor,?int $request): array
+    private function peerWorkspace(int $company,int $actor,?int $request,?array $input=null): array
     {
         $users=(new StockHierarchy())->userIds($company,$actor);
         $ids=implode(',',array_map('intval',$users?:[$actor]));
         $scope=(new InventoryReadScope())->isAdministrator($company,$actor)?'1=1':"(p.proposed_by IN ($ids) OR p.source_owner_user_id=? OR p.destination_owner_user_id=?)";
-        $s=\db()->prepare("SELECT p.*,r.request_number,l.product_id,sp.name product_name,
+        $sql="SELECT p.*,r.request_number,l.product_id AS request_product_id,sp.sku,sp.name product_name,
             sw.name source_name,dw.name destination_name,u.display_name proposer_name,
             owner.display_name source_owner_name,receiver.display_name destination_owner_name,
-            b.quantity_available,tl.transfer_id,t.transfer_number,t.status transfer_status,
+            CASE WHEN p.source_owner_user_id IN ($ids) OR p.source_owner_user_id=".(int)$actor." THEN b.quantity_available ELSE NULL END quantity_available,tl.transfer_id,t.transfer_number,t.status transfer_status,
             t.dispatched_by,t.dispatched_at,t.posted_by,t.posted_at
             FROM inventory_peer_proposals p
             JOIN inventory_stock_requests r ON r.company_id=p.company_id AND r.request_id=p.request_id
@@ -64,15 +64,15 @@ trait StockRequestPeerWorkflow
             LEFT JOIN inventory_stock_balances b ON b.company_id=sa.company_id AND b.warehouse_id=sa.warehouse_id AND b.location_id=sa.location_id AND b.product_id=l.product_id
             LEFT JOIN inventory_transfer_lines tl ON tl.company_id=p.company_id AND tl.transfer_line_id=p.transfer_line_id
             LEFT JOIN inventory_transfers t ON t.company_id=tl.company_id AND t.transfer_id=tl.transfer_id
-            WHERE p.company_id=? AND $scope".($request?' AND p.request_id=?':'')." ORDER BY p.proposal_id DESC");
+            WHERE p.company_id=? AND $scope".($request?' AND p.request_id=?':'');
         $params=$scope==='1=1'?[$company]:[$company,$actor,$actor];
         if ($request) $params[]=$request;
-        $s->execute($params); $rows=$s->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as &$row) {
-            // A destination may inspect the invitation, never the sibling's stock balance.
-            if ((int)$row['source_owner_user_id']!==$actor && !in_array((int)$row['source_owner_user_id'],$users,true)) $row['quantity_available']=null;
+        if($input!==null) {
+            $list=\App\Services\Lists\StockRequestLists::listing('peers',$sql,$params,$input);
+            return $list->page()+['exportList'=>$list];
         }
-        return $rows;
+        $s=\db()->prepare($sql.' ORDER BY p.proposal_id DESC');$s->execute($params);
+        return $s->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function proposePeer(int $requestId,array $input,int $actor): void

@@ -329,7 +329,7 @@ $initial = strtoupper(substr(
             </p>
         </div>
         <span class="count-pill">
-            <?= e(count($positionHistory)) ?>
+            <?= e($data['related']['lists']['employee-positions']['pagination']['total']) ?>
         </span>
     </div>
 
@@ -415,6 +415,8 @@ $initial = strtoupper(substr(
         </article>
     <?php endif; ?>
 
+    <?php view('components.document-list-controls',['workspace'=>$data['related'],'entity'=>'employee-positions']); ?>
+    <?php if ($positionHistory === []): ?><p class="details-empty">No position assignments match these filters.</p><?php endif; ?>
     <?php if ($positionHistory !== []): ?>
         <div class="assignment-history-list">
             <?php foreach (
@@ -527,13 +529,14 @@ $initial = strtoupper(substr(
             </p>
         </div>
         <span class="count-pill">
-            <?= e(count($directReports)) ?>
+            <?= e($data['related']['lists']['employee-reports']['pagination']['total']) ?>
         </span>
     </div>
 
+    <?php view('components.document-list-controls',['workspace'=>$data['related'],'entity'=>'employee-reports']); ?>
     <?php if ($directReports === []): ?>
         <p class="details-empty">
-            No direct reports are assigned.
+            No direct reports match these filters.
         </p>
     <?php else: ?>
         <div class="direct-report-grid">

@@ -30,6 +30,8 @@ final class RoleAdministrationController
             'administration.roles.manage'
         );
 
+        $listing=(new \App\Services\Lists\AdministrationListService())->workspace('roles',$_GET);
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('roles',$listing['exportList'],(new \App\Services\Lists\AdministrationListService())->columns('roles'),$_GET['download']);
         \view('layouts.app', [
             'applicationName' => \config(
                 'name',
@@ -45,7 +47,7 @@ final class RoleAdministrationController
             'contentView' =>
                 'administration.roles.index',
             'user' => $_SESSION['auth'],
-            'roles' => $this->roles->listing(),
+            'roles' => $listing['rows'],'listing'=>$listing,
         ]);
     }
 
@@ -56,12 +58,18 @@ final class RoleAdministrationController
         );
 
         $roleId = $this->queryInteger('id');
-        $details = $this->roles->details($roleId);
+        $details = $this->roles->smartDetails($roleId,$_GET);
 
         if ($details === null) {
             $this->notFound();
         }
 
+        if(isset($_GET['download'])) {
+            $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'');
+            $key=match($entity){'role-permissions'=>'permissionList','role-users'=>'userList',default=>null};
+            if($key===null){http_response_code(400);echo 'Choose a role register.';return;}
+            \App\Services\Lists\ListDownload::send($entity,$details[$key]['exportList'],(new \App\Services\Lists\AdministrationListService())->columns($entity),$_GET['download']);
+        }
         \view('layouts.app', [
             'applicationName' => \config(
                 'name',
@@ -80,6 +88,7 @@ final class RoleAdministrationController
             'contentView' =>
                 'administration.roles.show',
             'user' => $_SESSION['auth'],
+            'listingData'=>$details,
             'role' => $details['role'],
             'permissions' =>
                 $details['permissions'],

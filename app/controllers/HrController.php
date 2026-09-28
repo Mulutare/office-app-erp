@@ -65,13 +65,14 @@ final class HrController
             ]);
         $directory = $canViewDirectory
             ? $this->employees->directory(
-                $this->queryString('search'),
+                $this->queryString('q') ?: $this->queryString('search'),
                 $this->queryString('status'),
                 $this->queryInteger(
                     'department',
                     0
                 ),
-                $this->queryInteger('page', 1)
+                $this->queryInteger('page', 1),
+                $_GET
             )
             : [
                 'employees' => [],
@@ -174,6 +175,8 @@ final class HrController
                 $directory['statusOptions'],
             'summary' => $directory['summary'],
             'filters' => $directory['filters'],
+            'listQuery' => $directory['listQuery'] ?? null,
+            'listOptions' => $directory['listOptions'] ?? [],
             'pagination' =>
                 $directory['pagination'],
             'canManage' => $this->canManage(),
@@ -217,7 +220,7 @@ final class HrController
     {
         $this->requireHrRecordAccess();
         $profile = $this->employees->profile(
-            $this->queryInteger('id', 0)
+            $this->queryInteger('id', 0),false
         );
 
         if ($profile === null) {
@@ -227,8 +230,12 @@ final class HrController
         $employee = $profile['employee'];
         $positionOverview =
             $this->positionAssignments->overview(
-                (int) $employee['employee_id']
+                (int) $employee['employee_id'],false
             );
+
+        if(isset($_GET['download']))$this->authorization->requireModulePermission('hr','hr.export');
+        $related=(new \App\Services\Lists\DocumentListService())->workspace(['employee-positions','employee-reports'],$_GET,(int)$employee['employee_id'],\appBasePath().'/hr/employees/view',$this->hasAnyPermission(['hr.export']));
+        \App\Services\Lists\DocumentListService::download($related,$_GET);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -248,12 +255,13 @@ final class HrController
             'contentView' => 'hr.show',
             'user' => $_SESSION['auth'],
             'employee' => $employee,
+            'related' => $related,
             'directReports' =>
-                $profile['directReports'],
+                $related['lists']['employee-reports']['rows'],
             'currentPosition' =>
                 $positionOverview['current'],
             'positionHistory' =>
-                $positionOverview['history'],
+                $related['lists']['employee-positions']['rows'],
             'canManage' => $this->canManage(),
             'canManageUsers' => in_array(
                 'administration.users.manage',
@@ -579,6 +587,8 @@ final class HrController
     public function departments(): void
     {
         $this->requireHrManagement();
+        $listing = (new \App\Services\Lists\OrganizationListService())->listing('departments', $_GET);
+        if(isset($_GET['download'])) \App\Services\Lists\ListDownload::send('departments',$listing['exportList'],(new \App\Services\Lists\OrganizationListService())->columns('departments'),$_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -596,8 +606,9 @@ final class HrController
                 'hr.departments.index',
             'user' => $_SESSION['auth'],
             'departments' =>
-                $this->departmentManagement
-                    ->listing(),
+                $listing['departments'],
+            'list' => $listing['list'],
+            'listSorts' => $listing['sorts'],
             'notice' => \getFlash('hr_notice'),
         ]);
     }

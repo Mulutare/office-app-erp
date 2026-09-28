@@ -11,6 +11,7 @@ use App\Services\DataExchange\ImportService;
 use App\Services\DataExchange\SchemaRegistry;
 use App\Services\DataExchange\ExportDefinitionRegistry;
 use RuntimeException;
+use App\Services\DataExchange\ImportConfirmation;
 use Throwable;
 
 final class DataExchangeController
@@ -34,14 +35,16 @@ final class DataExchangeController
         $schema=$this->schema($entity,'import');
         if(!\verifyCsrfToken(\postString('_token'))){http_response_code(419);echo 'Invalid request token.';return;}
         try{
+            $mode=$this->importMode($entity);
             $upload=$_FILES['file']??null;if(!is_array($upload)||($upload['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK)throw new RuntimeException('Choose a CSV or XLSX file.');
             $directory=dirname(__DIR__,2).'/storage/uploads/data-exchange';if(!is_dir($directory)&&!mkdir($directory,0700,true)&&!is_dir($directory))throw new RuntimeException('Secure upload storage is unavailable.');
             $token=bin2hex(random_bytes(24));$extension=strtolower(pathinfo((string)$upload['name'],PATHINFO_EXTENSION));$path=$directory.'/'.$token.'.'.$extension;
             if(!move_uploaded_file((string)$upload['tmp_name'],$path))throw new RuntimeException('The uploaded file could not be stored securely.');
             chmod($path,0600);$inspection=$this->imports->inspect($entity,$path,(string)$upload['name']);
-            $_SESSION['data_exchange'][$token]=['entity'=>$entity,'path'=>$path,'name'=>(string)$upload['name'],'expires'=>time()+1800];
-            $tested=$this->imports->test($entity,$inspection['rows'],$inspection['mapping']);
-            $preview=['token'=>$token,'headers'=>$inspection['headers'],'rows'=>array_slice($inspection['rows'],0,20),'mapping'=>$inspection['mapping'],'result'=>$tested['result']];
+            $_SESSION['data_exchange'][$token]=['entity'=>$entity,'path'=>$path,'name'=>(string)$upload['name'],'expires'=>time()+1800,'mode'=>$mode]+ImportConfirmation::context();
+            $tested=$this->imports->test($entity,$inspection['rows'],$inspection['mapping'],$mode);
+            if ($tested['result']->errors === []) $_SESSION['data_exchange'][$token]['validated'] = ImportConfirmation::fingerprint($path, $inspection['mapping'],$mode);
+            $preview=['token'=>$token,'mode'=>$mode,'headers'=>$inspection['headers'],'rows'=>array_slice($inspection['rows'],0,20),'mapping'=>$inspection['mapping'],'result'=>$tested['result']];
             $this->render($schema,$preview,null,null);
         }catch(Throwable $exception){$this->render($schema,null,null,$exception->getMessage());}
     }
@@ -50,12 +53,16 @@ final class DataExchangeController
     {
         $schema=$this->schema($entity,'import');if(!\verifyCsrfToken(\postString('_token'))){http_response_code(419);echo 'Invalid request token.';return;}
         try{
+            $mode=$this->importMode($entity);
             $token=\postString('upload_token');$stored=$_SESSION['data_exchange'][$token]??null;
             if(!is_array($stored)||($stored['entity']??'')!==$entity||($stored['expires']??0)<time())throw new RuntimeException('Upload session expired. Upload the file again.');
+            ImportConfirmation::assertContext($stored);
             $inspection=$this->imports->inspect($entity,(string)$stored['path'],(string)$stored['name']);
             $mapping=[];foreach($inspection['headers'] as $index=>$header){$value=$_POST['mapping'][$index]??'';$mapping[$index]=is_string($value)&&$value!==''?$value:null;}
-            if(\postString('action')==='test'){$tested=$this->imports->test($entity,$inspection['rows'],$mapping);$preview=['token'=>$token,'headers'=>$inspection['headers'],'rows'=>array_slice($inspection['rows'],0,20),'mapping'=>$mapping,'result'=>$tested['result']];$this->render($schema,$preview,null,null);return;}
-            $result=$this->imports->import($entity,$inspection['rows'],$mapping,(int)($_SESSION['auth']['user_id']??0));
+            if(\postString('action')==='test'){$tested=$this->imports->test($entity,$inspection['rows'],$mapping,$mode);unset($_SESSION['data_exchange'][$token]['validated']);if($tested['result']->errors===[])$_SESSION['data_exchange'][$token]['validated']=ImportConfirmation::fingerprint($stored['path'],$mapping,$mode);$preview=['token'=>$token,'mode'=>$mode,'headers'=>$inspection['headers'],'rows'=>array_slice($inspection['rows'],0,20),'mapping'=>$mapping,'result'=>$tested['result']];$this->render($schema,$preview,null,null);return;}
+            if (\postString('action') !== 'import') throw new RuntimeException('Explicit import confirmation is required.');
+            ImportConfirmation::assertConfirmed($stored, $mapping,$mode);
+            $result=$this->imports->import($entity,$inspection['rows'],$mapping,(int)($_SESSION['auth']['user_id']??0),$mode);
             if(is_file((string)$stored['path']))unlink((string)$stored['path']);unset($_SESSION['data_exchange'][$token]);$this->render($schema,null,$result,null);
         }catch(Throwable $exception){$this->render($schema,null,null,$exception->getMessage());}
     }
@@ -70,7 +77,7 @@ final class DataExchangeController
         $schema=$this->schema($entity,'export');
         $definition=$this->exportDefinitions->get($entity);
         $schema=new \App\Services\DataExchange\ExchangeSchema($schema->entity,$schema->label,$schema->module,$definition['fields'],false,$schema->canExport,false);
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Export '.$schema->label,'pageDescription'=>'Choose the file type and arrange the exported fields.','contentView'=>'data-exchange.export','schema'=>$schema,'user'=>$_SESSION['auth'],'moduleContext'=>$this->moduleContext($schema)]);
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Export '.$schema->label,'pageDescription'=>'Choose the file type and arrange the exported fields.','contentView'=>'data-exchange.export','exportFilters'=>$this->exportFilters($entity),'schema'=>$schema,'user'=>$_SESSION['auth'],'moduleContext'=>$this->moduleContext($schema)]);
     }
 
     public function export(string $entity): void
@@ -86,7 +93,7 @@ final class DataExchangeController
             $limit=max(1,(int)\config('data_exchange.export_max_rows',10000));
             if(count($rows)>$limit)throw new RuntimeException('This export exceeds the '.$limit.' row limit. Narrow the current filters and try again.');
             $selected=isset($_GET['selected'])&&is_string($_GET['selected'])?array_values(array_filter(array_map('intval',explode(',',$_GET['selected'])))):[];
-            if($selected!==[]){$idKey=['customers'=>'customer_id','products'=>'product_id','pricelists'=>'pricelist_id','sales-teams'=>'team_id','quotations'=>'quotation_id','sales-orders'=>'order_id','warehouses'=>'warehouse_id','locations'=>'location_id','stock'=>'stock_balance_id','receipts'=>'goods_receipt_id','deliveries'=>'picking_id','returns'=>'picking_id','invoices'=>'invoice_id','credit-notes'=>'invoice_id'][$entity]??null;if($idKey!==null)$rows=array_values(array_filter($rows,static fn(array $r):bool=>in_array((int)($r[$idKey]??0),$selected,true)));}
+            if($selected!==[]){$idKey=['suppliers'=>'supplier_id','purchase-orders'=>'purchase_order_id','customers'=>'customer_id','products'=>'product_id','pricelists'=>'pricelist_id','sales-teams'=>'team_id','quotations'=>'quotation_id','sales-orders'=>'order_id','warehouses'=>'warehouse_id','locations'=>'location_id','stock'=>'stock_balance_id','receipts'=>'goods_receipt_id','deliveries'=>'picking_id','returns'=>'picking_id','invoices'=>'invoice_id','credit-notes'=>'invoice_id'][$entity]??null;if($idKey!==null)$rows=array_values(array_filter($rows,static fn(array $r):bool=>in_array((int)($r[$idKey]??0),$selected,true)));}
             $this->download($this->exports->export($entity,$format,$rows,$fields));
         }catch(Throwable $e){http_response_code(400);echo htmlspecialchars($e->getMessage(),ENT_QUOTES,'UTF-8');}
     }
@@ -94,22 +101,45 @@ final class DataExchangeController
     private function schema(string $entity,string $operation): \App\Services\DataExchange\ExchangeSchema
     {
         $schema=$this->schemas->get($entity);$this->authorization->requireModule($schema->module);
+        if (in_array($entity, ['employees','attendance'], true)) {
+            $prefix = $entity === 'employees' ? 'hr' : 'attendance';
+            $permissions = $operation === 'import' ? [$prefix.'.records.manage'] : [$prefix.'.records.view', $prefix.'.records.manage'];
+            $this->authorization->requireAnyTenantPermission($permissions);
+            return $schema;
+        }
         $permission=$schema->module.'.'.$operation;
         if($schema->module==='procurement')$permission=$operation==='import'?'procurement.suppliers.manage':'procurement.view';
         $this->authorization->requireTenantPermission($permission);
+        if ($schema->module==='sales') {
+            $this->authorization->requireTenantPermission('sales.view');
+            if($operation==='import')$this->authorization->requireTenantPermission($entity==='quotations'?'sales.orders.create':'sales.catalogue.manage');
+            if ($entity==='pricelists') $this->authorization->requireTenantPermission('sales.pricing.view');
+            if ($entity==='sales-teams') $this->authorization->requireTenantPermission('sales.catalogue.manage');
+        }
+
+        if($schema->module==='inventory') {
+            $viewPermission=match($entity) {'warehouses','locations'=>'inventory.warehouses.view','receipts'=>'inventory.receipts.view',default=>'inventory.stock.view'};
+            $this->authorization->requireTenantPermission($viewPermission);
+        }
+
         if($operation==='export'&&$schema->entity==='invoices')$this->authorization->requireTenantPermission('finance.records.view');
         if($operation==='import'&&!$schema->canImport)throw new RuntimeException('This object is export-only.');
         if($operation==='export'&&!$schema->canExport)throw new RuntimeException('Export is not connected for this object.');
         return $schema;
     }
 
+    private function importMode(string $entity): string
+    {
+        $mode=\postString('mode')?:'create';
+        if(!in_array($mode,['create','update'],true)||($mode==='update'&&!\App\Services\DataExchange\MasterImportValidator::supportsUpdate($entity)))throw new RuntimeException('Choose an available import mode.');
+        return $mode;
+    }
+
     /** @return array<string,string> */
     private function exportFilters(string $entity): array
     {
-        $allowed = $entity === 'invoices'
-            ? ['search','payment','date_from','date_to','customer']
-            : ($entity === 'expenses' ? ['search','status'] : [])
-            ;
+        $allowed = ['q','search','status','active','department','branch','date','sort','direction','type','category','currency','from','to',
+            'payment','date_from','date_to','customer','period','warehouse','location','source','destination'];
         $filters = [];
         foreach ($allowed as $key) {
             $value = $_GET[$key] ?? '';
@@ -125,7 +155,7 @@ final class DataExchangeController
     private function moduleContext(object $schema): array
     {
         $sections = [
-            'suppliers'=>'suppliers','customers'=>'customers','products'=>'products','pricelists'=>'pricelists','sales-teams'=>'teams',
+            'employees'=>'overview','attendance'=>'overview','suppliers'=>'suppliers','customers'=>'customers','products'=>'products','pricelists'=>'pricelists','sales-teams'=>'teams',
             'quotations'=>'quotations','sales-orders'=>'orders','deliveries'=>'deliveries',
             'warehouses'=>'warehouses','locations'=>'locations','stock'=>'stock','receipts'=>'receipts','transfers'=>'movements',
             'invoices'=>'invoices','credit-notes'=>'invoices','journals'=>'journals','journal-entries'=>'journals','finance-journals'=>'journals','expenses'=>'expenses','purchase-orders'=>'orders',

@@ -42,14 +42,8 @@ final class CompanyAdministrationController
     {
         $this->authorization
             ->requirePlatformAdministrator();
-        $listing = $this->companies->listing(
-            $this->queryString('search'),
-            $this->queryString(
-                'status',
-                'all'
-            ),
-            $this->queryInteger('page', 1)
-        );
+        $listing = $this->companies->smartListing($_GET);
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('companies',$listing['exportList'],(new \App\Services\Lists\AdministrationListService())->columns('companies'),$_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -66,6 +60,7 @@ final class CompanyAdministrationController
             'contentView' =>
                 'administration.companies.index',
             'user' => $_SESSION['auth'],
+            'listing'=>$listing,
             'companies' => $listing['companies'],
             'filters' => $listing['filters'],
             'pagination' =>
@@ -236,7 +231,11 @@ final class CompanyAdministrationController
             $this->notFound();
         }
 
+        $memberListing=(new \App\Services\Lists\AdministrationListService())->workspace('company-users',$_GET,'members',['company_id'=>(int)$details['company']['company_id']]);
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('company-users',$memberListing['exportList'],(new \App\Services\Lists\AdministrationListService())->columns('company-users'),$_GET['download']);
+
         \view('layouts.app', [
+            'memberListing'=>$memberListing,
             'applicationName' => \config(
                 'name',
                 'OfficeApp ERP'
@@ -267,11 +266,7 @@ final class CompanyAdministrationController
             'companyUserCredentials' => \getFlash(
                 'company_user_reset_credentials'
             ),
-            'companyUsers' =>
-                $this->companyUserPasswordResets->users(
-                    (int) $details['company']['company_id'],
-                    (int) ($_SESSION['auth']['user_id'] ?? 0)
-                ),
+            'companyUsers' => $memberListing['rows'],
             'approvalErrors' => \getFlash(
                 'company_approval_errors',
                 []

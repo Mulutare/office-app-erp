@@ -157,7 +157,7 @@ final class SalesIncentiveService
             $names=array_column($names->fetchAll(PDO::FETCH_ASSOC),'display_name','user_id');
             $options['dsaName']=$names[$actor]??'';$options['managerName']=$names[$manager]??'Not assigned';
         }
-        if($visible===[])return ['claims'=>[],'users'=>[],'managers'=>[]]+$options;
+        if($visible===[]) $visible=[0];
         $params=[$company];$where=['c.company_id=?'];
         if($visible!==null){$where[]='c.dsa_dsp_user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$params=array_merge($params,$visible);}
         $status=(string)($filters['status']??'');
@@ -168,8 +168,21 @@ final class SalesIncentiveService
         foreach(['dsa_dsp_user_id','responsible_manager_id'] as $key){if((int)($filters[$key]??0)>0){$where[]='c.'.$key.'=?';$params[]=(int)$filters[$key];}}
         $date=(string)($filters['date']??'');if(preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)){ $where[]='DATE(c.submitted_at)=?';$params[]=$date; }
         $reference=trim((string)($filters['safaricom_reference']??''));if($reference!==''){ $where[]='(c.external_reference LIKE ? OR EXISTS(SELECT 1 FROM sales_incentive_settlements sx WHERE sx.company_id=c.company_id AND sx.incentive_claim_id=c.incentive_claim_id AND sx.external_payment_reference LIKE ?))';$params[]='%'.$reference.'%';$params[]='%'.$reference.'%'; }
-        $sql='SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,u.display_name dsa_name,m.display_name manager_name,COALESCE(c.confirmed_sales_snapshot,(SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount,COALESCE((SELECT SUM(s.amount) FROM sales_incentive_settlements s WHERE s.company_id=c.company_id AND s.incentive_claim_id=c.incentive_claim_id AND s.reversed_at IS NULL),0) settled_amount FROM sales_incentive_claims c LEFT JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id LEFT JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE '.implode(' AND ',$where).' ORDER BY c.submitted_at DESC,c.incentive_claim_id DESC LIMIT 300';
-        $query=\db()->prepare($sql);$query->execute($params);$claims=$query->fetchAll(PDO::FETCH_ASSOC);
+        foreach(['from'=>'>=','to'=>'<='] as $key=>$operator) {
+            $value=\App\Services\Lists\ListQuery::text($filters[$key]??'');
+            if(preg_match('/^\d{4}-\d{2}-\d{2}$/',$value)) {$where[]='DATE(c.submitted_at) '.$operator.' ?';$params[]=$value;}
+        }
+        $sql='SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,u.display_name dsa_name,m.display_name manager_name,COALESCE(c.confirmed_sales_snapshot,(SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount,COALESCE((SELECT SUM(s.amount) FROM sales_incentive_settlements s WHERE s.company_id=c.company_id AND s.incentive_claim_id=c.incentive_claim_id AND s.reversed_at IS NULL),0) settled_amount FROM sales_incentive_claims c LEFT JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id LEFT JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE '.implode(' AND ',$where).'';
+        $sorts=['date'=>'submitted_at','dsa'=>'dsa_name','manager'=>'manager_name','reference'=>'external_reference','status'=>'status','amount'=>'proposed_amount'];
+        $listQuery=new \App\Services\Lists\ListQuery($filters,$sorts,'date',
+            ['status','dsa_dsp_user_id','responsible_manager_id','date','safaricom_reference','from','to'],'desc');
+        $sql="SELECT claim.*, GREATEST(0,ROUND(COALESCE(approved_amount,0)-settled_amount,2)) outstanding,
+            CASE WHEN claim_basis='legacy_float' THEN ROUND(float_amount-sold_amount-COALESCE(approved_amount,0),2)
+            ELSE -GREATEST(0,ROUND(COALESCE(approved_amount,0)-settled_amount,2)) END unexplained_variance FROM ($sql) claim";
+        $list=new \App\Services\Lists\SqlList(\db(),$sql,$params,$listQuery,
+            ['dsa_name','manager_name','external_reference','status'],$sorts,'incentive_claim_id');
+        $page=$list->page();$claims=$page['rows'];
+
         foreach($claims as &$claim){$claim['outstanding']=max(0,round((float)($claim['approved_amount']??0)-(float)$claim['settled_amount'],2));$claim['unexplained_variance']=$claim['claim_basis']==='legacy_float'?round((float)$claim['float_amount']-(float)$claim['sold_amount']-(float)($claim['approved_amount']??0),2):-$claim['outstanding'];}unset($claim);
         $userSql='SELECT cu.user_id,u.display_name FROM company_users cu JOIN users u ON u.user_id=cu.user_id WHERE cu.company_id=? AND cu.active=TRUE';
         $userParams=[$company];
@@ -179,7 +192,7 @@ final class SalesIncentiveService
         $managerParams=[$company];
         if($visible!==null){$managerSql.=' AND cu.user_id IN ('.implode(',',array_fill(0,count($visible),'?')).')';$managerParams=array_merge($managerParams,$visible);}
         $managers=\db()->prepare($managerSql.' ORDER BY m.display_name');$managers->execute($managerParams);
-        return ['claims'=>$claims,'users'=>$users->fetchAll(PDO::FETCH_ASSOC),'managers'=>$managers->fetchAll(PDO::FETCH_ASSOC)]+$options;
+        return ['claims'=>$claims,'list'=>$page,'exportList'=>$list,'users'=>$users->fetchAll(PDO::FETCH_ASSOC),'managers'=>$managers->fetchAll(PDO::FETCH_ASSOC)]+$options;
     }
 
     /** Current amounts are separate from the immutable claim snapshots. */
@@ -208,18 +221,25 @@ final class SalesIncentiveService
         return $positions;
     }
 
-    public function detail(int $id,int $actor): array
+    public function detail(int $id,int $actor,?array $input=null): array
     {
         $company=$this->company();$this->permit($company,$actor,'sales.incentive.view');
         $query=\db()->prepare('SELECT c.*,f.amount float_amount,f.reference float_reference,f.issued_date,f.status float_status,r.quick_sale_id,r.finance_invoice_id,qs.user_id report_dsa_user_id,u.display_name dsa_name,m.display_name manager_name,COALESCE(c.confirmed_sales_snapshot,(SELECT SUM(l.total_amount) FROM finance_invoice_lines l WHERE l.company_id=r.company_id AND l.invoice_id=r.finance_invoice_id),0) sold_amount FROM sales_incentive_claims c LEFT JOIN sales_dsa_float_issuances f ON f.company_id=c.company_id AND f.float_id=c.float_id LEFT JOIN sales_quick_sale_reports r ON r.company_id=c.company_id AND r.report_id=c.originating_report_id LEFT JOIN sales_quick_sales qs ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id JOIN users u ON u.user_id=c.dsa_dsp_user_id JOIN users m ON m.user_id=c.responsible_manager_id WHERE c.company_id=? AND c.incentive_claim_id=?');$query->execute([$company,$id]);$claim=$query->fetch(PDO::FETCH_ASSOC);
         if(!$claim)throw new RuntimeException('Incentive claim not found.');
         $scope=new SalesHierarchyScope();
         if(!$scope->hasCompanyWideAccess($company,$actor)&&!in_array((int)$claim['dsa_dsp_user_id'],$scope->userIds($company,$actor),true))throw new RuntimeException('Incentive claim is outside your reporting scope.');
-        $settlements=\db()->prepare('SELECT * FROM sales_incentive_settlements WHERE company_id=? AND incentive_claim_id=? ORDER BY settlement_date,incentive_settlement_id');$settlements->execute([$company,$id]);$settlementRows=$settlements->fetchAll(PDO::FETCH_ASSOC);
-        $events=\db()->prepare('SELECT * FROM sales_incentive_events WHERE company_id=? AND incentive_claim_id=? ORDER BY occurred_at,incentive_event_id');$events->execute([$company,$id]);
-        $paid=0.0;foreach($settlementRows as $row)if($row['reversed_at']===null)$paid+=(float)$row['amount'];
+        $related=null;
+        if($input!==null){
+            $canExport=(new ModuleRoleService())->permissionAllowed($company,$actor,'sales.export');
+            $related=(new \App\Services\Lists\DocumentListService())->workspace(['incentive-settlements','incentive-events'],$input,$id,\appBasePath().'/sales/incentives/'.$id,$canExport);
+            $settlementRows=$related['lists']['incentive-settlements']['rows'];$eventRows=$related['lists']['incentive-events']['rows'];
+        }else{
+            $settlements=\db()->prepare('SELECT * FROM sales_incentive_settlements WHERE company_id=? AND incentive_claim_id=? ORDER BY settlement_date,incentive_settlement_id');$settlements->execute([$company,$id]);$settlementRows=$settlements->fetchAll(PDO::FETCH_ASSOC);
+            $events=\db()->prepare('SELECT * FROM sales_incentive_events WHERE company_id=? AND incentive_claim_id=? ORDER BY occurred_at,incentive_event_id');$events->execute([$company,$id]);$eventRows=$events->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $paidQuery=\db()->prepare('SELECT COALESCE(SUM(amount),0) FROM sales_incentive_settlements WHERE company_id=? AND incentive_claim_id=? AND reversed_at IS NULL');$paidQuery->execute([$company,$id]);$paid=(float)$paidQuery->fetchColumn();
         $claim['settled_amount']=round($paid,2);$claim['outstanding']=max(0,round((float)($claim['approved_amount']??0)-$paid,2));$claim['unexplained_variance']=$claim['claim_basis']==='legacy_float'?round((float)$claim['float_amount']-(float)$claim['sold_amount']-(float)($claim['approved_amount']??0),2):-$claim['outstanding'];
-        return ['claim'=>$claim,'settlements'=>$settlementRows,'events'=>$events->fetchAll(PDO::FETCH_ASSOC)];
+        return ['claim'=>$claim,'settlements'=>$settlementRows,'events'=>$eventRows,'related'=>$related];
     }
 
     private function report(PDO $connection,int $company,int $reportId): array

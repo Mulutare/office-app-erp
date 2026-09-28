@@ -110,67 +110,12 @@ $typeOptions = [
 </section>
 
 <section class="activity-toolbar">
-    <form
-        method="get"
-        action="<?= e(appBasePath()) ?>/administration/users/activity"
-        class="filter-form"
-    >
-        <input
-            type="hidden"
-            name="id"
-            value="<?= e($userId) ?>"
-        >
-
-        <div class="form-field">
-            <label for="activity-type">
-                Activity type
-            </label>
-
-            <select
-                id="activity-type"
-                name="type"
-            >
-                <?php foreach (
-                    $typeOptions as $value => $label
-                ): ?>
-                    <option
-                        value="<?= e($value) ?>"
-                        <?= (
-                            $filters['type'] ?? 'all'
-                        ) === $value
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e($label) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="filter-actions">
-            <button
-                type="submit"
-                class="btn btn-primary"
-            >
-                Apply filter
-            </button>
-
-            <a
-                href="<?= e(userActivityUrl(
-                    $userId,
-                    ['type' => 'all']
-                )) ?>"
-                class="btn btn-secondary"
-            >
-                Reset
-            </a>
-        </div>
-    </form>
+    <?php view('administration.list-controls',['listing'=>$data['listing'],'entity'=>'user-activity','path'=>appBasePath().'/administration/users/activity']); ?>
 
     <p class="activity-range">
         Showing
         <?= e($pagination['from'] ?? 0) ?>
-        â€“
+        –
         <?= e($pagination['to'] ?? 0) ?>
         of
         <?= e($pagination['total'] ?? 0) ?>
@@ -303,7 +248,7 @@ $typeOptions = [
                                             <span
                                                 aria-hidden="true"
                                             >
-                                                â†’
+                                                →
                                             </span>
                                             <strong>
                                                 <?= e(
@@ -336,49 +281,4 @@ $typeOptions = [
     </ol>
 <?php endif; ?>
 
-<?php if (
-    ($pagination['lastPage'] ?? 1) > 1
-): ?>
-    <?php
-    $page = (int) ($pagination['page'] ?? 1);
-    $lastPage = (int) (
-        $pagination['lastPage'] ?? 1
-    );
-    ?>
-
-    <nav
-        class="pagination"
-        aria-label="User activity pagination"
-    >
-        <?php if ($page > 1): ?>
-            <a
-                class="pagination-link"
-                href="<?= e(userActivityUrl(
-                    $userId,
-                    $filters,
-                    ['page' => $page - 1]
-                )) ?>"
-            >
-                Previous
-            </a>
-        <?php endif; ?>
-
-        <span class="pagination-status">
-            Page <?= e($page) ?>
-            of <?= e($lastPage) ?>
-        </span>
-
-        <?php if ($page < $lastPage): ?>
-            <a
-                class="pagination-link"
-                href="<?= e(userActivityUrl(
-                    $userId,
-                    $filters,
-                    ['page' => $page + 1]
-                )) ?>"
-            >
-                Next
-            </a>
-        <?php endif; ?>
-    </nav>
-<?php endif; ?>
+<?php view('components.list-pagination',['query'=>$data['listing']['list']['query'],'pagination'=>$pagination,'path'=>appBasePath().'/administration/users/activity']); ?>

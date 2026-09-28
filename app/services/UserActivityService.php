@@ -9,6 +9,13 @@ use App\Models\UserActivity;
 
 final class UserActivityService
 {
+    public function smartListing(int $userId,array $input): ?array
+    {
+        $user=$this->users->findByIdInCompany($userId,$this->tenant->companyId());
+        if(!$user)return null;
+        $data=(new \App\Services\Lists\AdministrationListService())->workspace('user-activity',$input,'',['user_id'=>$userId]);
+        return $data+['user'=>$user,'events'=>array_map(fn(array $row):array=>$this->presentEvent($row,$userId),$data['rows'])];
+    }
     private const PAGE_SIZE = 20;
 
     private User $users;

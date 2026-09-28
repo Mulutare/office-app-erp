@@ -6,6 +6,11 @@ namespace App\Repositories\MySql;
 
 class UserActivityRepository extends MySqlRepository
 {
+    /** Reuse the existing company/user authorization predicate in smart lists. */
+    public function listDefinition(int $companyId,int $userId): array
+    {
+        return $this->queryDefinition($companyId,$userId,'all',false);
+    }
     public function countForUser(
         int $companyId,
         int $userId,

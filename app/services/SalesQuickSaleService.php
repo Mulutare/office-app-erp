@@ -89,7 +89,7 @@ final class SalesQuickSaleService
             ? $quickSaleId
             : null;
     }
-    public function workspace(int $actorId): array
+    public function workspace(int $actorId, ?array $input = null): array
     {
         try {
             $companyId = $this->tenant->companyId();
@@ -111,24 +111,20 @@ final class SalesQuickSaleService
 
             if ((new SalesHierarchyScope())->canReviewQuickSale($companyId, $actorId)
                 || (new SalesHierarchyScope())->canReviewSalesReport($companyId, $actorId)) {
+                $registers=[];$exportLists=[];
+                if($input!==null) foreach(['queue','waiting','history','hierarchy'] as $name) {
+                    $exportLists[$name]=(new \App\Services\Lists\QuickSaleListService())->listing($name,$actorId,true,$input);
+                    $registers[$name]=$exportLists[$name]->page();
+                }
                 return [
+                    'lists'=>$registers,'exportLists'=>$exportLists,
                     'eligible' => true,
                     'mode' => 'manager',
-                    'hierarchySales' => $this->hierarchySales($companyId, $actorId),
+                    'hierarchySales' => $input===null ? $this->hierarchySales($companyId, $actorId) : $registers['hierarchy']['rows'],
                     'actor' => $context,
-                    'queue' => $this->managerQueue(
-                        $companyId,
-                        $actorId
-                    ),
-                    'waiting' => $this->managerWaitingQueue(
-                        $companyId,
-                        $actorId
-                    ),
-                    'history' => $this->quickSaleHistory(
-                        $companyId,
-                        $actorId,
-                        true
-                    ),
+                    'queue' => $input===null ? $this->managerQueue($companyId,$actorId) : $registers['queue']['rows'],
+                    'waiting' => $input===null ? $this->managerWaitingQueue($companyId,$actorId) : $registers['waiting']['rows'],
+                    'history' => $input===null ? $this->quickSaleHistory($companyId,$actorId,true) : $registers['history']['rows'],
                     'currency' => $this->defaultCurrency(),
                 ];
             }
@@ -158,7 +154,13 @@ final class SalesQuickSaleService
             foreach($products as &$product){$price=$pricing->effective($companyId,(int)$product['product_id'],date('Y-m-d'),$currency);$product['display_price']=$price['unit_price'];$product['display_discount']=$price['discount_per_unit'];$product['display_discount_percent']=$price['discount_percent'];$product['display_tax_percent']=$price['tax_percent'];$product['display_priced']=$price['price_change_id']!==null;$product['available_quantity']=$available[$product['product_id']]??0;}
             unset($product);
 
+            $registers=[];$exportLists=[];
+            if($input!==null) foreach(['tasks','history'] as $name) {
+                $exportLists[$name]=(new \App\Services\Lists\QuickSaleListService())->listing($name,$actorId,false,$input);
+                $registers[$name]=$exportLists[$name]->page();
+            }
             return [
+                'lists'=>$registers,'exportLists'=>$exportLists,
                 'eligible' => true,
                 'mode' => 'dsa',
                 'actor' => $actor,
@@ -172,15 +174,8 @@ final class SalesQuickSaleService
                 ],
                 'warehouse' => $warehouse,
                 'products' => $products,
-                'tasks' => $this->dsaTaskQueue(
-                    $companyId,
-                    $actorId
-                ),
-                'history' => $this->quickSaleHistory(
-                    $companyId,
-                    $actorId,
-                    false
-                ),
+                'tasks' => $input===null ? $this->dsaTaskQueue($companyId,$actorId) : $registers['tasks']['rows'],
+                'history' => $input===null ? $this->quickSaleHistory($companyId,$actorId,false) : $registers['history']['rows'],
                 'currency' => $this->defaultCurrency(),
             ];
         } catch (Throwable $exception) {
@@ -2034,7 +2029,8 @@ final class SalesQuickSaleService
     public function detail(
         int $quickSaleId,
         int $actorId,
-        bool $privilegedReviewer = false
+        bool $privilegedReviewer = false,
+        bool $withRoutingHistory = true
     ): array {
         try {
             $companyId = $this->tenant->companyId();
@@ -2331,7 +2327,7 @@ final class SalesQuickSaleService
                 'managerReport' => $managerReport,
                 'managerReportLines' => $managerReportLines,
                 'locations' => $locations,
-                'routingHistory' => $this->routingHistory($companyId, $quickSaleId),
+                'routingHistory' => $withRoutingHistory?$this->routingHistory($companyId, $quickSaleId):[],
                 'replenishment' => (new CentralStockReplenishmentService())->quickSaleLinks($companyId, $quickSaleId),
                 'isRegional' => $isManager && (new InventoryOperationalAccessService())->authorityLevel($companyId, $actorId) === 'regional',
                 'stockCheck' => $isManager && $row['status'] === 'submitted'

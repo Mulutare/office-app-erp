@@ -44,21 +44,15 @@ $canSubmit=!empty($data['canSubmitIncentive'])&&($incentiveData['dsaName']??null
 <?php endif; ?>
 <section class="card finance-filter-panel">
     <h3>Filter register</h3>
-    <form method="get" action="<?=e(appBasePath())?>/sales/incentives" class="finance-filter-form">
-        <label>Status<select name="status"><option value="">All</option>
-            <?php foreach(['submitted'=>'Submitted','approved'=>'Approved','rejected'=>'Rejected','partially_settled'=>'Partially settled','settled'=>'Settled'] as $key=>$label): ?>
-            <option value="<?=e($key)?>" <?=($_GET['status']??'')===$key?'selected':''?>><?=e($label)?></option><?php endforeach; ?>
-        </select></label>
-        <label>DSA/DSP<select name="dsa_dsp_user_id"><option value="">All</option>
-            <?php foreach($incentiveData['users']??[] as $user): ?><option value="<?=(int)$user['user_id']?>" <?=(int)($_GET['dsa_dsp_user_id']??0)===(int)$user['user_id']?'selected':''?>><?=e($user['display_name'])?></option><?php endforeach; ?>
-        </select></label>
-        <label>Manager<select name="responsible_manager_id"><option value="">All</option>
-            <?php foreach($incentiveData['managers']??[] as $manager): ?><option value="<?=(int)$manager['user_id']?>" <?=(int)($_GET['responsible_manager_id']??0)===(int)$manager['user_id']?'selected':''?>><?=e($manager['display_name'])?></option><?php endforeach; ?>
-        </select></label>
-        <label>Submitted date<input type="date" name="date" value="<?=e($_GET['date']??'')?>"></label>
-        <label>Safaricom reference<input name="safaricom_reference" maxlength="190" value="<?=e($_GET['safaricom_reference']??'')?>"></label>
-        <button class="btn btn-secondary">Apply filters</button>
-    </form>
+    <?php view('components.list-filters', ['query'=>$incentiveData['list']['query'],'path'=>appBasePath().'/sales/incentives',
+        'sorts'=>['date'=>'Submitted date','dsa'=>'DSA/DSP','manager'=>'Manager','reference'=>'Reference','status'=>'Status','amount'=>'Amount'],
+        'filters'=>['status'=>['label'=>'Status','options'=>['submitted'=>'Submitted','approved'=>'Approved','rejected'=>'Rejected','partially_settled'=>'Partially settled','settled'=>'Settled']],
+            'dsa_dsp_user_id'=>['label'=>'DSA/DSP','options'=>array_column($incentiveData['users'],'display_name','user_id')],
+            'responsible_manager_id'=>['label'=>'Manager','options'=>array_column($incentiveData['managers'],'display_name','user_id')],
+            'from'=>['label'=>'From','type'=>'date'],'to'=>['label'=>'To','type'=>'date'],
+            'safaricom_reference'=>['label'=>'Safaricom reference','type'=>'text']],
+    ]); ?>
+    <?php view('components.list-download', ['query'=>$incentiveData['list']['query'],'path'=>appBasePath().'/sales/incentives','allowed'=>$data['canExportList']??false]); ?>
 </section>
 <section class="card table-card">
     <h3>Incentive register</h3>
@@ -81,3 +75,5 @@ $canSubmit=!empty($data['canSubmitIncentive'])&&($incentiveData['dsaName']??null
     </table></div>
 </section>
 </div>
+
+<?php view('components.list-pagination',['query'=>$incentiveData['list']['query'],'pagination'=>$incentiveData['list']['pagination'],'path'=>appBasePath().'/sales/incentives']); ?>

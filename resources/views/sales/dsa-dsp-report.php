@@ -24,58 +24,17 @@ $selectorLabel = match ($period) {
 
 <div class="sales-workspace">
     <section class="card">
-        <form method="get" action="<?= e(appBasePath()) ?>/sales/dsa-dsp-report" class="filters-form">
-            <div class="form-grid">
-                <fieldset class="form-field">
-                    <legend>Period</legend>
-                    <?php foreach (['daily' => 'Daily', 'weekly' => 'Weekly', 'monthly' => 'Monthly', 'yearly' => 'Yearly'] as $key => $label): ?>
-                        <label><input type="radio" name="period" value="<?= e($key) ?>"<?= $period === $key ? ' checked' : '' ?>> <?= e($label) ?></label>
-                    <?php endforeach; ?>
-                </fieldset>
-                <div class="form-field">
-                    <label for="report-date"><?= e($selectorLabel) ?></label>
-                    <input id="report-date" type="<?= e($selectorType) ?>" name="date" value="<?= e($report['selector'] ?? '') ?>"<?= $period === 'yearly' ? ' min="2000" max="2099"' : '' ?>>
-                </div>
-                <div class="form-field">
-                    <label for="report-product">Product</label>
-                    <select id="report-product" name="product_id">
-                        <option value="">All products</option>
-                        <?php foreach (($report['products'] ?? []) as $product): ?>
-                            <option value="<?= e($product['product_id']) ?>"<?= (int) ($report['productId'] ?? 0) === (int) $product['product_id'] ? ' selected' : '' ?>><?= e(trim(($product['sku'] ?? '') . ' - ' . ($product['name'] ?? ''))) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-field">
-                    <label for="report-employee">Employee</label>
-                    <select id="report-employee" name="employee_id">
-                        <option value="">All employees</option>
-                        <?php foreach (($report['employees'] ?? []) as $employee): ?>
-                            <option value="<?= e($employee['user_id']) ?>"<?= (int) ($report['employeeId'] ?? 0) === (int) $employee['user_id'] ? ' selected' : '' ?>><?= e($employee['display_name'] ?? '') ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <?php if (!empty($report['showShopFilter'])): ?>
-                    <div class="form-field">
-                        <label for="report-shop">Shop</label>
-                        <select id="report-shop" name="shop_id">
-                            <option value="">All authorized shops</option>
-                            <?php foreach (($report['shops'] ?? []) as $shop): ?>
-                                <option value="<?= e($shop['warehouse_id']) ?>"<?= (int) ($report['shopId'] ?? 0) === (int) $shop['warehouse_id'] ? ' selected' : '' ?>><?= e($shop['name'] ?? '') ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                <?php endif; ?>
-                <div class="form-field">
-                    <label for="report-view">View by</label>
-                    <select id="report-view" name="view_by">
-                        <option value="product"<?= $viewBy === 'product' ? ' selected' : '' ?>>Product</option>
-                        <option value="employee"<?= $viewBy === 'employee' ? ' selected' : '' ?>>Employee</option>
-                        <option value="product_employee"<?= $viewBy === 'product_employee' ? ' selected' : '' ?>>Product + Employee</option>
-                    </select>
-                </div>
-            </div>
-            <div class="page-actions"><button class="btn btn-primary" type="submit">Apply filters</button></div>
-        </form>
+        <?php view('components.list-filters',['query'=>$report['list']['query'],'path'=>appBasePath().'/sales/dsa-dsp-report',
+            'sorts'=>$report['listSorts'],
+            'filters'=>['period'=>['label'=>'Period','options'=>['daily'=>'Daily','weekly'=>'Weekly','monthly'=>'Monthly','yearly'=>'Yearly']],
+                'date'=>['label'=>$selectorLabel,'type'=>$selectorType==='number'?'text':$selectorType],
+                'from'=>['label'=>'From date (override period)','type'=>'date'],'to'=>['label'=>'To date (override period)','type'=>'date'],
+                'product_id'=>['label'=>'Product','options'=>array_column($report['products'],'name','product_id')],
+                'employee_id'=>['label'=>'Employee','options'=>array_column($report['employees'],'display_name','user_id')],
+                'shop_id'=>['label'=>'Authorized shop','options'=>array_column($report['shops'],'name','warehouse_id')],
+                'view_by'=>['label'=>'View by','options'=>['product'=>'Product','employee'=>'Employee','product_employee'=>'Product + employee']]],
+        ]); ?>
+        <?php view('components.list-download',['query'=>$report['list']['query'],'path'=>appBasePath().'/sales/dsa-dsp-report','allowed'=>$data['canExportList']??false]); ?>
     </section>
 
     <section class="finance-summary-grid" aria-label="Sales report summary">
@@ -114,3 +73,5 @@ $selectorLabel = match ($period) {
         <?php endif; ?>
     </section>
 </div>
+
+<?php view('components.list-pagination',['query'=>$report['list']['query'],'pagination'=>$report['list']['pagination'],'path'=>appBasePath().'/sales/dsa-dsp-report']); ?>

@@ -269,12 +269,12 @@ $formatDate = static function (mixed $value): string {
     </article>
     <article>
         <span>Scheduled employees</span>
-        <strong><?= e(count($assignments)) ?></strong>
+        <strong><?= e($workspace['list']['pagination']['total']) ?></strong>
         <small>Effective assignments</small>
     </article>
     <article>
         <span><?= e($year) ?> holidays</span>
-        <strong><?= e(count($holidays)) ?></strong>
+        <strong><?= e($workspace['calendarLists']['holidays']['pagination']['total']) ?></strong>
         <small>Public and company dates</small>
     </article>
     <article>
@@ -296,18 +296,17 @@ $formatDate = static function (mixed $value): string {
         </p>
     </section>
 <?php else: ?>
+    <?php view('attendance.calendars.list-controls',['workspace'=>$workspace,'entity'=>'calendars']); ?>
     <nav
         class="calendar-switcher"
         aria-label="Workforce calendars"
     >
-        <?php foreach ($calendars as $calendar): ?>
+        <?php foreach ($workspace['calendarLists']['calendars']['rows'] as $calendar): ?>
             <?php
             $itemId = (int) ($calendar['calendar_id'] ?? 0);
             ?>
             <a
-                href="/office_app/public/attendance/calendars?calendar=<?= e(
-                    $itemId
-                ) ?>&year=<?= e($year) ?>"
+                href="<?= e($workspace['calendarLists']['calendars']['query']->url(appBasePath().'/attendance/calendars',[],['calendar'=>$itemId,'year'=>$year])) ?>"
                 class="<?= $itemId === $calendarId
                     ? 'is-active'
                     : '' ?>"
@@ -322,6 +321,9 @@ $formatDate = static function (mixed $value): string {
                 <?php endif; ?>
             </a>
         <?php endforeach; ?>
+        <?php if ($workspace['calendarLists']['calendars']['rows'] === []): ?>
+            <p class="empty-state">No calendars match these filters.</p>
+        <?php endif; ?>
     </nav>
 
     <section class="calendar-management-grid">
@@ -813,6 +815,7 @@ $formatDate = static function (mixed $value): string {
                     </select>
                 </form>
             </div>
+            <?php view('attendance.calendars.list-controls',['workspace'=>$workspace,'entity'=>'holidays']); ?>
             <div class="table-responsive">
                 <table class="data-table">
                     <thead>
@@ -877,8 +880,9 @@ $formatDate = static function (mixed $value): string {
                     <span class="section-kicker">Effective dated</span>
                     <strong>Employee schedules</strong>
                 </div>
-                <span><?= e(count($assignments)) ?> active</span>
+                <span><?= e($workspace['list']['pagination']['total']) ?> active</span>
             </div>
+<?php view('components.list-filters', ['query'=>$workspace['list']['query'],'path'=>'/office_app/public/attendance/calendars','sorts'=>['date'=>'Effective from','employee'=>'Employee','number'=>'Employee number','calendar'=>'Calendar'],'filters'=>[],'hidden'=>['calendar'=>$workspace['selected']['calendar_id'] ?? 0,'year'=>$workspace['year']]]); ?>
             <div class="table-responsive">
                 <table class="data-table">
                     <thead>
@@ -967,3 +971,6 @@ $formatDate = static function (mixed $value): string {
     </div>
     <code>php bin/queue-attendance-notifications.php</code>
 </section>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$workspace['list']['query'],'path'=>'/office_app/public/attendance/calendars','actions'=>['register'=>'assignments']]); ?>
+<?php view('components.list-pagination', ['query'=>$workspace['list']['query'],'pagination'=>$workspace['list']['pagination'],'path'=>'/office_app/public/attendance/calendars']); ?>

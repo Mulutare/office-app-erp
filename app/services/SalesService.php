@@ -33,8 +33,9 @@ final class SalesService
     }
 
     /** @return array<string, mixed> */
-    public function workspace(): array
+    public function workspace(?string $section = null, array $input = []): array
     {
+        if ($section !== null) return $this->listWorkspace($section, $input);
         $companyId = $this->tenant->companyId();
         $actorId=(int)($_SESSION['auth']['user_id']??0);
         $products=$this->sales->products($companyId);
@@ -75,6 +76,64 @@ final class SalesService
         ];
     }
 
+    private function listWorkspace(string $section, array $input): array
+    {
+        $companyId=$this->tenant->companyId();$actorId=(int)($_SESSION['auth']['user_id']??0);
+        $entity=['orders'=>'sales-orders','teams'=>'sales-teams'][$section]??$section;
+        $lists=new \App\Services\Lists\SalesListService();
+        $list=$lists->listing($entity,$input);$page=$list->page();
+        $data=['summary'=>[], 'orders'=>[], 'customers'=>[], 'products'=>[], 'agents'=>[], 'territories'=>[],
+            'targets'=>[], 'commissions'=>[], 'serialNumbers'=>[], 'quotations'=>[], 'pricelists'=>[], 'salesTeams'=>[],
+            'fulfilmentWarehouses'=>[], 'fulfilmentLocations'=>[], 'fulfilmentAvailability'=>[],
+            'list'=>$page,'listControls'=>$lists->controls($entity)];
+        $key=$section==='teams'?'salesTeams':$section;
+        $data[$key]=$page['rows'];
+        if ($section==='teams') {
+            foreach($data[$key] as &$team) {
+                $detail=$this->salesTeam((int)$team['team_id'],$actorId);
+                $team['members']=$detail['members']??[];
+                $team['member_count']=count($team['members']);
+                $team['manager_name']=$detail['manager_name']??'Unassigned';
+                $team['leader_name']=$team['manager_name'];
+            }
+            unset($team);
+        }
+        // Form choices are independent of the displayed page.
+        if(in_array($section,['orders','customers','teams','products'],true)) {
+            $employeeIds=$this->salesTeamScopeEmployeeIds($companyId,$actorId);
+            $data['agents']=array_values(array_filter($this->sales->agents($companyId),static fn(array $a):bool=>
+                $employeeIds===null||in_array((int)($a['employee_id']??0),$employeeIds,true)));
+            $data['territories']=$this->sales->territories($companyId);
+        }
+        if(in_array($section,['orders','pricelists'],true))$data['products']=$this->sales->products($companyId);
+        if($section==='orders') {
+            $data['customers']=$this->sales->customers($companyId);
+            $data['summary']=$list->aggregate(['orderCount'=>'COUNT(*)',
+                'salesTotal'=>"COALESCE(SUM(CASE WHEN status IN ('approved','confirmed','fulfilled','partially_paid','paid') THEN total_amount ELSE 0 END),0)",
+                'receivableTotal'=>"COALESCE(SUM(CASE WHEN status IN ('approved','confirmed','fulfilled','partially_paid') THEN balance_due ELSE 0 END),0)",
+                'overdueTotal'=>"COALESCE(SUM(CASE WHEN status IN ('approved','confirmed','fulfilled','partially_paid') AND due_date<CURRENT_DATE THEN balance_due ELSE 0 END),0)"]);
+            $options=$this->fulfilmentOptions($actorId,array_map('intval',array_column($data['products'],'product_id')));
+            $data['fulfilmentWarehouses']=$options['warehouses'];$data['fulfilmentLocations']=$options['locations'];$data['fulfilmentAvailability']=$options['availability'];
+        }
+        if($section==='customers') {
+            $data['salesTeams']=$this->visibleSalesTeams($companyId,$actorId);
+            $data['pricelists']=$this->sales->pricelists($companyId);
+        }
+        if(in_array($section,['products','teams'],true)) {
+            foreach(['serials'=>'serialNumbers','commissions'=>'commissions','targets'=>'targets'] as $register=>$rowsKey) {
+                $secondary=$lists->listing($register,$input,$register)->page();
+                $data[$rowsKey]=$secondary['rows'];
+                $data['secondaryLists'][$register]=$secondary;
+                $data['secondaryControls'][$register]=$lists->controls($register);
+            }
+            if($section==='products') {
+                $statement=\db()->prepare('SELECT product_id,sku,name,serial_tracking FROM sales_products WHERE company_id=? AND deleted_at IS NULL AND serial_tracking=1 ORDER BY name,product_id');
+                $statement->execute([$companyId]);$data['serialProductOptions']=$statement->fetchAll(\PDO::FETCH_ASSOC);
+            }
+        }
+        return $data;
+    }
+
     public function createPricelist(array $input,int $actorId): array
     {
         $calculation=(string)($input['calculation']??'fixed');$values=['name'=>trim((string)($input['name']??'')),'currency'=>strtoupper(trim((string)($input['currency']??'ETB'))),'valid_from'=>$this->date($input['valid_from']??null),'valid_to'=>$this->date($input['valid_to']??null),'product_id'=>$this->optionalId($input['product_id']??null),'category'=>$this->nullable($input['category']??null),'minimum_quantity'=>$this->decimal($input['minimum_quantity']??1),'calculation'=>$calculation,'fixed_price'=>$calculation==='fixed'?$this->money($input['fixed_price']??0):null,'percentage_adjustment'=>$calculation==='percentage'?$this->money($input['percentage_adjustment']??0):null,'rule_from'=>$this->date($input['rule_from']??null),'rule_to'=>$this->date($input['rule_to']??null),'priority'=>(int)($input['priority']??100)];
@@ -83,7 +142,7 @@ final class SalesService
         try{return ['successful'=>true,'id'=>$this->sales->createPricelist($this->tenant->companyId(),$values,$actorId)];}catch(Throwable $e){return ['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}
     }
 
-    public function pricelist(int $id): ?array{return $this->sales->pricelist($this->tenant->companyId(),$id);}
+    public function pricelist(int $id,bool $withRules=true): ?array{return $this->sales->pricelist($this->tenant->companyId(),$id,$withRules);}
     public function updatePricelist(int $id,array $input): array
     {$v=['name'=>trim((string)($input['name']??'')),'currency'=>strtoupper(trim((string)($input['currency']??'ETB'))),'valid_from'=>$this->date($input['valid_from']??null),'valid_to'=>$this->date($input['valid_to']??null)];if($v['name']===''||preg_match('/^[A-Z]{3}$/',$v['currency'])!==1||($v['valid_from']!==null&&$v['valid_to']!==null&&$v['valid_to']<$v['valid_from']))return['successful'=>false,'errors'=>['form'=>'Enter a name, ISO currency and valid date range.']];try{$this->sales->updatePricelist($this->tenant->companyId(),$id,$v);return['successful'=>true,'id'=>$id];}catch(Throwable $e){return['successful'=>false,'errors'=>['form'=>$e->getMessage()]];}}
     public function addPricelistRule(int $id,array $input): array
@@ -144,6 +203,20 @@ final class SalesService
         }
     }
 
+    /** Read-only validation used by the import preview; persistence still uses normal domain methods. */
+    public function validateImportInput(string $entity,array $input): array
+    {
+        if($entity==='customers')return $this->validateCustomerValues($this->customerValues($input));
+        if($entity==='quotations')return $this->prepareQuotation($input,$this->tenant->companyId())['errors']??[];
+        if($entity!=='products')throw new \InvalidArgumentException('Unknown Sales import object.');
+        $errors=[];
+        foreach(['sku'=>60,'name'=>160] as $key=>$length)if(trim((string)($input[$key]??''))===''||strlen((string)$input[$key])>$length)$errors[$key]='Enter a value of up to '.$length.' characters.';
+        if(!in_array($input['product_type']??'service',['stockable','service','telecom_product'],true))$errors['product_type']='Select stockable, service or telecom_product.';
+        $commission=(float)($input['commission_rate']??0);
+        if(!is_finite($commission)||$commission<0||$commission>100)$errors['commission_rate']='Commission rate must be between 0 and 100.';
+        return $errors;
+    }
+
     public function quotation(int $id): ?array
     {
         $companyId = $this->tenant->companyId();
@@ -151,9 +224,9 @@ final class SalesService
         return $row && (new SalesHierarchyScope())->canReadSalesRow($companyId, (int) ($_SESSION['auth']['user_id'] ?? 0), $row) ? $row : null;
     }
 
-    public function orderDetail(int $id): ?array
+    public function orderDetail(int $id,bool $withRelated=true): ?array
     {
-        $companyId=$this->tenant->companyId();$order=$this->sales->orderDetail($companyId,$id);
+        $companyId=$this->tenant->companyId();$order=$this->sales->orderDetail($companyId,$id,$withRelated);
         if(!is_array($order)||!$this->canAccessOrderRow($order,(int)($_SESSION['auth']['user_id']??0)))return null;
         $h=\db()->prepare('SELECT * FROM sales_order_status_history WHERE company_id=? AND order_id=? ORDER BY history_id DESC');
         $h->execute([$companyId,$id]);$order['status_history']=$h->fetchAll(\PDO::FETCH_ASSOC);
@@ -163,7 +236,7 @@ final class SalesService
     public function deliveries(): array{$company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);return array_values(array_filter($this->inventory->deliveryPickings($company),fn(array $row):bool=>$this->canAccessDeliveryRow($company,$actor,$row)));}
     public function fulfilmentOptions(int $actorId,array $productIds=[]): array{$companyId=$this->tenant->companyId();$locations=$this->operationalAccess->locationsForUser($companyId,$actorId);$matrix=[];foreach($locations as $location){foreach($this->operationalAccess->availability($companyId,$actorId,(int)$location['warehouse_id'],(int)$location['location_id'],$productIds) as $row)$matrix[]=$row+['warehouse_id'=>(int)$location['warehouse_id'],'location_id'=>(int)$location['location_id']];}return ['warehouses'=>$this->operationalAccess->warehousesForUser($companyId,$actorId),'locations'=>$locations,'availability'=>$matrix];}
     public function exactAvailability(int $actorId,int $warehouseId,int $locationId,array $productIds): array{return $this->operationalAccess->availability($this->tenant->companyId(),$actorId,$warehouseId,$locationId,$productIds);}
-    public function delivery(int $id): ?array{$company=$this->tenant->companyId();$row=$this->inventory->deliveryPicking($company,$id);return is_array($row)&&$this->canAccessDeliveryRow($company,(int)($_SESSION['auth']['user_id']??0),$row)?$row:null;}
+    public function delivery(int $id,bool $withReturns=true): ?array{$company=$this->tenant->companyId();$row=$this->inventory->deliveryPicking($company,$id,$withReturns);return is_array($row)&&$this->canAccessDeliveryRow($company,(int)($_SESSION['auth']['user_id']??0),$row)?$row:null;}
     public function completeDelivery(int $id,array $input,int $actorId): array
     {
         if($this->delivery($id)===null)return['successful'=>false,'errors'=>['form'=>'Delivery was not found.']];

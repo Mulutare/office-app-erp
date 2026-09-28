@@ -65,6 +65,7 @@ $range = is_array($data['range'] ?? null)
     </nav>
 </section>
 
+<?php view('components.list-filters', ['query'=>$data['list']['query'],'path'=>'/office_app/public/attendance/team','sorts'=>['name'=>'Name','number'=>'Employee number','department'=>'Department','status'=>'Status'],'filters'=>['month'=>['label'=>'Month','type'=>'month']],'hidden'=>[]]); ?>
 <section class="attendance-summary-grid">
     <article>
         <span>Direct reports</span>
@@ -269,3 +270,6 @@ $range = is_array($data['range'] ?? null)
         <?php endforeach; ?>
     </section>
 <?php endif; ?>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$data['list']['query'],'path'=>'/office_app/public/attendance/team']); ?>
+<?php view('components.list-pagination', ['query'=>$data['list']['query'],'pagination'=>$data['list']['pagination'],'path'=>'/office_app/public/attendance/team']); ?>

@@ -412,104 +412,20 @@ $totalEmployees = array_sum(array_map(
     class="card hr-filter-panel"
     id="employee-directory"
 >
-    <form
-        method="get"
-        action="/office_app/public/hr"
-        class="hr-filter-form"
-    >
-        <div class="form-field hr-search-field">
-            <label for="employee-search">
-                Search employees
-            </label>
-            <input
-                id="employee-search"
-                name="search"
-                type="search"
-                value="<?= e(
-                    $filters['search'] ?? ''
-                ) ?>"
-                placeholder="Name, employee number, email or job title"
-                maxlength="100"
-            >
-        </div>
-
-        <div class="form-field">
-            <label for="employee-status">
-                Employment status
-            </label>
-            <select
-                id="employee-status"
-                name="status"
-            >
-                <option value="">All statuses</option>
-                <?php foreach (
-                    $statusOptions as $value => $label
-                ): ?>
-                    <option
-                        value="<?= e($value) ?>"
-                        <?= (
-                            $filters['status'] ?? ''
-                        ) === $value
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e($label) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="form-field">
-            <label for="employee-department">
-                Department
-            </label>
-            <select
-                id="employee-department"
-                name="department"
-            >
-                <option value="0">
-                    All departments
-                </option>
-                <?php foreach (
-                    $departments as $department
-                ): ?>
-                    <?php
-                    $departmentId = (int) (
-                        $department['department_id']
-                        ?? 0
-                    );
-                    ?>
-                    <option
-                        value="<?= e($departmentId) ?>"
-                        <?= (int) (
-                            $filters['department'] ?? 0
-                        ) === $departmentId
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e(
-                            $department['name'] ?? ''
-                        ) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="filter-actions">
-            <button
-                type="submit"
-                class="btn btn-primary"
-            >
-                Apply filters
-            </button>
-            <a
-                href="/office_app/public/hr"
-                class="btn btn-secondary"
-            >
-                Reset
-            </a>
-        </div>
-    </form>
+    <?php view('components.list-filters', [
+        'query' => $data['listQuery'], 'path' => '/office_app/public/hr',
+        'sorts' => ['name'=>'Name','number'=>'Employee number','department'=>'Department','status'=>'Status','hire_date'=>'Hire date'],
+        'filters' => [
+            'status'=>['label'=>'Status','options'=>$statusOptions],
+            'department'=>['label'=>'Department','options'=>$data['listOptions']['department']],
+            'branch'=>['label'=>'Branch','options'=>$data['listOptions']['branch']],
+        ],
+    ]); ?>
+    <div class="filter-actions">
+        <?php if ($canManage): ?><a class="btn btn-secondary" href="/office_app/public/data-exchange/employees/import">Import employees</a><?php endif; ?>
+        <a class="btn btn-secondary" href="<?= e($data['listQuery']->url('/office_app/public/data-exchange/employees/export', ['format'=>'xlsx'])) ?>">Export filtered</a>
+        <a class="btn btn-secondary" href="/office_app/public/data-exchange/employees/export?format=xlsx">Export all authorized</a>
+    </div>
 </section>
 
 <section class="card table-card">
@@ -633,49 +549,6 @@ $totalEmployees = array_sum(array_map(
         </table>
     </div>
 
-    <?php if (
-        ($pagination['lastPage'] ?? 1) > 1
-    ): ?>
-        <?php
-        $page = (int) ($pagination['page'] ?? 1);
-        $lastPage = (int) (
-            $pagination['lastPage'] ?? 1
-        );
-        ?>
-
-        <nav
-            class="pagination"
-            aria-label="Employee pagination"
-        >
-            <?php if ($page > 1): ?>
-                <a
-                    class="pagination-link"
-                    href="<?= e(employeeDirectoryUrl(
-                        $filters,
-                        ['page' => $page - 1]
-                    )) ?>"
-                >
-                    Previous
-                </a>
-            <?php endif; ?>
-
-            <span class="pagination-status">
-                Page <?= e($page) ?>
-                of <?= e($lastPage) ?>
-            </span>
-
-            <?php if ($page < $lastPage): ?>
-                <a
-                    class="pagination-link"
-                    href="<?= e(employeeDirectoryUrl(
-                        $filters,
-                        ['page' => $page + 1]
-                    )) ?>"
-                >
-                    Next
-                </a>
-            <?php endif; ?>
-        </nav>
-    <?php endif; ?>
+    <?php view('components.list-pagination', ['query'=>$data['listQuery'], 'pagination'=>$pagination, 'path'=>'/office_app/public/hr']); ?>
 </section>
 <?php endif; ?>

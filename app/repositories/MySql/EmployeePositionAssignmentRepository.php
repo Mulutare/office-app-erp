@@ -176,8 +176,7 @@ final class EmployeePositionAssignmentRepository
                 branches.name
              ORDER BY
                 departments.name,
-                positions.name
-             LIMIT 500'
+                positions.name'
         );
         $statement->execute([
             'company_id' => $companyId,

@@ -26,7 +26,8 @@ final class BranchController
             ->requireTenantPermission(
                 'organization.branches.view'
             );
-        $listing = $this->branches->listing();
+        $listing = (new \App\Services\Lists\OrganizationListService())->listing('branches', $_GET);
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('branches', $listing['exportList'], (new \App\Services\Lists\OrganizationListService())->columns('branches'), $_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -45,6 +46,8 @@ final class BranchController
             'user' => $_SESSION['auth'],
             'branches' => $listing['branches'],
             'summary' => $listing['summary'],
+            'list' => $listing['list'],
+            'listSorts' => $listing['sorts'],
             'canManage' => $this->canManage(),
             'notice' => \getFlash('branch_notice'),
         ]);

@@ -80,11 +80,12 @@ $formatDate = static function (mixed $value): string {
     </div>
 </section>
 
+<?php view('components.list-filters', ['query'=>$data['list']['query'], 'path'=>'/office_app/public/organization/job-titles', 'sorts'=>$data['listSorts'], 'filters'=>['active'=>['label'=>'Status','options'=>['1'=>'Active','0'=>'Inactive']]]]); ?>
 <section class="card table-card">
     <div class="table-summary">
         <div>
             <strong>
-                <?= e(count($jobTitles)) ?>
+                <?= e($data['list']['pagination']['total']) ?>
                 registered job titles
             </strong>
             <span class="table-summary-note">
@@ -117,8 +118,7 @@ $formatDate = static function (mixed $value): string {
                         colspan="<?= $canManage ? '7' : '6' ?>"
                         class="empty-state"
                     >
-                        No job titles have been created for
-                        this company.
+                        No matching job titles. Clear filters to see all records.
                     </td>
                 </tr>
             <?php else: ?>
@@ -203,3 +203,6 @@ $formatDate = static function (mixed $value): string {
         </table>
     </div>
 </section>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$data['list']['query'],'path'=>'/office_app/public/organization/job-titles']); ?>
+<?php view('components.list-pagination', ['query'=>$data['list']['query'], 'pagination'=>$data['list']['pagination'], 'path'=>'/office_app/public/organization/job-titles']); ?>

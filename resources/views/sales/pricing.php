@@ -6,8 +6,6 @@ $canManagePricing = !empty($data['canManagePricing']);
 $returnTo = ($data['returnTo'] ?? '') === 'pricelists' ? 'pricelists' : '';
 $notice = $data['notice'] ?? null;
 $error = $data['error'] ?? null;
-$brands = array_values(array_unique(array_filter(array_map(static fn($p) => (string)($p['brand_name'] ?? ''), $products))));
-sort($brands);
 ?>
 <div class="module-stack">
 <?php if ($notice): ?><div class="notice success"><?= e(is_array($notice) ? ($notice['message'] ?? '') : $notice) ?></div><?php endif; ?>
@@ -15,16 +13,16 @@ sort($brands);
 <section class="card">
     <h2>Product and model selling terms</h2>
     <p>Authorized updates take effect immediately. The Products catalogue and DSA/DSP sales use these SKU values. Past sales retain their original amounts.</p>
-    <div class="finance-filter-form" data-pricing-filters>
-        <label>Find SKU or product<input type="search" data-pricing-search placeholder="Search products"></label>
-        <label>Family<select data-pricing-family><option value="">All families</option><option value="mobile">Mobile</option><option value="mifi">MiFi</option><option value="other">Other</option></select></label>
-        <label>Brand<select data-pricing-brand><option value="">All brands</option><?php foreach ($brands as $brand): ?><option value="<?= e(strtolower($brand)) ?>"><?= e($brand) ?></option><?php endforeach; ?></select></label>
-        <label>Status<select data-pricing-status><option value="active">Active</option><option value="">All</option><option value="archived">Archived</option></select></label>
-    </div>
+    <?php if (isset($pricingData['productList'])): ?>
+    <?php $path=appBasePath().($returnTo ? '/sales/pricelists' : '/sales/pricing');
+        view('components.list-filters',['query'=>$pricingData['productList']['query'],'path'=>$path]+$pricingData['productControls']);
+        view('components.list-download',['query'=>$pricingData['productList']['query'],'path'=>$path,'allowed'=>$pricingData['exports']['canExport']??false,'actions'=>['register'=>'pricing']]);
+        view('components.list-pagination',['query'=>$pricingData['productList']['query'],'pagination'=>$pricingData['productList']['pagination'],'path'=>$path]); ?>
+    <?php endif; ?>
     <div class="table-responsive"><table class="data-table">
         <thead><tr><th>SKU / Product</th><th>Variant</th><th>Price</th><th>Discount / unit</th><th>Tax</th><th>Effective</th><th>Updated by</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
-        <?php if ($products === []): ?><tr><td colspan="9">No products in this company.</td></tr><?php endif; ?>
+        <?php if ($products === []): ?><tr><td colspan="9">No matching products. Clear filters to see all authorized products.</td></tr><?php endif; ?>
         <?php foreach ($products as $product): ?>
         <?php
             $id=(int)$product['product_id'];
@@ -68,6 +66,12 @@ sort($brands);
 </section>
 <section class="card table-card">
     <h3>Pricing change history</h3>
+    <?php if (isset($pricingData['historyList'])):
+        view('components.list-filters',['query'=>$pricingData['historyList']['query'],'path'=>$path,'sorts'=>['date'=>'Changed at','sku'=>'SKU','product'=>'Product','status'=>'Status'],
+            'filters'=>['status'=>['label'=>'Status','options'=>['approved'=>'Saved','submitted'=>'Legacy pending','rejected'=>'Rejected']], 'from'=>['label'=>'From','type'=>'date'],'to'=>['label'=>'To','type'=>'date']]]);
+        view('components.list-download',['query'=>$pricingData['historyList']['query'],'path'=>$path,'allowed'=>$pricingData['exports']['canExport']??false,'actions'=>['register'=>'price-history']]);
+        view('components.list-pagination',['query'=>$pricingData['historyList']['query'],'pagination'=>$pricingData['historyList']['pagination'],'path'=>$path]);
+    endif; ?>
     <div class="table-responsive"><table class="data-table">
         <thead><tr><th>SKU</th><th>Price, before → after</th><th>Discount, before → after</th><th>Tax, before → after</th><th>Changed by</th><th>Changed at</th><th>Reason</th><th>Record</th></tr></thead>
         <tbody>
@@ -77,7 +81,7 @@ sort($brands);
             <td><?= e($row['old_price'].' → '.$row['proposed_price']) ?></td>
             <td><?= e($row['old_discount_percent'] === null ? '—' : $row['old_discount_percent'].'%') ?> → <?= e($row['approved_discount_percent']) ?>%</td>
             <td><?= e($row['old_tax_percent'] === null ? '—' : $row['old_tax_percent'].'%') ?> → <?= e($row['approved_tax_percent']) ?>%</td>
-            <td><?= e($row['changed_by_name'] ?? (string)$row['requested_by']) ?></td>
+            <td><?= e($row['changed_by_name'] ?? 'Unavailable') ?></td>
             <td><?= e($row['requested_at']) ?></td>
             <td><?= e($row['reason'] ?: '—') ?></td>
             <td><?= e($row['status'] === 'submitted' ? 'Legacy pending record' : ($row['status'] === 'approved' ? 'Saved' : 'Superseded / rejected')) ?></td>

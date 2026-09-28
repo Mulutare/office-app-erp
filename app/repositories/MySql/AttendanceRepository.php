@@ -757,7 +757,7 @@ final class AttendanceRepository extends MySqlRepository
                     :check_in_at,
                     :check_out_at,
                     TRUE,
-                    \'manual\',
+                    (SELECT source FROM attendance_records WHERE company_id=:source_company AND attendance_id=:source_attendance),
                     :created_by,
                     :updated_by
                 )'
@@ -769,6 +769,8 @@ final class AttendanceRepository extends MySqlRepository
             'sequence_no' => $sequence,
             'check_in_at' => $checkInAt,
             'check_out_at' => $checkOutAt,
+            'source_company' => $companyId,
+            'source_attendance' => $attendanceId,
             'created_by' => $actorUserId,
             'updated_by' => $actorUserId,
         ]);
@@ -960,7 +962,7 @@ final class AttendanceRepository extends MySqlRepository
                     :notes,
                     :created_by,
                     :updated_by
-                )
+                )' . (!empty($values['create_only']) ? '' : '
              ON DUPLICATE KEY UPDATE
                 check_in_at = VALUES(check_in_at),
                 check_out_at = VALUES(check_out_at),
@@ -980,7 +982,7 @@ final class AttendanceRepository extends MySqlRepository
                     VALUES(missing_clock_out),
                 source = VALUES(source),
                 notes = VALUES(notes),
-                updated_by = VALUES(updated_by)'
+                updated_by = VALUES(updated_by)')
         );
         $statement->execute([
             'company_id' => $companyId,

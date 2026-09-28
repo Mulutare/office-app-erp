@@ -39,7 +39,7 @@ final class EmployeePositionAssignmentService
      *     history: list<array<string, mixed>>
      * }
      */
-    public function overview(int $employeeId): array
+    public function overview(int $employeeId,bool $withHistory=true): array
     {
         if ($employeeId < 1) {
             return [
@@ -55,10 +55,10 @@ final class EmployeePositionAssignmentService
                 $companyId,
                 $employeeId
             ),
-            'history' => $this->assignments->history(
+            'history' => $withHistory ? $this->assignments->history(
                 $companyId,
                 $employeeId
-            ),
+            ) : [],
         ];
     }
 

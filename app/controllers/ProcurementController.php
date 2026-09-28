@@ -32,8 +32,8 @@ final class ProcurementController
         if(!$row){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
         $q=\db()->prepare('SELECT * FROM purchase_requisition_lines WHERE company_id=? AND requisition_id=? ORDER BY requisition_line_id');
         $q->execute([(new \App\Services\TenantContext())->companyId(),(int)$id]);$row['lines']=$q->fetchAll(\PDO::FETCH_ASSOC);
-        $q=\db()->prepare('SELECT * FROM purchase_requisition_status_history WHERE company_id=? AND requisition_id=? ORDER BY history_id DESC');
-        $q->execute([(new \App\Services\TenantContext())->companyId(),(int)$id]);$row['history']=$q->fetchAll(\PDO::FETCH_ASSOC);
+        $row['related']=(new \App\Services\Lists\DocumentListService())->workspace(['requisition-history'],$_GET,(int)$id,\appBasePath().'/procurement/requisitions/'.(int)$id,true);
+        \App\Services\Lists\DocumentListService::download($row['related'],$_GET);
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>$row['requisition_number'],
             'contentView'=>'procurement.requisition','requisition'=>$row,'user'=>$_SESSION['auth'],
             'notice'=>\getFlash('procurement_notice'),'error'=>\getFlash('procurement_error')]);
@@ -48,6 +48,63 @@ final class ProcurementController
     public function reverseBill(string $id):void{$this->mutate('procurement.bills.reverse',fn()=>$this->service->reverseBill((int)$id,$this->actor()),'/procurement');}
     public function vendorReturn(string $id):void{$this->mutate('procurement.returns.post',function()use($id){$this->service->assertOrderAccess((int)$id,$this->actor());return $this->service->postVendorReturn((int)$id,$_POST,$this->actor());},'/procurement/'.(int)$id);}
     private function mutate(string $permission,callable $work,string $redirect):void{$this->auth->requireModulePermission('procurement',$permission);if(!\verifyCsrfToken(\postString('_token'))){\flash('procurement_error','The form session expired.');\redirect($redirect);}try{$work();\flash('procurement_notice','The procurement action completed successfully.');}catch(PDOException $e){error_log($e->__toString());\flash('procurement_error','The action could not be saved. Check for duplicate or invalid business data and try again.');}catch(Throwable $e){\flash('procurement_error',$e->getMessage());}\redirect($redirect);}
-    private function render(?int $id=null):void{\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$id?'Purchase Order':'Purchase Management','pageDescription'=>'Controlled requisition, ordering, receiving and accounts payable workflow.','contentView'=>'procurement.index','user'=>$_SESSION['auth'],'permissions'=>$_SESSION['auth']['permissions']??[],'notice'=>\getFlash('procurement_notice'),'error'=>\getFlash('procurement_error')]+$this->service->workspace($id));}
+    private function render(?int $id=null):void
+    {
+        if($id===null){
+            $workspace=(new \App\Services\Lists\ProcurementWorkspaceListService())
+                ->workspace($_GET);
+
+            if(isset($_GET['download'])){
+                $register=\App\Services\Lists\ListQuery::text(
+                    $_GET['register']??''
+                );
+
+                if(!isset($workspace['exportLists'][$register])){
+                    http_response_code(400);
+                    echo 'Choose a Procurement register.';
+                    return;
+                }
+
+                $entity=match($register){
+                    'suppliers'=>'suppliers',
+                    'requisitions'=>'requisitions',
+                    'orders'=>'purchase-orders',
+                    'bills'=>'bills',
+                    'returns'=>'returns',
+                    default=>'',
+                };
+
+                if($entity===''){
+                    http_response_code(400);
+                    echo 'Choose a Procurement register.';
+                    return;
+                }
+
+                \App\Services\Lists\ListDownload::send(
+                    'Procurement_'.$entity,
+                    $workspace['exportLists'][$register],
+                    (new \App\Services\Lists\ProcurementListService())
+                        ->columns($entity),
+                    $_GET['download']??'xlsx'
+                );
+            }
+        }else{
+            $workspace=$this->service->workspace($id,true);
+            $workspace['order']['related']=(new \App\Services\Lists\DocumentListService())->workspace(['purchase-receipts','purchase-bills','purchase-returns'],$_GET,$id,\appBasePath().'/procurement/'.$id,true);
+            \App\Services\Lists\DocumentListService::download($workspace['order']['related'],$_GET);
+        }
+
+        \view('layouts.app',[
+            'applicationName'=>\config('name','OfficeApp ERP'),
+            'environment'=>\config('environment','unknown'),
+            'pageTitle'=>$id?'Purchase Order':'Purchase Management',
+            'pageDescription'=>'Controlled requisition, ordering, receiving and accounts payable workflow.',
+            'contentView'=>'procurement.index',
+            'user'=>$_SESSION['auth'],
+            'permissions'=>$_SESSION['auth']['permissions']??[],
+            'notice'=>\getFlash('procurement_notice'),
+            'error'=>\getFlash('procurement_error'),
+        ]+$workspace);
+    }
     private function actor():int{return(int)($_SESSION['auth']['user_id']??0);}
 }

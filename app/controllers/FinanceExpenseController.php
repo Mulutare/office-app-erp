@@ -16,16 +16,66 @@ final class FinanceExpenseController
     public function index(): void
     {
         $this->permit('finance.records.view');
-        \view('layouts.app', [
-            'applicationName'=>\config('name','OfficeApp ERP'),
-            'environment'=>\config('environment','unknown'),
+
+        $lists=
+            new \App\Services\Lists\FinanceListService();
+
+        $list=$lists->listing(
+            'expenses',
+            $_GET
+        );
+
+        if(isset($_GET['download'])) {
+            $this->permit('finance.export');
+            $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'expenses');
+            if(!in_array($entity,['expenses','expense-categories','expense-history'],true)){http_response_code(400);echo 'Unknown expense register.';return;}
+            if($entity==='expense-categories')$this->permit('finance.records.manage');
+            $exportList=$entity==='expenses'?$list:$lists->listing($entity,$_GET,$entity==='expense-categories'?'categories':'history');
+            \App\Services\Lists\ListDownload::send($entity,$exportList,$lists->columns($entity),$_GET['download']);
+        }
+
+        $page=$list->page();
+
+        $expenseData=
+            $this->service()->workspace(
+                $_GET,
+                $page['rows']
+            );
+
+        \view('layouts.app',[
+            'applicationName'=>
+                \config('name','OfficeApp ERP'),
+
+            'environment'=>
+                \config('environment','unknown'),
+
             'pageTitle'=>'Expenses',
-            'pageDescription'=>'Controlled expense requests, approvals and posted payments.',
+
+            'pageDescription'=>
+                'Controlled expense requests, approvals and posted payments.',
+
             'contentView'=>'finance.expenses',
+
             'user'=>$_SESSION['auth'],
-            'expenseData'=>$this->service()->workspace($_GET),
-            'notice'=>\getFlash('finance_expense_notice'),
-            'expenseError'=>\getFlash('finance_expense_error'),
+
+            'expenseData'=>$expenseData,
+
+            'expenseList'=>$page,
+
+            'expenseControls'=>
+                $lists->controls('expenses'),
+
+            'canExport'=>in_array(
+                'finance.export',
+                $_SESSION['auth']['permissions']??[],
+                true
+            ),
+
+            'notice'=>
+                \getFlash('finance_expense_notice'),
+
+            'expenseError'=>
+                \getFlash('finance_expense_error'),
         ]);
     }
     public function create(): void { $this->mutate('finance.records.manage',fn()=> $this->createWithEvidence(),'Expense draft saved.'); }

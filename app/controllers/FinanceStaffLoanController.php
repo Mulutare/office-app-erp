@@ -13,11 +13,62 @@ final class FinanceStaffLoanController
     private function service(): FinanceStaffLoanService {return new FinanceStaffLoanService();}
     public function index(): void
     {
-        $this->permit('finance.records.view');$this->render('Staff Loans & Advances','finance.staff-loans',['loanData'=>$this->service()->workspace(trim((string)($_GET['status']??'')))]);
+        $this->permit('finance.records.view');
+
+        $lists=
+            new \App\Services\Lists\FinanceListService();
+
+        $list=$lists->listing(
+            'staff-loans',
+            $_GET
+        );
+
+        if(isset($_GET['download'])){
+            $this->permit('finance.export');
+
+            \App\Services\Lists\ListDownload::send(
+                'Finance_Staff_Loans',
+                $list,
+                $lists->columns('staff-loans'),
+                $_GET['download']
+            );
+        }
+
+        $page=$list->page();
+
+        $loanData=
+            $this->service()->workspace(
+                trim((string)($_GET['status']??'')),
+                $page['rows']
+            );
+
+        $loanData['list']=$page;
+
+        $this->render(
+            'Staff Loans & Advances',
+            'finance.staff-loans',
+            [
+                'loanData'=>$loanData,
+
+                'loanControls'=>
+                    $lists->controls('staff-loans'),
+
+                'canExport'=>in_array(
+                    'finance.export',
+                    $_SESSION['auth']['permissions']??[],
+                    true
+                ),
+            ]
+        );
     }
     public function detail(string $id): void
     {
-        $this->permit('finance.records.view');$loan=$this->service()->detail((int)$id);if($loan===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$this->render('Staff Loan Detail','finance.staff-loan',['loan'=>$loan]);
+        $this->permit('finance.records.view');$loan=$this->service()->detail((int)$id,$_GET);if($loan===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}if(isset($_GET['download'])) {
+            $this->permit('finance.export');$entity=\App\Services\Lists\ListQuery::text($_GET['register']??'');
+            if(!isset($loan['exportLists'][$entity])){http_response_code(400);echo 'Unknown loan register.';return;}
+            \App\Services\Lists\ListDownload::send('loan-'.$entity,$loan['exportLists'][$entity],\App\Services\Lists\FinanceLoanListService::columns($entity),$_GET['download']);
+        }
+        $this->render('Staff Loan Detail','finance.staff-loan',['loan'=>$loan]);
     }
     public function create(): void{$this->mutate('finance.records.manage',fn()=>$this->service()->create($_POST,$this->actor()),'/finance/staff-loans','Loan draft created.');}
     public function submit(string $id): void{$this->mutate('finance.records.manage',fn()=>$this->service()->transition((int)$id,'submit',$this->actor()),'/finance/staff-loans/'.$id,'Loan submitted.');}

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../app/helpers/bootstrap.php';
+require_once __DIR__.'/support/licensed-import-fixture.php';
 
 use App\Services\DataExchange\ExternalIdService;
 use App\Services\DataExchange\ImportService;
@@ -21,6 +22,7 @@ $_SESSION['auth']=['user_id'=>(int)$context['user_id'],'company'=>['company_id'=
 $connection=db();$connection->beginTransaction();
 try{
     $service=new ImportService();$suffix=strtoupper(bin2hex(random_bytes(4)));
+    $context['user_id']=licensedImportFixture($connection,(int)$context['company_id'],'EX'.$suffix);
     $customerRows=[['ext_customer_'.$suffix,'CUST-'.$suffix,'Exchange Customer '.$suffix,'exchange-'.$suffix.'@example.test']];
     $mapping=[0=>'external_id',1=>'customer_number',2=>'name',3=>'email'];
     $before=(int)$connection->query('SELECT COUNT(*) FROM sales_customers')->fetchColumn();
@@ -30,14 +32,14 @@ try{
     $created=$service->import('customers',$customerRows,$mapping,(int)$context['user_id']);
     $check($created->created===1&&$created->failed===0,'Customer import creates through SalesService');
     $customerRows[0][2]='Updated Exchange Customer '.$suffix;
-    $updated=$service->import('customers',$customerRows,$mapping,(int)$context['user_id']);
-    $check($updated->updated===1&&$updated->created===0,'Repeated customer External ID updates instead of duplicating');
+    $updated=$service->import('customers',$customerRows,$mapping,(int)$context['user_id'],'update');
+    $check($updated->updated===1&&$updated->created===0,'Explicit update mode updates the existing customer');
     $id=(new ExternalIdService())->resolve((int)$context['company_id'],'customers','ext_customer_'.$suffix);
     $statement=$connection->prepare('SELECT name FROM sales_customers WHERE company_id=:company AND customer_id=:id');$statement->execute(['company'=>$context['company_id'],'id'=>$id]);
     $check($statement->fetchColumn()==='Updated Exchange Customer '.$suffix,'External ID resolves only to the updated company record');
 
-    $productRows=[['ext_product_'.$suffix,'SKU-'.$suffix,'Exchange Product '.$suffix,'service','unit','125.50']];
-    $productMapping=[0=>'external_id',1=>'sku',2=>'name',3=>'product_type',4=>'unit_of_measure',5=>'unit_price'];
+    $productRows=[['ext_product_'.$suffix,'SKU-'.$suffix,'Exchange Product '.$suffix,'service','unit']];
+    $productMapping=[0=>'external_id',1=>'sku',2=>'name',3=>'product_type',4=>'unit_of_measure'];
     $product=$service->import('products',$productRows,$productMapping,(int)$context['user_id']);
     $check($product->created===1&&$product->failed===0,'Product import creates through SalesService without quantity-on-hand writes');
     $supplierRows=[['supplier_'.$suffix,'SUP-'.$suffix,'Exchange Supplier '.$suffix,'exchange-supplier-'.$suffix.'@example.test','30','ETB']];
@@ -48,19 +50,21 @@ try{
     $check($supplierReplay->created===0&&$supplierReplay->failed>0,'Repeated supplier code is rejected without duplication');
     $supplierCount=$connection->prepare('SELECT COUNT(*) FROM purchase_suppliers WHERE company_id=:company AND supplier_code=:code');$supplierCount->execute(['company'=>$context['company_id'],'code'=>'SUP-'.$suffix]);
     $check((int)$supplierCount->fetchColumn()===1,'Supplier import remains company-scoped and duplicate-safe');
+    $productId=(new ExternalIdService())->resolve((int)$context['company_id'],'products','ext_product_'.$suffix);
+    $connection->prepare("INSERT INTO sales_product_price_changes(company_id,product_id,old_price,proposed_price,currency,effective_from,reason,status,requested_by,requested_at) VALUES(?,?,0,125.50,'ETB','2024-01-01','Test approved pricing','approved',?,'2024-01-01')")->execute([$context['company_id'],$productId,$context['user_id']]);
     $quotationRows=[
-        ['qt_'.$suffix,'CUST-'.$suffix,'SKU-'.$suffix,'2','10','9999'],
-        ['qt_'.$suffix,'CUST-'.$suffix,'SKU-'.$suffix,'3','0','1'],
+        ['qt_'.$suffix,'CUST-'.$suffix,'SKU-'.$suffix,'2'],
+        ['qt_'.$suffix,'CUST-'.$suffix,'SKU-'.$suffix,'3'],
     ];
-    $quotationMapping=[0=>'external_id',1=>'customer',2=>'product',3=>'quantity',4=>'discount',5=>'unit_price'];
+    $quotationMapping=[0=>'external_id',1=>'customer',2=>'product',3=>'quantity'];
     $quotation=$service->import('quotations',$quotationRows,$quotationMapping,(int)$context['user_id']);
     if($quotation->failed>0)echo 'Quotation import errors: '.json_encode($quotation->errors).PHP_EOL;
     $quotationId=(new ExternalIdService())->resolve((int)$context['company_id'],'quotations','qt_'.$suffix);
     $lineStatement=$connection->prepare('SELECT COUNT(*) FROM sales_quotation_lines WHERE company_id=:company AND quotation_id=:quotation');$lineStatement->execute(['company'=>$context['company_id'],'quotation'=>$quotationId]);
     $check($quotation->created===1&&(int)$lineStatement->fetchColumn()===2,'Multi-row quotation import creates one quotation with two lines');
     $totalStatement=$connection->prepare('SELECT total_amount FROM sales_quotations WHERE company_id=:company AND quotation_id=:quotation');$totalStatement->execute(['company'=>$context['company_id'],'quotation'=>$quotationId]);
-    $check((float)$totalStatement->fetchColumn()!==9999.0,'Quotation totals and prices are recalculated by SalesService');
-    $quotationUpdate=$service->import('quotations',$quotationRows,$quotationMapping,(int)$context['user_id']);
+    $check((float)$totalStatement->fetchColumn()===627.50,'Quotation totals and prices are recalculated by SalesService');
+    $quotationUpdate=$service->import('quotations',$quotationRows,$quotationMapping,(int)$context['user_id'],'update');
     $check($quotationUpdate->updated===1&&$quotationUpdate->created===0,'Quotation re-import updates through its stable External ID');
     $collision=false;try{(new ExternalIdService())->assign((int)$context['company_id'],'customers',(int)$id+1,'ext_customer_'.$suffix);}catch(Throwable){$collision=true;}
     $check($collision,'External ID collision is rejected');

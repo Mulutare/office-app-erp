@@ -13,12 +13,26 @@ final class SchemaRegistry
     {
         $external = new ExchangeField('external_id', 'External ID', false, 'string', ['xml id'], 'customer_acme');
         $schemas = [
+            $this->schema('employees','Employees','hr',[
+                $this->f('employee_number','Employee Number',true),$this->f('first_name','First Name',true),
+                $this->f('middle_name','Middle Name'),$this->f('last_name','Last Name',true),$this->f('preferred_name','Preferred Name'),
+                $this->f('work_email','Work Email',true,'email'),$this->f('work_phone','Work Phone'),
+                $this->f('department_code','Department Code',true),$this->f('job_title','Job Title',true),
+                $this->f('employment_type','Employment Type',true),$this->f('employment_status','Employment Status',true),
+                $this->f('hire_date','Hire Date',true,'date'),$this->f('termination_date','Termination Date',false,'date'),
+                $this->f('manager_number','Manager Employee Number'),$this->f('username','Username'),
+            ]),
+            $this->schema('attendance','Attendance','attendance',[
+                $this->f('employee_number','Employee Number',true),$this->f('attendance_date','Attendance Date',true,'date'),
+                $this->f('attendance_status','Attendance Status',true),$this->f('check_in','Check In'),
+                $this->f('check_out','Check Out'),$this->f('notes','Notes'),
+            ]),
             $this->schema('suppliers', 'Suppliers', 'procurement', [$external, $this->f('supplier_code','Supplier Code',true), $this->f('business_name','Business Name',true), $this->f('contact_person','Contact Person'), $this->f('phone','Phone'), $this->f('email','Email',false,'email'), $this->f('address','Address'), $this->f('tax_number','Tax / TIN'), $this->f('payment_terms_days','Payment Terms (Days)',false,'integer'), $this->f('currency','Currency',true), $this->f('active','Active')]),
             $this->schema('customers', 'Customers', 'sales', [$external, $this->f('customer_number','Customer Code',true), $this->f('name','Name',true), $this->f('email','Email',false,'email'), $this->f('phone','Phone'), $this->f('mobile','Mobile'), $this->f('street','Street'), $this->f('street2','Street 2'), $this->f('city','City'), $this->f('state_region','State/Region'), $this->f('postal_code','Postal Code'), $this->f('country','Country'), $this->f('credit_limit','Credit Limit',false,'decimal'), $this->f('payment_terms_days','Payment Terms (Days)',false,'integer'), $this->f('preferred_currency','Currency'), $this->f('active','Active')]),
-            $this->schema('products', 'Products', 'sales', [$external, $this->f('sku','SKU',true), $this->f('name','Name',true), $this->f('description','Description'), $this->f('category','Category'), $this->f('unit_of_measure','UoM'), $this->f('unit_price','Sale Price',false,'decimal'), $this->f('cost','Cost',false,'decimal'), $this->f('product_type','Product Type'), $this->f('serial_tracking','Serial Tracking'), $this->f('active','Active')]),
+            $this->schema('products', 'Products', 'sales', [$external, $this->f('sku','SKU',true), $this->f('name','Name',true), $this->f('category','Category'), $this->f('unit_of_measure','UoM'), $this->f('product_type','Product Type'), $this->f('serial_tracking','Serial Tracking'), $this->f('active','Active')]),
             $this->schema('pricelists', 'Pricelists', 'sales', [$external, $this->f('name','Name',true), $this->f('currency','Currency',true), $this->f('product','Product'), $this->f('minimum_quantity','Minimum Quantity',false,'decimal'), $this->f('calculation','Calculation'), $this->f('fixed_price','Fixed Price',false,'decimal'), $this->f('percentage_adjustment','Percentage Adjustment',false,'decimal'), $this->f('valid_from','Valid From',false,'date'), $this->f('valid_to','Valid To',false,'date'), $this->f('priority','Priority',false,'integer')]),
             $this->schema('sales-teams', 'Sales Teams', 'sales', [$external, $this->f('name','Name',true), $this->f('leader','Leader'), $this->f('territory','Territory'), $this->f('members','Members')]),
-            $this->schema('quotations', 'Quotations', 'sales', [$external, $this->f('customer','Customer',true), $this->f('salesperson','Salesperson'), $this->f('sales_team','Sales Team'), $this->f('pricelist','Pricelist'), $this->f('quotation_date','Quotation Date',false,'date'), $this->f('expiration_date','Expiration Date',false,'date'), $this->f('payment_terms_days','Payment Terms (Days)',false,'integer'), $this->f('currency','Currency'), $this->f('notes','Notes'), $this->f('line_external_id','Line External ID'), $this->f('product','Product',true), $this->f('description','Description'), $this->f('quantity','Quantity',true,'decimal'), $this->f('unit_of_measure','UoM'), $this->f('unit_price','Unit Price',false,'decimal'), $this->f('discount','Discount %',false,'decimal'), $this->f('tax','Tax')], true),
+            $this->schema('quotations', 'Quotations', 'sales', [$external, $this->f('customer','Customer',true), $this->f('salesperson','Salesperson'), $this->f('sales_team','Sales Team'), $this->f('pricelist','Pricelist'), $this->f('quotation_date','Quotation Date',false,'date'), $this->f('expiration_date','Expiration Date',false,'date'), $this->f('payment_terms_days','Payment Terms (Days)',false,'integer'), $this->f('currency','Currency'), $this->f('notes','Notes'), $this->f('line_external_id','Line External ID'), $this->f('product','Product',true), $this->f('quantity','Quantity',true,'decimal')], true),
             $this->schema('sales-orders', 'Sales Orders', 'sales', [$external, $this->f('customer','Customer',true), $this->f('order_date','Order Date',false,'date'), $this->f('currency','Currency'), $this->f('product','Product',true), $this->f('quantity','Quantity',true,'decimal'), $this->f('unit_price','Unit Price',false,'decimal'), $this->f('discount','Discount %',false,'decimal')], true),
             $this->schema('warehouses', 'Warehouses', 'inventory', [$external, $this->f('code','Code',true), $this->f('name','Name',true), $this->f('branch','Branch'), $this->f('timezone','Timezone'), $this->f('is_default','Default'), $this->f('active','Active')]),
             $this->schema('locations', 'Locations', 'inventory', [$external, $this->f('warehouse','Warehouse',true), $this->f('code','Code',true), $this->f('name','Name',true), $this->f('usage','Usage',true), $this->f('parent','Parent Location'), $this->f('barcode','Barcode'), $this->f('active','Active')]),
@@ -51,12 +65,14 @@ final class SchemaRegistry
             // to an existing domain service. Other registered datasets remain
             // explicit export-only objects instead of presenting a dead end.
             $connectedExports = [
+                'employees', 'attendance',
                 'suppliers', 'customers', 'products', 'pricelists', 'sales-teams',
                 'quotations', 'sales-orders', 'warehouses', 'locations',
                 'stock', 'receipts', 'deliveries', 'returns', 'invoices',
                 'credit-notes', 'finance-journals', 'expenses', 'purchase-orders',
             ];
             if (($schema->canImport && !in_array($schema->entity, [
+                'employees', 'attendance',
                 'suppliers',
                 'customers',
                 'products',

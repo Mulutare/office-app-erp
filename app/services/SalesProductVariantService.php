@@ -15,11 +15,19 @@ final class SalesProductVariantService
         if (!(new ModuleRoleService())->permissionAllowed($company,$actor,'sales.catalogue.manage') || (new SalesHierarchyScope())->isAgent($company,$actor)) throw new RuntimeException('Product classification permission is required.');
     }
 
-    public function options(): array
+    public function options(?array $input = null): array
     {
         $company=$this->company();
         $brands=\db()->prepare('SELECT brand_id,name,active FROM sales_product_brands WHERE company_id=? ORDER BY name');$brands->execute([$company]);
         $models=\db()->prepare('SELECT m.model_id,m.brand_id,m.product_family,m.mifi_subtype,m.model_name,m.active,b.active brand_active,b.name brand_name FROM sales_product_models m JOIN sales_product_brands b ON b.company_id=m.company_id AND b.brand_id=m.brand_id WHERE m.company_id=? ORDER BY b.name,m.model_name');$models->execute([$company]);
+        if ($input !== null) {
+            $factory = new \App\Services\Lists\SalesListService();
+            $list = $factory->listing('variants',$input)->page();
+            $options = \db()->prepare('SELECT product_id,sku,name FROM sales_products WHERE company_id=? AND deleted_at IS NULL ORDER BY sku,product_id');
+            $options->execute([$company]);
+            return ['brands'=>$brands->fetchAll(PDO::FETCH_ASSOC),'models'=>$models->fetchAll(PDO::FETCH_ASSOC),
+                'productOptions'=>$options->fetchAll(PDO::FETCH_ASSOC),'products'=>$list['rows'],'list'=>$list,'controls'=>$factory->controls('variants')];
+        }
         $products=\db()->prepare('SELECT p.product_id,p.sku,p.name,p.model_id,p.active,m.brand_id,m.product_family,m.mifi_subtype,m.model_name,b.name brand_name FROM sales_products p LEFT JOIN sales_product_models m ON m.company_id=p.company_id AND m.model_id=p.model_id LEFT JOIN sales_product_brands b ON b.company_id=m.company_id AND b.brand_id=m.brand_id WHERE p.company_id=? AND p.deleted_at IS NULL ORDER BY p.sku');$products->execute([$company]);
         return ['brands'=>$brands->fetchAll(PDO::FETCH_ASSOC),'models'=>$models->fetchAll(PDO::FETCH_ASSOC),'products'=>$products->fetchAll(PDO::FETCH_ASSOC)];
     }

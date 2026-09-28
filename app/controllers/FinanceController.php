@@ -31,41 +31,71 @@ final class FinanceController
     public function customerInvoices(): void
     {
         $this->authorizeOperations('finance.records.view');
-        $filters = [
-            'search' => $this->queryString('search'),
-            'payment' => $this->queryString('payment'),
-            'date_from' => $this->queryString('date_from'),
-            'date_to' => $this->queryString('date_to'),
-            'customer' => $this->queryString('customer'),
-        ];
-        $allInvoices = $this->operations->customerInvoices();
 
-        \view('layouts.app', [
-            'applicationName' => \config('name', 'OfficeApp ERP'),
-            'environment' => \config('environment', 'unknown'),
-            'pageTitle' => 'Customer Invoices',
-            'pageDescription' => 'Posted customer invoices, residuals and payment states.',
-            'contentView' => 'finance.customer-invoices',
-            'invoices' => $this->operations->customerInvoices($filters),
-            'quickSaleQueue' => (new \App\Services\SalesQuickSaleService())->financeQueue($this->actor()),
-            'invoiceFilters' => $filters,
-            'invoiceCustomers' => array_values(array_unique(array_filter(array_column($allInvoices, 'customer_name')))),
-            'user' => $_SESSION['auth'],
+        $lists=new \App\Services\Lists\FinanceListService();
+        $list=$lists->listing('invoices',$_GET);
+        $queueFactory=new \App\Services\Lists\FinanceQuickSaleListService();
+        $queueList=$queueFactory->listing($this->actor(),$_GET);
+
+        if(isset($_GET['download'])) {
+            $this->authorizeOperations('finance.export');
+            $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'invoices');
+            if(!in_array($entity,['invoices','quick-sales'],true)){http_response_code(400);echo 'Unknown invoice register.';return;}
+            \App\Services\Lists\ListDownload::send($entity,$entity==='invoices'?$list:$queueList,
+                $entity==='invoices'?$lists->columns('invoices'):\App\Services\Lists\FinanceQuickSaleListService::columns(),$_GET['download']);
+        }
+
+        $page=$list->page();$queuePage=$queueList->page();
+
+        \view('layouts.app',[
+            'applicationName'=>\config(
+                'name',
+                'OfficeApp ERP'
+            ),
+            'environment'=>\config(
+                'environment',
+                'unknown'
+            ),
+            'pageTitle'=>'Customer Invoices',
+            'pageDescription'=>
+                'Posted customer invoices, residuals and payment states.',
+            'contentView'=>'finance.customer-invoices',
+
+            'invoiceList'=>$page,
+            'invoiceControls'=>
+                $lists->controls('invoices'),
+
+            'invoiceCustomers'=>
+                $lists->customerOptions(),
+
+            'quickSaleQueue'=>$queuePage['rows'],
+            'quickSaleList'=>$queuePage,'quickSaleControls'=>$queueFactory->controls($this->actor()),
+
+            'canExport'=>in_array(
+                'finance.export',
+                $_SESSION['auth']['permissions']??[],
+                true
+            ),
+
+            'user'=>$_SESSION['auth'],
         ]);
     }
-
     public function customerInvoice(string $id): void
     {
         $this->authorizeOperations('finance.records.view');
-        $invoice = $this->operations->customerInvoice((int) $id);
+        $invoice = $this->operations->customerInvoice((int) $id,false);
         if ($invoice === null) {
             http_response_code(404);
             \view('errors.404', ['applicationName' => \config('name', 'OfficeApp ERP')]);
             return;
         }
+        $invoice['related']=(new \App\Services\Lists\DocumentListService())->workspace(['invoice-payments'],$_GET,(int)$id,\appBasePath().'/finance/customer-invoices/'.(int)$id,
+            (new \App\Services\ModuleRoleService())->permissionAllowed((new TenantContext())->companyId(),$this->actor(),'finance.export'));
+        \App\Services\Lists\DocumentListService::download($invoice['related'],$_GET);
+        $invoice['payments']=$invoice['related']['lists']['invoice-payments']['rows'];
         $quickSaleEvidence = null;
         foreach (
-            (new \App\Services\SalesQuickSaleService())->financeQueue($this->actor())
+            (new \App\Services\SalesQuickSaleService())->financeQueue($this->actor(),(int)$invoice['invoice_id'])
             as $task
         ) {
             if (
@@ -159,7 +189,15 @@ final class FinanceController
     public function accountingPeriods(): void
     {
         $this->authorizeOperations('finance.period.view');
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Accounting Periods','pageDescription'=>'Controlled fiscal-year and posting-period lifecycle.','contentView'=>'finance.accounting-periods','user'=>$_SESSION['auth'],'notice'=>\getFlash('finance_period_notice'),'error'=>\getFlash('finance_period_error')]+$this->periods->workspace());
+        $workspace=$this->periods->workspace($_GET);
+        if(isset($_GET['download'])) {
+            $this->authorizeOperations('finance.export');
+            $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'accounting-periods');
+            if(!isset($workspace['exportLists'][$entity])){http_response_code(400);echo 'Choose an accounting-period register.';return;}
+            \App\Services\Lists\ListDownload::send($entity,$workspace['exportLists'][$entity],(new \App\Services\Lists\FinanceListService())->columns($entity),$_GET['download']);
+        }
+
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Accounting Periods','pageDescription'=>'Controlled fiscal-year and posting-period lifecycle.','contentView'=>'finance.accounting-periods','user'=>$_SESSION['auth'],'notice'=>\getFlash('finance_period_notice'),'error'=>\getFlash('finance_period_error')]+$workspace);
     }
 
     public function createFiscalYear(): void { $this->periodMutation('finance.period.manage',function():void{$this->periods->createFiscalYear($_POST,$this->actor());},'Fiscal year created.'); }
@@ -187,78 +225,134 @@ final class FinanceController
                 'finance.records.manage',
                 'finance.requests.approve',
             ]);
-        $dashboard = $this->finance->dashboard(
-            $this->queryString('search'),
-            $this->queryString('status'),
-            $this->queryInteger('page', 1),
-            $this->queryString(
-                'receivable_search'
-            ),
-            $this->queryString(
-                'receivable_status'
-            ),
-            $this->queryInteger(
-                'receivable_page',
-                1
-            )
+        $section=$this->queryString(
+            'section',
+            'dashboard'
         );
 
-        \view('layouts.app', [
-            'applicationName' => \config(
-                'name',
-                'OfficeApp ERP'
-            ),
-            'environment' => \config(
-                'environment',
-                'unknown'
-            ),
-            'pageTitle' => 'Finance',
-            'pageDescription' =>
-                'Sales receivables, receipts, journal postings and expense workflow visibility.',
-            'contentView' => 'finance.index',
-            'user' => $_SESSION['auth'],
-            'workCenter' => in_array('finance.records.view', $_SESSION['auth']['permissions'] ?? [], true)
-                ? (new \App\Services\FinanceWorkCenterService())->summary() : [],
-            'receivableSummary' =>
-                $dashboard['receivableSummary'],
-            'receivables' =>
-                $dashboard['receivables'],
-            'receivableTotal' =>
-                $dashboard['receivableTotal'],
-            'receivableStatusOptions' =>
-                $dashboard[
-                    'receivableStatusOptions'
-                ],
-            'receivableFilters' =>
-                $dashboard[
-                    'receivableFilters'
-                ],
-            'receivablePagination' =>
-                $dashboard[
-                    'receivablePagination'
-                ],
-            'recentReceipts' =>
-                $dashboard['recentReceipts'],
-            'recentJournals' =>
-                $dashboard['recentJournals'],
-            'requests' => $dashboard['requests'],
-            'summary' => $dashboard['summary'],
-            'statusOptions' =>
-                $dashboard['statusOptions'],
-            'filters' => $dashboard['filters'],
-            'pagination' =>
-                $dashboard['pagination'],
-            'canManage' => in_array(
-                'finance.records.manage',
-                $_SESSION['auth']['permissions'] ?? [],
+        /*
+         * Smart registers use one SQL source for:
+         * search, filters, count, pagination and export.
+         */
+        if(in_array(
+            $section,
+            [
+                'receivables',
+                'receipts',
+                'journals',
+            ],
+            true
+        )){
+            $lists=
+                new \App\Services\Lists\FinanceListService();
+
+            $list=$lists->listing(
+                $section,
+                $_GET
+            );
+
+            if(isset($_GET['download'])){
+                $this->authorizeOperations(
+                    'finance.export'
+                );
+
+                $exportName=match($section){
+                    'receivables'=>
+                        'Finance_Receivables',
+
+                    'receipts'=>
+                        'Finance_Receipts',
+
+                    'journals'=>
+                        'Finance_Journals',
+                };
+
+                \App\Services\Lists\ListDownload::send(
+                    $exportName,
+                    $list,
+                    $lists->columns($section),
+                    $_GET['download']
+                );
+            }
+
+            $page=$list->page();
+
+            $title=match($section){
+                'receivables'=>'Receivables',
+                'receipts'=>'Receipts',
+                'journals'=>'Journals',
+            };
+
+            $description=match($section){
+                'receivables'=>
+                    'Posted customer balances, due dates and collection status.',
+
+                'receipts'=>
+                    'Posted customer payments and collection references.',
+
+                'journals'=>
+                    'Finance journal batches and accounting totals.',
+            };
+
+            \view('layouts.app',[
+                'applicationName'=>\config(
+                    'name',
+                    'OfficeApp ERP'
+                ),
+
+                'environment'=>\config(
+                    'environment',
+                    'unknown'
+                ),
+
+                'pageTitle'=>$title,
+                'pageDescription'=>$description,
+
+                'contentView'=>'finance.register',
+
+                'registerEntity'=>$section,
+                'register'=>$page,
+
+                'registerControls'=>
+                    $lists->controls($section),
+
+                'canExport'=>in_array(
+                    'finance.export',
+                    $_SESSION['auth']['permissions']??[],
+                    true
+                ),
+
+                'user'=>$_SESSION['auth'],
+            ]);
+
+            return;
+        }
+
+        /*
+         * Modern Expenses owns the active expense workflow.
+         * Keep the old history URL only as compatibility.
+         */
+        if(
+            $section==='expenses'
+            && in_array(
+                'finance.expenses.view',
+                $_SESSION['auth']['permissions']??[],
                 true
-            ),
-            'canApprove' => in_array(
-                'finance.requests.approve',
-                $_SESSION['auth']['permissions'] ?? [],
-                true
-            ),
-        ]);
+            )
+        ){
+            \redirect('/finance/expenses');
+        }
+        $dashboard=$this->finance->smartOverview($section,array_replace($_GET,['section'=>$section]),
+            (new \App\Services\ModuleRoleService())->permissionAllowed((new TenantContext())->companyId(),$this->actor(),'finance.export'));
+        if(isset($_GET['download']))$this->authorizeOperations('finance.export');
+        \App\Services\Lists\DocumentListService::download($dashboard['overviewRegister'],$_GET);
+        \view('layouts.app',[
+            'applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),
+            'pageTitle'=>'Finance','pageDescription'=>'Sales receivables, collections and current company work.',
+            'contentView'=>'finance.index','user'=>$_SESSION['auth'],
+            'workCenter'=>in_array('finance.records.view',$_SESSION['auth']['permissions']??[],true)
+                ?(new \App\Services\FinanceWorkCenterService())->summary():[],
+        ]+$dashboard);
     }
 
     private function queryString(

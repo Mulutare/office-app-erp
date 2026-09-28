@@ -26,15 +26,8 @@ final class AuditLogController
             'audit.logs.view'
         );
 
-        $listing = $this->auditLogs->listing(
-            $this->queryString('search'),
-            $this->queryString('module'),
-            $this->queryString('action'),
-            $this->queryString('actor'),
-            $this->queryString('date_from'),
-            $this->queryString('date_to'),
-            $this->queryInteger('page', 1)
-        );
+        $listing = $this->auditLogs->smartListing($_GET);
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('audit',$listing['exportList'],(new \App\Services\Lists\AdministrationListService())->columns('audit'),$_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -51,6 +44,7 @@ final class AuditLogController
             'contentView' =>
                 'administration.audit-logs.index',
             'user' => $_SESSION['auth'],
+            'listing'=>$listing,
             'logs' => $listing['logs'],
             'options' => $listing['options'],
             'filters' => $listing['filters'],

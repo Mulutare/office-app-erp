@@ -47,8 +47,11 @@ final class LeaveController
             $canManageCompany,
             $canApproveCompany,
             $canRequestSelf,
-            $canApproveTeam
+            $canApproveTeam,
+            $_GET
         );
+
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('leave', $dashboard['exportList'], \App\Services\Lists\LeaveListService::columns(), $_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -65,6 +68,7 @@ final class LeaveController
             'contentView' => 'hr.leave.index',
             'user' => $_SESSION['auth'],
             'requests' => $dashboard['requests'],
+            'list' => $dashboard['list'],
             'leaveTypes' =>
                 $dashboard['leaveTypes'],
             'employees' => $dashboard['employees'],

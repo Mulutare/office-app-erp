@@ -9,17 +9,27 @@ final class SettlementService
 {
     private SettlementRepository $repo;private TenantContext $tenant;
     public function __construct(?SettlementRepository $repo=null,?TenantContext $tenant=null){$this->repo=$repo??new SettlementRepository();$this->tenant=$tenant??new TenantContext();}
-    public function listing(): array
+    public function listing(?array $input = null): array
     {
         $company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);
-        return ['settlements'=>array_values(array_filter($this->repo->list($company),fn($row)=>$this->canRead($row,$actor))),
+        $exportList=$input===null ? null : (new \App\Services\Lists\SettlementListService())->listing($input);
+        $list=$exportList?->page();
+        return ['list'=>$list,'exportList'=>$exportList,'settlements'=>$list===null ? array_values(array_filter($this->repo->list($company),fn($row)=>$this->canRead($row,$actor))) : $list['rows'],
             'eligiblePayments'=>array_values(array_filter($this->repo->eligiblePayments($company),fn($row)=>$this->canReadOrder((int)$row['sales_order_id'],$actor))),
             'bankAccounts'=>$this->repo->bankAccounts($company)];
     }
-    public function find(int $id): ?array
+    public function find(int $id,?array $input=null): ?array
     {
-        $row=$this->repo->find($this->tenant->companyId(),$id);
-        return $row!==null && $this->canRead($row,(int)($_SESSION['auth']['user_id']??0)) ? $row : null;
+        $row=$this->repo->find($this->tenant->companyId(),$id,$input===null);
+        $actor=(int)($_SESSION['auth']['user_id']??0);
+        if($row===null||!$this->canRead($row,$actor))return null;
+        if($input!==null){
+            $module=str_contains((string)($_SERVER['REQUEST_URI']??''),'/finance/')?'finance':'sales';
+            $canExport=(new ModuleRoleService())->permissionAllowed($this->tenant->companyId(),$actor,$module.'.export');
+            $row['related']=(new \App\Services\Lists\DocumentListService())->workspace(['settlement-confirmations','settlement-events'],$input,$id,\appBasePath().'/'.$module.'/settlements/'.$id,$canExport);
+            $row['confirmations']=$row['related']['lists']['settlement-confirmations']['rows'];$row['events']=$row['related']['lists']['settlement-events']['rows'];
+        }
+        return $row;
     }
     private function canRead(array $row,int $actor): bool
     {

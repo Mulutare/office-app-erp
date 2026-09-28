@@ -41,7 +41,8 @@ final class ManagerWorkspaceService
      */
     public function workspace(
         int $actorUserId,
-        bool $attendanceEnabled
+        bool $attendanceEnabled,
+        ?array $input = null
     ): array {
         $companyId = $this->tenant->companyId();
         $today = date('Y-m-d');
@@ -57,16 +58,16 @@ final class ManagerWorkspaceService
             );
         }
 
-        $reports = $this->teams->directReports(
-            $companyId,
-            $actorUserId,
-            $today
+        $list = $input === null ? null : (new \App\Services\Lists\HrWorkspaceListService())->team($input, $actorUserId, $today, $today);
+        $page = $list?->page();
+        $reports = $page !== null ? $page['rows'] : $this->teams->directReports($companyId, $actorUserId, $today);
+        $leaveList = $input === null ? null : (new \App\Services\Lists\LeaveListService())->requests(
+            ['status'=>'pending'], $actorUserId, 0, false, true
         );
-        $requests = $this->leave
-            ->requestsForManager(
-                $companyId,
-                $actorUserId
-            );
+        $requests = $leaveList === null ? $this->leave->requestsForManager($companyId, $actorUserId)
+            : array_merge($leaveList->page()['rows'], (new \App\Services\Lists\LeaveListService())->requests(
+                ['status'=>'approved','end_from'=>$today], $actorUserId, 0, false, true
+            )->page()['rows']);
         $pendingRequests = [];
         $upcomingRequests = [];
 
@@ -150,6 +151,8 @@ final class ManagerWorkspaceService
         return [
             'reporting' => $reporting,
             'reports' => $reports,
+            'list' => $page,
+            'exportList' => $list,
             'pendingRequests' => array_slice(
                 $pendingRequests,
                 0,
@@ -164,7 +167,7 @@ final class ManagerWorkspaceService
             'attendanceEnabled' =>
                 $attendanceEnabled,
             'today' => $today,
-            'summary' => [
+            'summary' => $list === null ? [
                 'directReports' => count($reports),
                 'pendingApprovals' =>
                     count($pendingRequests),
@@ -173,7 +176,12 @@ final class ManagerWorkspaceService
                 'onLeaveToday' => $onLeaveToday,
                 'profilesMissing' =>
                     $profileMissingCount,
-            ],
+            ] : $list->aggregate([
+                'directReports'=>'COUNT(*)',
+                'attendanceRecorded'=>$attendanceEnabled ? 'COALESCE(SUM(attendance_status IS NOT NULL),0)' : '0',
+                'onLeaveToday'=>"COALESCE(SUM(attendance_status='on_leave'),0)",
+                'profilesMissing'=>'COALESCE(SUM(employee_id IS NULL),0)',
+            ]) + ['pendingApprovals'=>$leaveList->aggregate(['total'=>'COUNT(*)'])['total']],
         ];
     }
 

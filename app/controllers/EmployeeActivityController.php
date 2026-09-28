@@ -29,10 +29,7 @@ final class EmployeeActivityController
                 'hr.records.view',
                 'hr.records.manage',
             ]);
-        $listing = $this->activity->listing(
-            $this->queryInteger('id', 0),
-            $this->queryInteger('page', 1)
-        );
+        $listing=$this->activity->smartListing($this->queryInteger('id',0),$_GET);
 
         if ($listing === null) {
             $this->notFound();
@@ -40,6 +37,7 @@ final class EmployeeActivityController
 
         $employee = $listing['employee'];
 
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('employee-activity',$listing['exportList'],(new \App\Services\Lists\AdministrationListService())->columns('employee-activity'),$_GET['download']);
         \view('layouts.app', [
             'applicationName' => \config(
                 'name',
@@ -60,6 +58,7 @@ final class EmployeeActivityController
             'contentView' =>
                 'hr.employees.activity',
             'user' => $_SESSION['auth'],
+            'listing'=>$listing,
             'employee' => $employee,
             'events' => $listing['events'],
             'pagination' =>

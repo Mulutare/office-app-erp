@@ -20,20 +20,25 @@ final class ExportDataProvider
     /** @return list<array<string,mixed>> */
     public function rows(string $entity, array $filters = []): array
     {
+        if (in_array($entity, ['employees','attendance'], true)) {
+            $lists = new \App\Services\Lists\HrListService();
+            return ($entity === 'employees' ? $lists->employees($filters) : $lists->attendance($filters))->export();
+        }
         $primary=null;
-        if($entity==='suppliers'){$rows=(array)((new ProcurementService())->workspace()['suppliers']??[]);$primary='supplier_id';}
-        elseif($entity==='purchase-orders'){$rows=(array)((new ProcurementService())->workspace()['orders']??[]);$primary='purchase_order_id';}
-        elseif($entity==='finance-journals'){$rows=(new FinanceDashboardService())->exportJournals(10000);$primary='journal_batch_id';}
-        elseif($entity==='expenses'){$rows=(new FinanceDashboardService())->exportExpenses($filters,10000);$primary='expense_request_id';}
+        if($entity==='suppliers'){$rows=(new \App\Services\Lists\ProcurementListService())->listing('suppliers',$filters)->export();$primary='supplier_id';}
+        elseif($entity==='purchase-orders'){$rows=(new \App\Services\Lists\ProcurementListService())->listing('purchase-orders',$filters)->export();$primary='purchase_order_id';}
+        elseif($entity==='finance-journals'){$rows=(new \App\Services\Lists\FinanceListService())->listing('journals',$filters)->export();$primary='journal_batch_id';}
+        elseif($entity==='expenses'){$rows=(new \App\Services\Lists\FinanceListService())->listing('expenses',$filters)->export();$primary='expense_request_id';}
         elseif(in_array($entity,['customers','products','pricelists','sales-teams','quotations','sales-orders'],true)){
-            $workspace=(new SalesService())->workspace();$map=['customers'=>['customers','customer_id'],'products'=>['products','product_id'],'pricelists'=>['pricelists','pricelist_id'],'sales-teams'=>['salesTeams','team_id'],'quotations'=>['quotations','quotation_id'],'sales-orders'=>['orders','order_id']];[$key,$primary]=$map[$entity];$rows=(array)($workspace[$key]??[]);
-        }elseif($entity==='warehouses'){$data=(new WarehouseManagementService())->listing();$rows=(array)($data['warehouses']??$data);$primary='warehouse_id';}
-        elseif($entity==='locations'){$data=(new WarehouseLocationManagementService())->listing();$rows=(array)($data['locations']??$data);$primary='location_id';}
-        elseif($entity==='stock'){$rows=(array)((new InventoryService())->workspace()['stockBalances']??[]);$primary='stock_balance_id';foreach($rows as &$stock){$stock['warehouse']=$stock['warehouse_name']??'';$stock['location']=$stock['location_name']??'';$stock['product']=$stock['product_name']??'';$stock['on_hand']=$stock['quantity_on_hand']??0;$stock['reserved']=$stock['quantity_reserved']??0;$stock['available']=$stock['quantity_available']??0;}unset($stock);}
-        elseif($entity==='receipts'){$rows=(new InventoryService())->receipts();$primary='goods_receipt_id';}
-        elseif($entity==='deliveries'||$entity==='returns'){$rows=(new SalesService())->deliveries();$primary='picking_id';}
+            $rows=(new \App\Services\Lists\SalesListService())->listing($entity,$filters)->export();
+            $primary=['customers'=>'customer_id','products'=>'product_id','pricelists'=>'pricelist_id','sales-teams'=>'team_id','quotations'=>'quotation_id','sales-orders'=>'order_id'][$entity];
+        }elseif(in_array($entity,['warehouses','locations','stock','receipts'],true)){
+            $rows=(new \App\Services\Lists\InventoryListService())->listing($entity,$filters)->export();
+            $primary=['warehouses'=>'warehouse_id','locations'=>'location_id','stock'=>'stock_balance_id','receipts'=>'goods_receipt_id'][$entity];
+        }
+        elseif($entity==='deliveries'||$entity==='returns'){$rows=(new \App\Services\Lists\SalesListService())->listing($entity,$filters)->export();$primary='picking_id';}
         elseif($entity==='invoices'){
-            $source=(new FinanceOperationsService())->customerInvoices($filters);$primary='invoice_id';$rows=[];
+            $source=(new \App\Services\Lists\FinanceListService())->listing('invoices',$filters)->export();$primary='invoice_id';$rows=[];
             foreach($source as $invoice){$rows[]=[
                 'invoice_id'=>$invoice['invoice_id']??null,
                 'invoice'=>$invoice['invoice_number']??'', 'customer'=>$invoice['customer_name']??'',
@@ -71,7 +76,7 @@ final class ExportDataProvider
             'returns'=>['picking_id'=>$r['picking_id']??null,'document'=>$r['picking_number']??'','reference'=>$r['origin_reference']??'','date'=>$r['completed_at']??'','status'=>ucfirst((string)($r['status']??''))],
             'credit-notes'=>['invoice_id'=>$r['invoice_id']??null,'reference'=>$r['invoice_number']??'','customer'=>$r['customer_name']??'','date'=>$r['invoice_date']??'','currency'=>$r['currency']??'','total'=>$r['total_amount']??0,'status'=>strtoupper((string)($r['status']??''))],
             'finance-journals'=>['journal_batch_id'=>$r['journal_batch_id']??null,'batch'=>$r['batch_number']??'','source'=>$r['source_number']??$r['source_type']??'','description'=>$r['description']??'','posting_date'=>$r['posting_date']??'','debit'=>$r['total_debit']??0,'credit'=>$r['total_credit']??0,'status'=>ucfirst((string)($r['status']??''))],
-            'expenses'=>['expense_request_id'=>$r['expense_request_id']??null,'request'=>trim(($r['request_number']??'').' - '.($r['title']??''),' -'),'requester'=>$r['requesterName']??'','category'=>$r['category_name']??'','expense_date'=>$r['expense_date']??'','currency'=>$r['currency']??'','amount'=>$r['amount']??0,'status'=>ucfirst((string)($r['status']??'')),'submitted'=>$r['submitted_at']??''],
+            'expenses'=>['expense_request_id'=>$r['expense_request_id']??null,'request'=>trim(($r['request_number']??'').' - '.($r['title']??''),' -'),'requester'=>$r['requester_name']??$r['requesterName']??'','category'=>$r['category_name']??'','expense_date'=>$r['expense_date']??'','currency'=>$r['currency']??'','amount'=>$r['amount']??0,'status'=>ucfirst((string)($r['status']??'')),'submitted'=>$r['submitted_at']??''],
             'purchase-orders'=>['purchase_order_id'=>$r['purchase_order_id']??null,'po'=>$r['po_number']??'','supplier'=>$r['supplier_name']??'','date'=>$r['order_date']??'','expected'=>$r['expected_date']??'','status'=>ucwords(str_replace('_',' ',$r['status']??'')),'received'=>$r['received_quantity']??0,'billed'=>$r['billed_quantity']??0,'currency'=>$r['currency']??'','total'=>$r['total_amount']??0],
             default=>$r,
         };

@@ -42,12 +42,13 @@ $notice = is_array($data['notice'] ?? null)
         </div>
     </header>
 
+    <section class="card"><h3>Manager actions</h3><?php view('sales.quick-sale-list-controls',['register'=>'queue','quick'=>$quick]); ?></section>
     <?php if ($queue === []): ?>
 
         <section class="card quick-sale-card">
-            <h3>No manager action required</h3>
+            <h3>No matching manager actions</h3>
             <p>
-                New requests and resubmitted sales reports will appear here automatically.
+                Adjust the filters to see other requests awaiting your action.
             </p>
         </section>
 
@@ -101,7 +102,7 @@ $notice = is_array($data['notice'] ?? null)
 
     <?php endif; ?>
 
-    <?php if ($waiting !== []): ?>
+    <?php if ($waiting !== [] || isset($quick['lists']['waiting'])): ?>
 
         <section class="card quick-sale-card quick-sale-waiting-section">
             <div class="section-heading">
@@ -115,10 +116,12 @@ $notice = is_array($data['notice'] ?? null)
                 </div>
 
                 <span class="badge badge-warning">
-                    <?= e(count($waiting)) ?>
+                    <?= e($quick['lists']['waiting']['pagination']['total'] ?? count($waiting)) ?>
                 </span>
             </div>
 
+            <?php view('sales.quick-sale-list-controls',['register'=>'waiting','quick'=>$quick]); ?>
+            <?php if($waiting===[]): ?><p>No matching reports awaiting correction.</p><?php endif; ?>
             <div class="quick-sale-manager-list">
                 <?php foreach ($waiting as $sale): ?>
 
@@ -197,10 +200,11 @@ $notice = is_array($data['notice'] ?? null)
             </div>
 
             <span class="badge badge-neutral">
-                <?= e(count($history)) ?>
+                <?= e($quick['lists']['history']['pagination']['total'] ?? count($history)) ?>
             </span>
         </div>
 
+        <?php view('sales.quick-sale-list-controls',['register'=>'history','quick'=>$quick]); ?>
         <?php if ($history === []): ?>
 
             <p class="quick-sale-history-empty">
@@ -313,10 +317,12 @@ $notice = is_array($data['notice'] ?? null)
 
         <?php endif; ?>
     </section>
-    <?php if (!empty($quick['hierarchySales'])): ?>
+    <?php if (!empty($quick['hierarchySales']) || isset($quick['lists']['hierarchy'])): ?>
     <section class="card qs-routing">
         <h2>My reporting tree</h2>
-        <p>Recent requests from your reporting tree. Only the current responsible manager can act.</p>
+        <p>Requests from your reporting tree. Only the current responsible manager can act.</p>
+        <?php view('sales.quick-sale-list-controls',['register'=>'hierarchy','quick'=>$quick]); ?>
+        <?php if(empty($quick['hierarchySales'])): ?><p>No matching requests in your reporting tree.</p><?php endif; ?>
         <div class="qs-finance-grid">
         <?php foreach ($quick['hierarchySales'] as $record): ?>
             <article class="qs-finance-card">

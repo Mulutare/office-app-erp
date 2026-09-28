@@ -63,7 +63,7 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function orderDetail(int $companyId, int $orderId): ?array
+    public function orderDetail(int $companyId, int $orderId, bool $withRelated=true): ?array
     {
         $header = $this->connection()->prepare(
             'SELECT o.*, c.name customer_name, c.address customer_address,
@@ -109,16 +109,20 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         );
         $lines->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
         $order['lines']=$lines->fetchAll(PDO::FETCH_ASSOC);
+        $order['invoices']=[];$order['pickings']=[];
+        if($withRelated){
         $invoices=$this->connection()->prepare("SELECT invoice_id,invoice_number,document_type,status,payment_status,total_amount,residual_amount FROM finance_invoices WHERE company_id=:company_id AND sales_order_id=:order_id AND document_type IN('customer_invoice','customer_credit') AND status<>'cancelled' ORDER BY invoice_id");
         $invoices->execute(['company_id'=>$companyId,'order_id'=>$orderId]);$order['invoices']=$invoices->fetchAll(PDO::FETCH_ASSOC);
         $pickings=$this->connection()->prepare("SELECT picking_id,picking_number,picking_type,status FROM inventory_pickings WHERE company_id=:company_id AND sales_order_id=:order_id ORDER BY picking_id");
         $pickings->execute(['company_id'=>$companyId,'order_id'=>$orderId]);$order['pickings']=$pickings->fetchAll(PDO::FETCH_ASSOC);
+        }
         $ordered=$delivered=$returned=$invoiced=0.0;
         foreach($order['lines'] as &$line){$ordered+=(float)$line['quantity'];$delivered+=(float)$line['delivered_quantity'];$returned+=(float)$line['returned_quantity'];$invoiced+=(float)$line['invoiced_quantity'];$net=max(0,(float)$line['delivered_quantity']-(float)$line['returned_quantity']);$line['net_delivered_quantity']=$net;$line['remaining_quantity']=max(0,(float)$line['quantity']-(float)$line['delivered_quantity']);$line['invoiceable_quantity']=max(0,$net-(float)$line['invoiced_quantity']);$line['remaining_to_invoice']=max(0,(float)$line['quantity']-(float)$line['invoiced_quantity']);}unset($line);
         $creditedReturns=$this->connection()->prepare("SELECT COALESCE(SUM(fil.quantity),0) FROM finance_invoice_lines fil INNER JOIN finance_invoices fi ON fi.company_id=fil.company_id AND fi.invoice_id=fil.invoice_id WHERE fi.company_id=:company_id AND fi.sales_order_id=:order_id AND fi.document_type='customer_credit' AND fi.status IN('draft','posted')");
         $creditedReturns->execute(['company_id'=>$companyId,'order_id'=>$orderId]);
         $order['credit_note_eligible_quantity']=max(0.0,$returned-(float)$creditedReturns->fetchColumn());
-        $net=max(0,$delivered-$returned);$order['delivery_state']=$delivered<=0?'not_delivered':($delivered<$ordered?'partially_delivered':'delivered');$order['invoice_state']=$invoiced<=0?($net>0?'to_invoice':'nothing_to_invoice'):($invoiced<$net?'partially_invoiced':'invoiced');$salesInvoices=array_values(array_filter($order['invoices'],static fn(array $i):bool=>($i['document_type']??'customer_invoice')==='customer_invoice'));$residual=array_sum(array_map(static fn(array $i)=>(float)$i['residual_amount'],$salesInvoices));$invoiceTotal=array_sum(array_map(static fn(array $i)=>(float)$i['total_amount'],$salesInvoices));$order['payment_state']=$invoiceTotal<=0||$residual===$invoiceTotal?'unpaid':($residual>0?'partially_paid':'paid');
+        $net=max(0,$delivered-$returned);$order['delivery_state']=$delivered<=0?'not_delivered':($delivered<$ordered?'partially_delivered':'delivered');$order['invoice_state']=$invoiced<=0?($net>0?'to_invoice':'nothing_to_invoice'):($invoiced<$net?'partially_invoiced':'invoiced');$invoiceSummary=$this->connection()->prepare("SELECT COALESCE(SUM(residual_amount),0) residual,COALESCE(SUM(total_amount),0) total FROM finance_invoices WHERE company_id=? AND sales_order_id=? AND document_type='customer_invoice' AND status<>'cancelled'");$invoiceSummary->execute([$companyId,$orderId]);$invoiceAmounts=$invoiceSummary->fetch(PDO::FETCH_ASSOC);$residual=(float)$invoiceAmounts['residual'];$invoiceTotal=(float)$invoiceAmounts['total'];$order['payment_state']=$invoiceTotal<=0||$residual===$invoiceTotal?'unpaid':($residual>0?'partially_paid':'paid');
+        if(!$withRelated){$order['revisions']=[];return $order;}
         $revisions=$this->connection()->prepare('SELECT * FROM sales_order_revisions WHERE company_id=? AND order_id=? ORDER BY revision_number');$revisions->execute([$companyId,$orderId]);
         $order['revisions']=$revisions->fetchAll(PDO::FETCH_ASSOC);
         $revisionLines=$this->connection()->prepare('SELECT * FROM sales_order_revision_lines WHERE company_id=? AND revision_id=? ORDER BY revision_line_id');
@@ -163,9 +167,9 @@ final class SalesRepository extends MySqlRepository implements SalesRepositoryCo
         return $this->catalogue("SELECT t.*,a.name leader_name,(SELECT COUNT(*) FROM sales_team_members m WHERE m.company_id=t.company_id AND m.team_id=t.team_id) member_count FROM sales_teams t LEFT JOIN sales_agents a ON a.agent_id=t.leader_agent_id WHERE t.company_id=:company_id ORDER BY t.active DESC,t.name",$companyId);
     }
 
-    public function pricelist(int $companyId,int $pricelistId): ?array
+    public function pricelist(int $companyId,int $pricelistId,bool $withRules=true): ?array
     {
-        $s=$this->connection()->prepare('SELECT * FROM sales_pricelists WHERE company_id=:company_id AND pricelist_id=:id');$s->execute(['company_id'=>$companyId,'id'=>$pricelistId]);$p=$s->fetch(PDO::FETCH_ASSOC);if(!is_array($p))return null;$r=$this->connection()->prepare('SELECT r.*,p.sku,p.name product_name FROM sales_pricelist_rules r LEFT JOIN sales_products p ON p.company_id=r.company_id AND p.product_id=r.product_id WHERE r.company_id=:company_id AND r.pricelist_id=:id ORDER BY r.active DESC,r.priority,r.rule_id');$r->execute(['company_id'=>$companyId,'id'=>$pricelistId]);$p['rules']=$r->fetchAll(PDO::FETCH_ASSOC);return $p;
+        $s=$this->connection()->prepare('SELECT * FROM sales_pricelists WHERE company_id=:company_id AND pricelist_id=:id');$s->execute(['company_id'=>$companyId,'id'=>$pricelistId]);$p=$s->fetch(PDO::FETCH_ASSOC);if(!is_array($p))return null;if(!$withRules){$p['rules']=[];return $p;}$r=$this->connection()->prepare('SELECT r.*,p.sku,p.name product_name FROM sales_pricelist_rules r LEFT JOIN sales_products p ON p.company_id=r.company_id AND p.product_id=r.product_id WHERE r.company_id=:company_id AND r.pricelist_id=:id ORDER BY r.active DESC,r.priority,r.rule_id');$r->execute(['company_id'=>$companyId,'id'=>$pricelistId]);$p['rules']=$r->fetchAll(PDO::FETCH_ASSOC);return $p;
     }
 
     public function team(int $companyId,int $teamId): ?array

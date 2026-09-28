@@ -18,6 +18,7 @@ $roles = is_array($data['roles'] ?? null)
     </a>
 </div>
 
+<?php view('administration.list-controls',['listing'=>$data['listing'],'entity'=>'roles','path'=>appBasePath().'/administration/roles']); ?>
 <section class="role-management-grid">
     <?php foreach ($roles as $role): ?>
         <article class="card role-management-card">

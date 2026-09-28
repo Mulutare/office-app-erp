@@ -696,25 +696,8 @@ final class UserAdministrationController
                 'administration.users.manage'
             );
 
-        $listing = $this->users->listing(
-            $this->queryString('search'),
-            $this->queryString(
-                'status',
-                'all'
-            ),
-            $this->queryString(
-                'sort',
-                'created_at'
-            ),
-            $this->queryString(
-                'direction',
-                'desc'
-            ),
-            $this->queryInteger(
-                'page',
-                1
-            )
-        );
+        $listing = $this->users->smartListing($_GET);
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('users',$listing['exportList'],(new \App\Services\Lists\AdministrationListService())->columns('users'),$_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -731,6 +714,7 @@ final class UserAdministrationController
             'contentView' =>
                 'administration.users.index',
             'user' => $_SESSION['auth'],
+            'listing'=>$listing,
             'users' => $listing['users'],
             'filters' => $listing['filters'],
             'pagination' =>

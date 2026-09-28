@@ -18,12 +18,118 @@ final class FinanceBankReconciliationController
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$title,'pageDescription'=>'Entire-bank statement reconciliation against posted GL activity.','contentView'=>$content,'user'=>$_SESSION['auth'],'notice'=>\getFlash('bank_rec_notice'),'error'=>\getFlash('bank_rec_error')]+$extra);
     }
     public function index(): void
-    { $this->permit('view');$this->render('Bank Reconciliation','finance.bank-reconciliation',['bankData'=>$this->service()->register()]); }
+    {
+        $this->permit('view');
+
+        $lists=
+            new \App\Services\Lists\FinanceListService();
+
+        /*
+         * Two independent smart lists share this page.
+         * Namespaces prevent one register's page/filter
+         * parameters from overwriting the other.
+         */
+        $mappingList=$lists->listing(
+            'bank-mappings',
+            $_GET,
+            'mappings'
+        );
+
+        $statementList=$lists->listing(
+            'bank-statements',
+            $_GET,
+            'statements'
+        );
+
+        if(isset($_GET['download'])){
+            (new AuthorizationService())
+                ->requireModulePermission(
+                    'finance',
+                    'finance.export'
+                );
+
+            $register=
+                trim((string)($_GET['register']??''));
+
+            if($register==='bank-mappings'){
+                \App\Services\Lists\ListDownload::send(
+                    'Finance_Bank_GL_Mappings',
+                    $mappingList,
+                    $lists->columns('bank-mappings'),
+                    $_GET['download']
+                );
+            }
+
+            if($register==='bank-statements'){
+                \App\Services\Lists\ListDownload::send(
+                    'Finance_Bank_Reconciliations',
+                    $statementList,
+                    $lists->columns('bank-statements'),
+                    $_GET['download']
+                );
+            }
+
+            http_response_code(400);
+            echo \e(
+                'Choose a valid Bank Reconciliation register.'
+            );
+            return;
+        }
+
+        $mappingPage=$mappingList->page();
+        $statementPage=$statementList->page();
+
+        /*
+         * Keep the existing full option sources for workflow
+         * forms. Only the two visible register tables are paged.
+         */
+        $bankData=$this->service()->register();
+
+        $bankData['mappingOptions']=
+            $bankData['mappings']??[];
+
+        $bankData['mappings']=
+            $mappingPage['rows'];
+
+        $bankData['statements']=
+            $statementPage['rows'];
+
+        $bankData['mappingList']=
+            $mappingPage;
+
+        $bankData['statementList']=
+            $statementPage;
+
+        $this->render(
+            'Bank Reconciliation',
+            'finance.bank-reconciliation',
+            [
+                'bankData'=>$bankData,
+
+                'mappingControls'=>
+                    $lists->controls('bank-mappings'),
+
+                'statementControls'=>
+                    $lists->controls('bank-statements'),
+
+                'canExport'=>in_array(
+                    'finance.export',
+                    $_SESSION['auth']['permissions']??[],
+                    true
+                ),
+            ]
+        );
+    }
     public function show(string $id): void
     {
         $this->permit('view');
-        try{$worksheet=$this->service()->worksheet((int)$id);}catch(\Throwable $e){http_response_code(404);echo \e($e->getMessage());return;}
-        $this->render('Bank Reconciliation Worksheet','finance.bank-reconciliation-worksheet',['worksheet'=>$worksheet]);
+        try{$worksheet=$this->service()->worksheet((int)$id,false);}catch(\Throwable $e){http_response_code(404);echo \e($e->getMessage());return;}
+        $worksheet['related']=(new \App\Services\Lists\DocumentListService())->workspace(['bank-matches','bank-events'],$_GET,(int)$id,\appBasePath().'/finance/bank-reconciliation/'.(int)$id,
+            (new \App\Services\ModuleRoleService())->permissionAllowed((new \App\Services\TenantContext())->companyId(),$this->actor(),'finance.export'));
+        if(isset($_GET['download']))(new AuthorizationService())->requireModulePermission('finance','finance.export');
+        \App\Services\Lists\DocumentListService::download($worksheet['related'],$_GET);
+        $worksheet['matches']=$worksheet['related']['lists']['bank-matches']['rows'];$worksheet['events']=$worksheet['related']['lists']['bank-events']['rows'];
+        $this->render('Bank Reconciliation Worksheet' ,'finance.bank-reconciliation-worksheet',['worksheet'=>$worksheet]);
     }
     private function mutate(string $permission,callable $work,string $message,?int $id=null): void
     {

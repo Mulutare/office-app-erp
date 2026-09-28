@@ -153,7 +153,7 @@ $canPost = !empty($data['canPostInvoice']) && (string) $invoice['status'] === 'd
     <?php endif; ?>
     <section class="card table-card" id="payments">
         <h2>Payments and allocations</h2>
-        <table class="data-table"><thead><tr><th>Payment</th><th>Date</th><th>Amount</th><th>Allocated</th><th>Method</th><th>Reference</th><th>Posting reference</th><th>Status</th></tr></thead><tbody>
+        <?php view('components.document-list-controls',['workspace'=>$invoice['related'],'entity'=>'invoice-payments']); ?><table class="data-table"><thead><tr><th>Payment</th><th>Date</th><th>Amount</th><th>Allocated</th><th>Method</th><th>Reference</th><th>Posting reference</th><th>Status</th></tr></thead><tbody>
         <?php if ($payments === []): ?><tr><td colspan="8" class="empty-state">No payments have been allocated.</td></tr><?php endif; ?>
         <?php foreach ($payments as $payment): ?><tr><td><?= e((string) $payment['payment_number']) ?></td><td><?= e((string) $payment['payment_date']) ?></td><td><?= e($money($payment['amount'])) ?></td><td><?= e($money($payment['allocated_amount'])) ?></td><td><?= e(str_replace('_', ' ', (string) $payment['method'])) ?></td><td><?= e((string) ($payment['reference_number'] ?? '')) ?></td><td><?= e((string) ($payment['posting_reference'] ?? '')) ?></td><td><?= e((string) $payment['status']) ?></td></tr><?php endforeach; ?>
         </tbody></table>

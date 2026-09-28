@@ -293,8 +293,7 @@ class CompanyMembershipRepository extends MySqlRepository
                )
              ORDER BY
                 users.display_name,
-                users.username
-             LIMIT 250'
+                users.username'
         );
         $statement->execute([
             'company_id' => $companyId,

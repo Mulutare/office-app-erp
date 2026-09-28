@@ -15,7 +15,9 @@ final class SalesPricingController
     public function index(): void
     {
         $this->permit('view');
-        $data=(new SalesPricingService())->register($this->actor());
+        $data=(new SalesPricingService())->register($this->actor(),$_GET);
+        if(isset($_GET['download']))(new AuthorizationService())->requireModulePermission('sales','sales.export');
+        \App\Services\Lists\DocumentListService::download($data['exports'],$_GET);
         $company=(new \App\Services\TenantContext())->companyId();
         $permissions=new \App\Services\ModuleRoleService();
         $agent=(new \App\Services\SalesHierarchyScope())->isAgent($company,$this->actor());

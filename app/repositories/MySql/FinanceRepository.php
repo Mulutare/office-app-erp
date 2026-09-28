@@ -33,7 +33,7 @@ final class FinanceRepository extends MySqlRepository
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function customerInvoice(int $companyId, int $invoiceId): ?array
+    public function customerInvoice(int $companyId, int $invoiceId, bool $withPayments=true): ?array
     {
         $statement = $this->connection()->prepare(
             "SELECT i.*,c.name customer_name,o.order_number,
@@ -68,6 +68,7 @@ final class FinanceRepository extends MySqlRepository
         $lines->execute(['company_id' => $companyId, 'invoice_id' => $invoiceId]);
         $invoice['lines'] = $lines->fetchAll(PDO::FETCH_ASSOC);
 
+        if(!$withPayments){$invoice['payments']=[];return $invoice;}
         $payments = $this->connection()->prepare(
             "SELECT p.payment_id,p.payment_number,p.payment_date,p.currency,p.amount,
                     a.amount allocated_amount,p.method,p.reference_number,p.status,

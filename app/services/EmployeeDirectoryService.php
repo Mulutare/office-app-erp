@@ -10,8 +10,6 @@ use App\Repositories\RepositoryFactory;
 
 final class EmployeeDirectoryService
 {
-    private const PAGE_SIZE = 20;
-
     private const STATUSES = [
         'active',
         'on_leave',
@@ -38,7 +36,8 @@ final class EmployeeDirectoryService
         string $search,
         string $status,
         int $departmentId,
-        int $page
+        int $page,
+        array $input = []
     ): array {
         $search = mb_substr(
             trim($search),
@@ -69,28 +68,10 @@ final class EmployeeDirectoryService
             $departmentId = 0;
         }
 
-        $filters = [
-            'search' => $search,
-            'status' => $status,
-            'departmentId' => $departmentId,
-        ];
-        $page = max(1, $page);
-        $total = $this->employees->count(
-            $companyId,
-            $filters
-        );
-        $lastPage = max(
-            1,
-            (int) ceil($total / self::PAGE_SIZE)
-        );
-        $page = min($page, $lastPage);
-        $offset = ($page - 1) * self::PAGE_SIZE;
-        $employees = $this->employees->page(
-            $companyId,
-            $filters,
-            self::PAGE_SIZE,
-            $offset
-        );
+        $listing = (new \App\Services\Lists\HrListService())->employees($input + [
+            'q' => $search, 'status' => $status, 'department' => $departmentId, 'page' => $page,
+        ])->page();
+        $employees = $listing['rows'];
 
         foreach ($employees as &$employee) {
             $employee = $this->present($employee);
@@ -107,24 +88,10 @@ final class EmployeeDirectoryService
                 $this->employees->statusSummary(
                     $companyId
                 ),
-            'filters' => [
-                'search' => $search,
-                'status' => $status,
-                'department' => $departmentId,
-            ],
-            'pagination' => [
-                'page' => $page,
-                'lastPage' => $lastPage,
-                'pageSize' => self::PAGE_SIZE,
-                'total' => $total,
-                'from' => $total === 0
-                    ? 0
-                    : $offset + 1,
-                'to' => min(
-                    $offset + self::PAGE_SIZE,
-                    $total
-                ),
-            ],
+            'filters' => $listing['query']->parameters(),
+            'pagination' => $listing['pagination'],
+            'listQuery' => $listing['query'],
+            'listOptions' => (new \App\Services\Lists\HrListService())->options(),
         ];
     }
 
@@ -132,7 +99,7 @@ final class EmployeeDirectoryService
      * @return array<string, mixed>|null
      */
     public function profile(
-        int $employeeId
+        int $employeeId, bool $withReports=true
     ): ?array {
         if ($employeeId < 1) {
             return null;
@@ -148,11 +115,11 @@ final class EmployeeDirectoryService
             return null;
         }
 
-        $reports = $this->employees
+        $reports = $withReports ? $this->employees
             ->directReports(
                 $companyId,
                 $employeeId
-            );
+            ) : [];
 
         foreach ($reports as &$report) {
             $report = $this->present($report);

@@ -34,82 +34,10 @@ final class WarehouseRepository extends MySqlRepository
     public function listForCompany(int $companyId): array
     {
         $statement = $this->connection()->prepare(
-            'SELECT
-                warehouses.company_id,
-                warehouses.warehouse_id,
-                warehouses.code,
-                warehouses.name,
-                warehouses.warehouse_type,
-                warehouses.branch_id,
-                branches.name AS branch_name,
-                warehouses.manager_user_id,
-                COALESCE(
-                    NULLIF(managers.display_name, \'\'),
-                    managers.username
-                ) AS manager_name,
-                warehouses.address,
-                warehouses.phone,
-                warehouses.email,
-                warehouses.allow_negative_stock,
-                warehouses.is_default,
-                warehouses.active,
-                warehouses.created_at,
-                warehouses.updated_at,
-                COUNT(operation_types.operation_type_id)
-                    AS active_operation_type_count,
-                SUM(
-                    CASE
-                        WHEN operation_types.is_default = TRUE
-                            THEN 1
-                        ELSE 0
-                    END
-                ) AS active_default_operation_type_count
-             FROM inventory_warehouses warehouses
-             LEFT JOIN organization_branches branches
-               ON branches.company_id = warehouses.company_id
-              AND branches.branch_id = warehouses.branch_id
-              AND branches.deleted_at IS NULL
-             LEFT JOIN company_users manager_memberships
-               ON manager_memberships.company_id =
-                    warehouses.company_id
-              AND manager_memberships.user_id =
-                    warehouses.manager_user_id
-              AND manager_memberships.active = TRUE
-             LEFT JOIN users managers
-               ON managers.user_id =
-                    manager_memberships.user_id
-              AND managers.active = TRUE
-              AND managers.deleted_at IS NULL
-             LEFT JOIN inventory_operation_types operation_types
-               ON operation_types.company_id = warehouses.company_id
-              AND operation_types.warehouse_id = warehouses.warehouse_id
-              AND operation_types.active = TRUE
-             WHERE warehouses.company_id = :company_id
-               AND warehouses.deleted_at IS NULL
-             GROUP BY
-                warehouses.company_id,
-                warehouses.warehouse_id,
-                warehouses.code,
-                warehouses.name,
-                warehouses.warehouse_type,
-                warehouses.branch_id,
-                branches.name,
-                warehouses.manager_user_id,
-                managers.display_name,
-                managers.username,
-                warehouses.address,
-                warehouses.phone,
-                warehouses.email,
-                warehouses.allow_negative_stock,
-                warehouses.is_default,
-                warehouses.active,
-                warehouses.created_at,
-                warehouses.updated_at
-             ORDER BY
+            \App\Services\Lists\InventoryListSql::warehouses() . ' ORDER BY
                 warehouses.is_default DESC,
                 warehouses.active DESC,
-                warehouses.name
-             LIMIT 250'
+                warehouses.name'
         );
         $statement->execute([
             'company_id' => $companyId,

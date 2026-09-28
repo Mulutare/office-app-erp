@@ -63,151 +63,7 @@ function auditLogListUrl(
 ?>
 
 <section class="audit-filter-panel card">
-    <form
-        method="get"
-        action="<?= e(appBasePath()) ?>/administration/audit-logs"
-        class="audit-filter-form"
-    >
-        <div class="form-field audit-search-field">
-            <label for="audit-search">
-                Search audit records
-            </label>
-            <input
-                id="audit-search"
-                name="search"
-                type="search"
-                value="<?= e(
-                    $filters['search'] ?? ''
-                ) ?>"
-                placeholder="Action, target, actor or IP address"
-                maxlength="100"
-            >
-        </div>
-
-        <div class="form-field">
-            <label for="audit-module">Module</label>
-            <select id="audit-module" name="module">
-                <option value="">All modules</option>
-                <?php foreach ($modules as $module): ?>
-                    <option
-                        value="<?= e($module) ?>"
-                        <?= (
-                            $filters['module'] ?? ''
-                        ) === $module
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e(ucwords($module)) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="form-field">
-            <label for="audit-action">Action</label>
-            <select id="audit-action" name="action">
-                <option value="">All actions</option>
-                <?php foreach ($actions as $action): ?>
-                    <option
-                        value="<?= e($action) ?>"
-                        <?= (
-                            $filters['action'] ?? ''
-                        ) === $action
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e(ucwords(strtolower(
-                            str_replace('_', ' ', $action)
-                        ))) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="form-field">
-            <label for="audit-actor">Actor</label>
-            <select id="audit-actor" name="actor">
-                <option value="">All actors</option>
-                <option
-                    value="system"
-                    <?= (
-                        $filters['actor'] ?? ''
-                    ) === 'system'
-                        ? 'selected'
-                        : '' ?>
-                >
-                    System / deleted actor
-                </option>
-                <?php foreach ($actors as $actor): ?>
-                    <?php
-                    $actorId = (string) (
-                        $actor['user_id'] ?? ''
-                    );
-                    ?>
-                    <option
-                        value="<?= e($actorId) ?>"
-                        <?= (
-                            $filters['actor'] ?? ''
-                        ) === $actorId
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e(
-                            $actor['display_name']
-                            ?? $actor['username']
-                            ?? 'User'
-                        ) ?>
-                        (@<?= e(
-                            $actor['username'] ?? ''
-                        ) ?>)
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="form-field">
-            <label for="audit-date-from">
-                From date
-            </label>
-            <input
-                id="audit-date-from"
-                name="date_from"
-                type="date"
-                value="<?= e(
-                    $filters['date_from'] ?? ''
-                ) ?>"
-            >
-        </div>
-
-        <div class="form-field">
-            <label for="audit-date-to">
-                To date
-            </label>
-            <input
-                id="audit-date-to"
-                name="date_to"
-                type="date"
-                value="<?= e(
-                    $filters['date_to'] ?? ''
-                ) ?>"
-            >
-        </div>
-
-        <div class="filter-actions audit-filter-actions">
-            <button
-                type="submit"
-                class="btn btn-primary"
-            >
-                Apply filters
-            </button>
-            <a
-                href="<?= e(appBasePath()) ?>/administration/audit-logs"
-                class="btn btn-secondary"
-            >
-                Reset
-            </a>
-        </div>
-    </form>
+<?php view('administration.list-controls',['listing'=>$data['listing'],'entity'=>'audit','path'=>appBasePath().'/administration/audit-logs']); ?>
 </section>
 
 <section class="card table-card">
@@ -219,7 +75,7 @@ function auditLogListUrl(
         <span>
             Showing
             <?= e($pagination['from'] ?? 0) ?>
-            â€“
+            –
             <?= e($pagination['to'] ?? 0) ?>
         </span>
     </div>
@@ -264,7 +120,7 @@ function auditLogListUrl(
                                     $log['audit_log_id']
                                     ?? ''
                                 ) ?>
-                                Â·
+                                ·
                                 <?= e(
                                     $log['action'] ?? ''
                                 ) ?>
@@ -329,48 +185,5 @@ function auditLogListUrl(
         </table>
     </div>
 
-    <?php if (
-        ($pagination['lastPage'] ?? 1) > 1
-    ): ?>
-        <?php
-        $page = (int) ($pagination['page'] ?? 1);
-        $lastPage = (int) (
-            $pagination['lastPage'] ?? 1
-        );
-        ?>
-
-        <nav
-            class="pagination"
-            aria-label="Audit log pagination"
-        >
-            <?php if ($page > 1): ?>
-                <a
-                    class="pagination-link"
-                    href="<?= e(auditLogListUrl(
-                        $filters,
-                        ['page' => $page - 1]
-                    )) ?>"
-                >
-                    Previous
-                </a>
-            <?php endif; ?>
-
-            <span class="pagination-status">
-                Page <?= e($page) ?>
-                of <?= e($lastPage) ?>
-            </span>
-
-            <?php if ($page < $lastPage): ?>
-                <a
-                    class="pagination-link"
-                    href="<?= e(auditLogListUrl(
-                        $filters,
-                        ['page' => $page + 1]
-                    )) ?>"
-                >
-                    Next
-                </a>
-            <?php endif; ?>
-        </nav>
-    <?php endif; ?>
+    <?php view('components.list-pagination',['query'=>$data['listing']['list']['query'],'pagination'=>$pagination,'path'=>appBasePath().'/administration/audit-logs']); ?>
 </section>

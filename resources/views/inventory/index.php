@@ -55,7 +55,7 @@ $canViewInventoryWarehouses = in_array(
 $inventorySection = (string) ($_GET['section'] ?? 'stock');
 if (!in_array($inventorySection, ['stock', 'movements'], true)) $inventorySection = 'stock';
 ?>
-<div class="page-actions"><a class="btn btn-secondary" href="/office_app/public/data-exchange/stock/export/configure">Export Excel</a></div>
+
 
 <?php if (false): ?>
 <section class="page-section">
@@ -159,8 +159,9 @@ if (!in_array($inventorySection, ['stock', 'movements'], true)) $inventorySectio
                     Completed location-aware receipts, deliveries and transfers.
                 </p>
             </div>
-            <span class="badge badge-neutral"><?= count($stockMovements) ?> movements</span>
+            <span class="badge badge-neutral"><?= ($data['lists']['movements']['pagination']['total']??count($stockMovements)) ?> movements</span>
         </div>
+        <?php view('inventory.list-controls',['list'=>$data['lists']['movements'],'controls'=>$data['listControls']['movements'],'entity'=>'movements','path'=>appBasePath().'/inventory','canExport'=>$data['canExport']??false]); ?>
         <div class="table-responsive">
             <table class="data-table">
                 <thead><tr>
@@ -209,13 +210,14 @@ if (!in_array($inventorySection, ['stock', 'movements'], true)) $inventorySectio
             </div>
 
             <span class="badge badge-neutral">
-                <?= count($stockBalances) ?>
-                balance<?= count($stockBalances) === 1
+                <?= ($data['lists']['stock']['pagination']['total']??count($stockBalances)) ?>
+                balance<?= ($data['lists']['stock']['pagination']['total']??count($stockBalances)) === 1
                     ? ''
                     : 's' ?>
             </span>
         </div>
 
+        <?php view('inventory.list-controls',['list'=>$data['lists']['stock'],'controls'=>$data['listControls']['stock'],'entity'=>'stock','path'=>appBasePath().'/inventory','canExport'=>$data['canExport']??false]); ?>
         <div class="table-responsive">
             <table class="data-table">
                 <thead>
@@ -374,13 +376,14 @@ if (!in_array($inventorySection, ['stock', 'movements'], true)) $inventorySectio
             </div>
 
             <span class="badge badge-neutral">
-                <?= count($goodsReceipts) ?>
-                receipt<?= count($goodsReceipts) === 1
+                <?= ($data['lists']['receipts']['pagination']['total']??count($goodsReceipts)) ?>
+                receipt<?= ($data['lists']['receipts']['pagination']['total']??count($goodsReceipts)) === 1
                     ? ''
                     : 's' ?>
             </span>
         </div>
 
+        <?php view('inventory.list-controls',['list'=>$data['lists']['receipts'],'controls'=>$data['listControls']['receipts'],'entity'=>'receipts','path'=>appBasePath().'/inventory','canExport'=>$data['canExport']??false]); ?>
         <div class="table-responsive">
             <table class="data-table">
                 <thead>

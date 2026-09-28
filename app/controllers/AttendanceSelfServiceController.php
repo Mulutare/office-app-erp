@@ -39,8 +39,10 @@ final class AttendanceSelfServiceController
         );
         $workspace = $this->attendance->workspace(
             $this->actorUserId(),
-            $this->queryMonth()
+            $this->queryMonth(),
+            $_GET
         );
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('personal-attendance',$workspace['exportList'],(new \App\Services\Lists\PersonalAttendanceListService())->columns(),$_GET['download']);
         $reminderWorkspace =
             $this->reminders->workspace(
                 $this->actorUserId(),
@@ -66,6 +68,7 @@ final class AttendanceSelfServiceController
             'profileRequired' =>
                 $workspace['profileRequired'],
             'records' => $workspace['records'],
+            'historyList'=>$workspace['list'],'historyControls'=>$workspace['listControls'],
             'today' => $workspace['today'],
             'todayDate' =>
                 $workspace['todayDate'],
@@ -235,6 +238,8 @@ final class AttendanceSelfServiceController
                 $this->queryMonth()
             );
 
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('team-attendance', $workspace['exportList'], \App\Services\Lists\HrWorkspaceListService::columns('team'), $_GET['download']);
+
         \view('layouts.app', [
             'applicationName' => \config(
                 'name',
@@ -251,6 +256,7 @@ final class AttendanceSelfServiceController
                 'attendance.team.index',
             'user' => $_SESSION['auth'],
             'people' => $workspace['people'],
+            'list' => $workspace['list'],
             'summary' => $workspace['summary'],
             'range' => $workspace['range'],
         ]);

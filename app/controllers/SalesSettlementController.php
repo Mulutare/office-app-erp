@@ -13,9 +13,30 @@ final class SalesSettlementController
 {
     private AuthorizationService $auth;private SettlementService $service;private SalesQuickSaleService $quickSales;
     public function __construct(){$this->auth=new AuthorizationService();$this->service=new SettlementService();$this->quickSales=new SalesQuickSaleService();}
-    public function index(): void{$this->permit('sales','sales.settlements.view');$data=$this->service->listing();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Sales Settlements','pageDescription'=>'Accountability and bank-deposit reconciliation over posted customer payments.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
-    public function finance(): void{$this->permit('finance','finance.settlements.view');$data=$this->service->listing();\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Settlement Reconciliation','pageDescription'=>'Finance bank confirmation, variance and maker/checker controls.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'financeMode'=>true,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
-    public function show(string $id): void{$this->permitSharedView();$s=$this->service->find((int)$id);if($s===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>$s['settlement_number'],'pageDescription'=>'Settlement evidence, variance, approvals and audit timeline.','contentView'=>'sales.settlement','user'=>$_SESSION['auth'],'settlement'=>$s,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[]),'workflowTrace'=>(new SalesWorkflowTraceService())->trace((new TenantContext())->companyId(),'settlement',(int)$s['settlement_id'],$_SESSION['auth']??[])]);}
+    public function index(): void{$this->permit('sales','sales.settlements.view');$data=$this->listData(false);\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Sales Settlements','pageDescription'=>'Accountability and bank-deposit reconciliation over posted customer payments.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
+    public function finance(): void{$this->permit('finance','finance.settlements.view');$data=$this->listData(true);\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>'Settlement Reconciliation','pageDescription'=>'Finance bank confirmation, variance and maker/checker controls.','contentView'=>'sales.settlements','user'=>$_SESSION['auth'],'financeMode'=>true,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[])]+$data);}
+    private function listData(bool $finance): array
+    {
+        $data=$this->service->listing($_GET);
+        $module=$finance?'finance':'sales';$permission=$module.'.export';
+        $data['canExport']=(new \App\Services\ModuleRoleService())->permissionAllowed((new TenantContext())->companyId(),$this->actor(),$permission);
+        $canBank=(new \App\Services\ModuleRoleService())->permissionAllowed((new TenantContext())->companyId(),$this->actor(),'finance.bank_accounts.manage');
+        if($canBank){
+            $data['bankRegister']=(new \App\Services\Lists\DocumentListService())->workspace(['bank-accounts'],$_GET,0,\appBasePath().($finance?'/finance/settlements':'/sales/settlements'),$data['canExport']);
+            if(($_GET['register']??'')==='bank-accounts')\App\Services\Lists\DocumentListService::download($data['bankRegister'],$_GET);
+        }
+        if(isset($_GET['download'])) {
+            if(($_GET['register']??'settlements')!=='settlements')throw new \InvalidArgumentException('Choose an authorized settlement register.');
+            $this->permit($module,$permission);
+            \App\Services\Lists\ListDownload::send('Settlements',$data['exportList'],
+                ['settlement_number'=>'Settlement','bank_name'=>'Bank','creator_name'=>'Created by','created_at'=>'Date','currency'=>'Currency',
+                 'expected_amount'=>'Expected','confirmed_amount'=>'Confirmed','variance_amount'=>'Variance','remaining_amount'=>'Remaining',
+                 'reconciliation_status'=>'Reconciliation','workflow_status'=>'Workflow'],
+                \App\Services\Lists\ListQuery::text($_GET['download']));
+        }
+        return $data;
+    }
+    public function show(string $id): void{$this->permitSharedView();$s=$this->service->find((int)$id,$_GET);if($s===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\App\Services\Lists\DocumentListService::download($s['related'],$_GET);\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'pageTitle'=>$s['settlement_number'],'pageDescription'=>'Settlement evidence, variance, approvals and audit timeline.','contentView'=>'sales.settlement','user'=>$_SESSION['auth'],'settlement'=>$s,'notice'=>\getFlash('settlement_notice'),'errors'=>\getFlash('settlement_errors',[]),'workflowTrace'=>(new SalesWorkflowTraceService())->trace((new TenantContext())->companyId(),'settlement',(int)$s['settlement_id'],$_SESSION['auth']??[])]);}
     public function create(): void{$this->permit('sales','sales.settlements.create');$this->csrf();$this->finish($this->service->create($_POST,$this->actor()),null);}
     public function submit(string $id): void{$this->permit('sales','sales.settlements.submit');$this->csrf();$this->finish($this->service->transition((int)$id,'submit','',$this->actor()),(int)$id);}
     public function review(string $id): void{$this->permit('sales','sales.settlements.review');$this->csrf();$this->finish($this->service->transition((int)$id,'review',\postString('reason'),$this->actor()),(int)$id);}

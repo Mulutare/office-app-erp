@@ -62,8 +62,7 @@ class EmployeeRepository extends MySqlRepository
                    OR employee_id
                         <> :exclude_employee_value
                )
-             ORDER BY last_name, first_name
-             LIMIT 250'
+             ORDER BY last_name, first_name'
         );
         $statement->execute([
             'company_id' => $companyId,
@@ -129,8 +128,7 @@ class EmployeeRepository extends MySqlRepository
                AND employees.employee_id IS NULL
              ORDER BY
                 users.display_name,
-                users.username
-             LIMIT 250'
+                users.username'
         );
         $statement->execute([
             'employee_company_id' => $companyId,

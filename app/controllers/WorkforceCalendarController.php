@@ -25,8 +25,16 @@ final class WorkforceCalendarController
         $this->requireManagement();
         $workspace = $this->calendars->workspace(
             $this->queryInteger('calendar'),
-            $this->queryInteger('year')
+            $this->queryInteger('year'),
+            $_GET
         );
+
+        if(isset($_GET['download'])) {
+            $entity=(string)($_GET['register']??'assignments');
+            if($entity==='assignments')\App\Services\Lists\ListDownload::send($entity,$workspace['exportList'],\App\Services\Lists\HrWorkspaceListService::columns($entity),$_GET['download']);
+            if(!isset($workspace['calendarExports'][$entity]))throw new \InvalidArgumentException('Unknown calendar register.');
+            \App\Services\Lists\ListDownload::send($entity,$workspace['calendarExports'][$entity],(new \App\Services\Lists\CalendarListService())->columns($entity),$_GET['download']);
+        }
 
         \view('layouts.app', [
             'applicationName' => \config(

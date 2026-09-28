@@ -10,7 +10,17 @@ $token=csrfToken();
 <?php if(!empty($data['notice'])): ?><p class="alert alert-success"><?= e($data['notice']) ?></p><?php endif; ?>
 <div class="finance-toolbar"><div><h2>Loan register</h2><p>Balances and installments remain linked to the approved schedule and posted journals.</p></div><?php if($manage): ?><button class="btn btn-primary" type="button" data-open-details="new-loan">+ New Loan / Advance</button><?php endif; ?></div>
 <?php if($summaries): ?><div class="finance-kpi-grid"><?php foreach($summaries as $summary): ?><div class="finance-kpi"><strong><?= e($summary['currency']) ?></strong><span><?= (int)$summary['active_loans'] ?> active loans</span><b><?= e(number_format((float)$summary['outstanding_principal'],2)) ?> outstanding principal</b><small>Due this month <?= e(number_format((float)$summary['due_this_month'],2)) ?> · Overdue <?= e(number_format((float)$summary['overdue_amount'],2)) ?></small></div><?php endforeach; ?></div><?php endif; ?>
-<section class="card finance-register"><nav class="finance-filter-tabs" aria-label="Loan status filters"><?php foreach([''=>'All','active'=>'Active','due'=>'Due','overdue'=>'Overdue','paid'=>'Paid'] as $value=>$label): ?><a class="<?= $selected===$value?'active':'' ?>" href="<?= e(appBasePath().'/finance/staff-loans'.($value!==''?'?status='.$value:'')) ?>"<?= $selected===$value?' aria-current="page"':'' ?>><?= e($label) ?></a><?php endforeach; ?></nav>
+<section class="card finance-register">
+<?php
+if(isset($loanData['list'])){
+    view('finance.list-controls',[
+        'list'=>$loanData['list'],
+        'controls'=>$data['loanControls']??[],
+        'path'=>appBasePath().'/finance/staff-loans',
+        'canExport'=>$data['canExport']??false,
+    ]);
+}
+?>
 <div class="table-responsive"><table class="data-table"><thead><tr><th>Number</th><th>Employee</th><th>Type</th><th>Status</th><th>Principal</th><th>Paid</th><th>Outstanding principal</th><th>Interest remaining</th><th>Next due</th><th>Installments left</th><th>Overdue</th></tr></thead><tbody>
 <?php foreach(($loanData['loans']??[]) as $loan): ?><tr><td><a class="finance-record-link" href="<?= e(appBasePath().'/finance/staff-loans/'.(int)$loan['loan_id']) ?>"><?= e($loan['loan_number']) ?> <span aria-hidden="true">↗</span></a></td><td><?= e($loan['employee_name']) ?></td><td><?= e($loan['loan_type']) ?></td><td><span class="finance-status finance-status-<?= e($loan['status']) ?>"><?= e($loan['status']) ?></span></td><td class="erp-money-column"><?= e($loan['currency'].' '.number_format((float)$loan['principal_amount'],2)) ?></td><td class="erp-money-column"><?= e(number_format((float)$loan['amount_paid'],2)) ?></td><td class="erp-money-column"><?= e(number_format((float)$loan['outstanding_principal'],2)) ?></td><td class="erp-money-column"><?= e(number_format((float)$loan['outstanding_interest'],2)) ?></td><td><?= e($loan['next_due_date']??'—') ?></td><td><?= (int)$loan['installments_remaining'] ?></td><td class="erp-money-column"><?= e(number_format((float)$loan['overdue_amount'],2)) ?></td></tr><?php endforeach; ?>
 <?php if(empty($loanData['loans'])): ?><tr><td colspan="11" class="finance-empty-state">No loans match this status. Choose another filter or create a draft.</td></tr><?php endif; ?></tbody></table></div></section>

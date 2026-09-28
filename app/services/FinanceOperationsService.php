@@ -51,7 +51,7 @@ final class FinanceOperationsService
     }
 
     /** @return array<string, mixed>|null */
-    public function customerInvoice(int $invoiceId): ?array
+    public function customerInvoice(int $invoiceId,bool $withPayments=true): ?array
     {
         if ($invoiceId < 1) {
             return null;
@@ -59,7 +59,8 @@ final class FinanceOperationsService
 
         return $this->finance->customerInvoice(
             $this->tenant->companyId(),
-            $invoiceId
+            $invoiceId,
+            $withPayments
         );
     }
 

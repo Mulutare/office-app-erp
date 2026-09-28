@@ -29,7 +29,7 @@ final class StockRequestController
     {
         $this->authorize('inventory.stock_requests.view');
         $requestId = (int) $id;
-        $workspace = $this->service->workspace($this->actor(), $requestId);
+        $workspace = $this->service->workspace($this->actor(), $requestId, $_GET);
         if (!is_array($workspace['stockRequest'] ?? null)) {
             http_response_code(404);
             \view('errors.404', ['applicationName' => \config('name', 'OfficeApp ERP')]);
@@ -155,7 +155,15 @@ final class StockRequestController
 
     private function render(?int $requestId = null, ?array $workspace = null): void
     {
-        $workspace ??= $this->service->workspace($this->actor(), $requestId);
+        $workspace ??= $this->service->workspace($this->actor(), $requestId, $_GET);
+
+        $workspace['canExport']=(new \App\Services\ModuleRoleService())->permissionAllowed((new \App\Services\TenantContext())->companyId(),$this->actor(),'inventory.export');
+        if(isset($_GET['download'])) {
+            $this->authorize('inventory.export');
+            $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'requests');
+            if(!isset($workspace['exportLists'][$entity])){http_response_code(400);echo 'Choose a stock request register.';return;}
+            \App\Services\Lists\ListDownload::send($entity,$workspace['exportLists'][$entity],\App\Services\Lists\StockRequestLists::columns($entity),$_GET['download']);
+        }
 
         $actorId = $this->actor();
         $companyId = (new \App\Services\TenantContext())->companyId();

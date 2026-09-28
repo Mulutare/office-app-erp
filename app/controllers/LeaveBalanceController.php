@@ -26,11 +26,20 @@ final class LeaveBalanceController
         $workspace = $this->balances->workspace(
             $this->queryInteger('employee'),
             $this->queryInteger('year'),
-            $this->queryInteger('policy')
+            $this->queryInteger('policy'),
+            $_GET
         );
 
         if (!empty($workspace['notFound'])) {
             $this->notFound();
+        }
+
+        if (isset($_GET['download'])) {
+            $register=\App\Services\Lists\ListQuery::text($_GET['register']??'adjustments');
+            if (!in_array($register,['balances','adjustments'],true)) {http_response_code(400);echo 'Unknown leave register.';return;}
+            \App\Services\Lists\ListDownload::send('leave-'.$register,
+                $workspace[$register==='balances'?'balanceExportList':'exportList'],
+                \App\Services\Lists\HrWorkspaceListService::columns($register),$_GET['download']);
         }
 
         \view('layouts.app', [

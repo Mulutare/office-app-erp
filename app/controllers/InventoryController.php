@@ -24,6 +24,14 @@ final class InventoryController
     public function index(): void
     {
         $this->authorize('inventory.stock.view');
+        $workspace=$this->inventory->workspace($_GET);
+        if(isset($_GET['download'])) {
+            $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'stock');
+            if(!isset($workspace['exportLists'][$entity])){http_response_code(400);echo 'Choose an Inventory register.';return;}
+            $this->downloadList($entity,$workspace['exportLists'][$entity]);
+        }
+        $workspace['canExport']=$this->canExport();
+
 
         \view('layouts.app', [
             'applicationName' =>
@@ -41,14 +49,16 @@ final class InventoryController
                 'Stock, warehouses, receipts and inventory controls.',
             'contentView' => 'inventory.index',
             'user' => $_SESSION['auth'],
-        ] + $this->inventory->workspace());
+        ] + $workspace);
     }
 
     public function receipts(): void{$this->authorize('inventory.receipts.view');$this->renderReceipt('list');}
     public function createReceipt(): void{$this->authorize('inventory.receipts.create');$this->renderReceipt('create');}
     public function showReceipt(string $id): void{$this->authorize('inventory.receipts.view');$this->renderReceipt('show',(int)$id);}
     private function renderReceipt(string $mode,?int $id=null): void
-    {$receipt=$id===null?null:$this->inventory->receipt($id);if($id!==null&&$receipt===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$mode==='create'?'New goods receipt':($mode==='list'?'Goods receipts':(string)$receipt['receipt_number']),'pageDescription'=>'Receive vendor goods through RCPT and automatic Input-to-Stock putaway.','contentView'=>'inventory.receipts','receiptMode'=>$mode,'receipt'=>$receipt,'receipts'=>$this->inventory->receipts(),'options'=>$this->inventory->receiptOptions(),'notice'=>\getFlash('inventory_receipt_notice'),'errors'=>\getFlash('inventory_receipt_errors',[]),'user'=>$_SESSION['auth'],'canCreate'=>in_array('inventory.receipts.create',$_SESSION['auth']['permissions']??[],true),'canApprove'=>in_array('inventory.receipts.approve',$_SESSION['auth']['permissions']??[],true),'canPost'=>in_array('inventory.receipts.post',$_SESSION['auth']['permissions']??[],true)]);}
+    {$factory=new \App\Services\Lists\InventoryListService();$list=null;
+        if($mode==='list'){$query=$factory->listing('receipts',$_GET);if(isset($_GET['download']))$this->downloadList('receipts',$query);$list=$query->page();}
+        $receipt=$id===null?null:$this->inventory->receipt($id);if($id!==null&&$receipt===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$mode==='create'?'New goods receipt':($mode==='list'?'Goods receipts':(string)$receipt['receipt_number']),'pageDescription'=>'Receive vendor goods through RCPT and automatic Input-to-Stock putaway.','contentView'=>'inventory.receipts','receiptMode'=>$mode,'receipt'=>$receipt,'receipts'=>$list['rows']??[],'list'=>$list,'controls'=>$factory->controls('receipts'),'canExport'=>$this->canExport(),'options'=>$mode==='create'?$this->inventory->receiptOptions():[],'notice'=>\getFlash('inventory_receipt_notice'),'errors'=>\getFlash('inventory_receipt_errors',[]),'user'=>$_SESSION['auth'],'canCreate'=>in_array('inventory.receipts.create',$_SESSION['auth']['permissions']??[],true),'canApprove'=>in_array('inventory.receipts.approve',$_SESSION['auth']['permissions']??[],true),'canPost'=>in_array('inventory.receipts.post',$_SESSION['auth']['permissions']??[],true)]);}
     public function storeReceipt(): void{$this->authorize('inventory.receipts.create');if(!\verifyCsrfToken(\postString('_token'))){\flash('inventory_receipt_errors',['form'=>'The form session expired.']);\redirect('/inventory/receipts/create');}$result=$this->inventory->createGoodsReceipt($_POST,(int)($_SESSION['auth']['user_id']??0));if(empty($result['successful'])){\flash('inventory_receipt_errors',$result['errors']??[]);\redirect('/inventory/receipts/create');}\flash('inventory_receipt_notice',['message'=>'Goods receipt saved as draft.']);\redirect('/inventory/receipts/'.(int)$result['id']);}
     public function approveReceipt(string $id): void{$this->authorize('inventory.receipts.approve');if(!\verifyCsrfToken(\postString('_token'))){\flash('inventory_receipt_errors',['form'=>'The form session expired.']);\redirect('/inventory/receipts/'.(int)$id);}$result=$this->inventory->approveGoodsReceipt((int)$id,(int)($_SESSION['auth']['user_id']??0));if(empty($result['successful']))\flash('inventory_receipt_errors',$result['errors']??[]);else \flash('inventory_receipt_notice',['message'=>'Goods receipt approved and ready to post.']);\redirect('/inventory/receipts/'.(int)$id);}
     public function postReceipt(string $id): void{$this->authorize('inventory.receipts.post');if(!\verifyCsrfToken(\postString('_token'))){\flash('inventory_receipt_errors',['form'=>'The form session expired.']);\redirect('/inventory/receipts/'.(int)$id);}$result=$this->inventory->postGoodsReceipt((int)$id,(int)($_SESSION['auth']['user_id']??0));if(empty($result['successful']))\flash('inventory_receipt_errors',$result['errors']??[]);else{$message='Receipt posted: goods moved Vendors → Input → Stock.';if(!empty($result['warning']))$message.=' '.(string)$result['warning'];\flash('inventory_receipt_notice',['message'=>$message]);}\redirect('/inventory/receipts/'.(int)$id);}
@@ -86,7 +96,7 @@ final class InventoryController
     public function dispatchTransfer(string $id): void{$this->transferMutation('inventory.transfers.dispatch',function()use($id):void{$this->inventory->dispatchTransfer((int)$id,(int)($_SESSION['auth']['user_id']??0));\flash('inventory_transfer_notice','Transfer dispatched into transit.');\redirect('/inventory/transfers/'.(int)$id);});}
     public function receiveTransfer(string $id): void{$this->transferMutation('inventory.transfers.receive',function()use($id):void{$this->inventory->receiveTransfer((int)$id,(int)($_SESSION['auth']['user_id']??0));\flash('inventory_transfer_notice','Transfer received at its exact destination.');\redirect('/inventory/transfers/'.(int)$id);});}
     private function transferMutation(string $permission,callable $work): void{$this->authorize($permission);if(!\verifyCsrfToken(\postString('_token'))){\flash('inventory_transfer_error','The form session expired.');\redirect('/inventory/transfers');}try{$work();}catch(\Throwable $e){\flash('inventory_transfer_error',$e->getMessage());\redirect('/inventory/transfers');}}
-    private function renderTransfers(?int $id=null): void{$workspace=$this->inventory->transferWorkspace($id);if($id!==null&&!is_array($workspace['transfer'])){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$id?'Internal Transfer':'Inventory Transfers','pageDescription'=>'Controlled exact-location stock replenishment.','contentView'=>'inventory.transfers','user'=>$_SESSION['auth'],'notice'=>\getFlash('inventory_transfer_notice'),'error'=>\getFlash('inventory_transfer_error')]+$workspace);}
+    private function renderTransfers(?int $id=null): void{$workspace=$this->inventory->transferWorkspace($id,$_GET);$workspace['canExport']=$this->canExport();if($id===null&&isset($_GET['download']))$this->downloadList('transfers',$workspace['exportList']);if($id!==null&&!is_array($workspace['transfer'])){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$id?'Internal Transfer':'Inventory Transfers','pageDescription'=>'Controlled exact-location stock replenishment.','contentView'=>'inventory.transfers','user'=>$_SESSION['auth'],'notice'=>\getFlash('inventory_transfer_notice'),'error'=>\getFlash('inventory_transfer_error')]+$workspace);}
 
     private function authorize(
         string $permission
@@ -96,5 +106,16 @@ final class InventoryController
             $permission
         );
     }
+    private function canExport(): bool
+    {
+        return (new \App\Services\ModuleRoleService())->permissionAllowed((new \App\Services\TenantContext())->companyId(),(int)($_SESSION['auth']['user_id']??0),'inventory.export');
+    }
+    private function downloadList(string $entity, \App\Services\Lists\SqlList $list): never
+    {
+        $this->authorize('inventory.export');
+        $this->authorize(match($entity){'receipts'=>'inventory.receipts.view','transfers'=>'inventory.transfers.view',default=>'inventory.stock.view'});
+        \App\Services\Lists\ListDownload::send('Inventory_'.$entity,$list,(new \App\Services\Lists\InventoryListService())->columns($entity),$_GET['download']??'xlsx');
+    }
+
 }
 

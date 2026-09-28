@@ -8,6 +8,14 @@ use App\Models\Role;
 
 final class RoleAdministrationService
 {
+    public function smartDetails(int $roleId,array $input): ?array
+    {
+        $role=$this->roles->findForAdministration($roleId);if(!$role)return null;
+        $factory=new \App\Services\Lists\AdministrationListService();$context=['role_id'=>$roleId];
+        $permissions=$factory->workspace('role-permissions',$input,'permissions',$context);
+        $users=$factory->workspace('role-users',$input,'members',$context);
+        return ['role'=>$role,'permissions'=>$permissions['rows'],'users'=>$users['rows'],'permissionList'=>$permissions,'userList'=>$users];
+    }
     private Role $roles;
     private TenantContext $tenant;
 

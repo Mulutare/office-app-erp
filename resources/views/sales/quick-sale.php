@@ -177,9 +177,10 @@ $productOptions = static function (
                 </div>
             </div>
 
+            <?php view('sales.quick-sale-list-controls',['register'=>'tasks','quick'=>$quick]); ?>
             <?php if ($tasks === []): ?>
 
-                <p>No task.</p>
+                <p>No matching sales. Adjust or clear the filters.</p>
 
             <?php else: ?>
 
@@ -418,10 +419,11 @@ $productOptions = static function (
                 </div>
 
                 <span class="badge badge-neutral">
-                    <?= e(count($history)) ?>
+                    <?= e($quick['lists']['history']['pagination']['total'] ?? count($history)) ?>
                 </span>
             </div>
 
+            <?php view('sales.quick-sale-list-controls',['register'=>'history','quick'=>$quick]); ?>
             <?php if ($history === []): ?>
 
                 <p class="quick-sale-history-empty">

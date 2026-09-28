@@ -141,12 +141,10 @@ trait QuickSaleRouting
         return false;
     }
 
-    public function financeQueue(int $actor): array
+    public function financeQueueDefinition(int $actor,?int $invoiceId=null): array
     {
-        $company = $this->tenant->companyId();
-        if (!$this->financeReader($company, $actor)) return [];
-        $statement = \db()->prepare(
-            "SELECT qs.quick_sale_id,r.report_id,r.finance_handoff_at,i.invoice_id,i.invoice_number,
+        $company=$this->tenant->companyId();
+        $sql="SELECT qs.quick_sale_id,r.report_id,r.finance_handoff_at,i.invoice_id,i.invoice_number,
                     i.status AS invoice_status,i.payment_status,i.total_amount,i.currency,
                     q.quotation_number,q.sales_order_id,o.order_number,c.name AS customer_name,
                     r.invoice_reference,r.payment_method,r.payment_reference,
@@ -160,10 +158,18 @@ trait QuickSaleRouting
              INNER JOIN sales_customers c ON c.company_id=i.company_id AND c.customer_id=i.customer_id
              INNER JOIN users agent ON agent.user_id=qs.user_id
              INNER JOIN users manager ON manager.user_id=qs.manager_user_id
-             WHERE r.company_id=? AND r.status='confirmed' AND qs.status='closed' AND r.finance_handoff_at IS NOT NULL
-             ORDER BY r.finance_handoff_at DESC,r.report_id DESC"
-        );
-        $statement->execute([$company]);
+             WHERE r.company_id=? AND r.status='confirmed' AND qs.status='closed' AND r.finance_handoff_at IS NOT NULL";
+        $parameters=[$company];
+        if(!$this->financeReader($company,$actor))$sql.=' AND 1=0';
+        if($invoiceId!==null){$sql.=' AND i.invoice_id=?';$parameters[]=$invoiceId;}
+        return [$sql,$parameters];
+    }
+
+    public function financeQueue(int $actor,?int $invoiceId=null): array
+    {
+        [$sql,$parameters]=$this->financeQueueDefinition($actor,$invoiceId);
+        $statement=\db()->prepare($sql.' ORDER BY r.finance_handoff_at DESC,r.report_id DESC');
+        $statement->execute($parameters);
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 }

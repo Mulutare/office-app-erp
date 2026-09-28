@@ -71,15 +71,16 @@ final class AttendanceManagementService
     /**
      * @return array<string, mixed>
      */
-    public function dashboard(string $date): array
+    public function dashboard(string $date, ?array $input = null): array
     {
         $date = $this->validDate($date)
             ? $date
             : date('Y-m-d');
-        $records = $this->attendance->dailyRoster(
-            $this->tenant->companyId(),
-            $date
-        );
+        $period = \App\Services\Lists\HrListService::attendancePeriod(($input ?? []) + ['date'=>$date]);
+        $date = $period['date'];
+        $list = $input === null ? null : (new \App\Services\Lists\HrListService())->attendance($input + ['date'=>$date]);
+        $listing = $list?->page();
+        $records = $listing === null ? $this->attendance->dailyRoster($this->tenant->companyId(), $date) : $listing['rows'];
         $summary = [
             'total' => count($records),
             'recorded' => 0,
@@ -158,8 +159,18 @@ final class AttendanceManagementService
 
         unset($record);
 
+        if ($list !== null) {
+            $expressions = ['total'=>'COUNT(*)', 'recorded'=>"COALESCE(SUM(attendance_status<>'not_recorded'),0)"];
+            foreach (array_keys(self::STATUSES) as $status) {
+                $expressions[$status] = "COALESCE(SUM(attendance_status='$status'),0)";
+            }
+            $summary = array_map('intval', $list->aggregate($expressions));
+        }
+
         return [
+            'listing' => $listing,
             'date' => $date,
+            'period' => $period,
             'records' => $records,
             'summary' => $summary,
             'statuses' => array_map(
@@ -179,6 +190,28 @@ final class AttendanceManagementService
     /**
      * @return array<string, int>
      */
+    public function companySummary(string $date): array
+    {
+        $statement = \db()->prepare("SELECT COALESCE(a.attendance_status,'not_recorded') status,COUNT(*) total
+            FROM hr_employees e LEFT JOIN attendance_records a ON a.company_id=e.company_id AND a.employee_id=e.employee_id AND a.attendance_date=?
+            WHERE e.company_id=? AND e.deleted_at IS NULL AND e.employment_status IN ('active','on_leave') GROUP BY COALESCE(a.attendance_status,'not_recorded')");
+        $statement->execute([$date,$this->tenant->companyId()]);
+        $summary = array_fill_keys(array_keys(self::STATUSES), 0);
+        $summary['total'] = $summary['recorded'] = 0;
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $summary[$row['status']] = (int)$row['total'];
+            $summary['total'] += (int)$row['total'];
+            if ($row['status'] !== 'not_recorded') $summary['recorded'] += (int)$row['total'];
+        }
+        return $summary;
+    }
+
+    /** Preview the exact manual-entry rules without writing attendance or sessions. */
+    public function validateImport(array $input): array
+    {
+        return $this->validate($this->tenant->companyId(), $this->normalize($input));
+    }
+
     public function summary(string $date): array
     {
         return $this->dashboard($date)['summary'];
@@ -191,7 +224,8 @@ final class AttendanceManagementService
      */
     public function record(
         array $input,
-        int $updatedBy
+        int $updatedBy,
+        bool $createOnly = false
     ): array {
         $companyId = $this->tenant->companyId();
         $values = $this->normalize($input);
@@ -223,7 +257,12 @@ final class AttendanceManagementService
             $employeeId,
             $attendanceDate
         );
+        if ($createOnly && $old !== null) {
+            return ['successful'=>false,'errors'=>['attendance_date'=>'Attendance already exists. Imports never overwrite it.']];
+        }
+        if ($createOnly) $values['source'] = 'import';
         $new = $this->recordValues($values);
+        if ($createOnly) $new['create_only'] = true;
 
         if (
             is_array($old)

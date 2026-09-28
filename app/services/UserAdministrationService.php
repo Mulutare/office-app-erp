@@ -8,6 +8,11 @@ use App\Models\User;
 
 final class UserAdministrationService
 {
+    public function smartListing(array $input): array
+    {
+        $data=(new \App\Services\Lists\AdministrationListService())->workspace('users',$input);
+        return $data+['users'=>$data['rows']];
+    }
     private const PAGE_SIZE = 20;
 
     private User $users;

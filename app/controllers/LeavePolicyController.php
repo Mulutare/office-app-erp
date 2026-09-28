@@ -23,7 +23,8 @@ final class LeavePolicyController
     public function index(): void
     {
         $this->requireManagement();
-        $listing = $this->policies->listing();
+        $listing = (new \App\Services\Lists\OrganizationListService())->listing('leave-policies', $_GET);
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('leave-policies', $listing['exportList'], (new \App\Services\Lists\OrganizationListService())->columns('leave-policies'), $_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -42,6 +43,8 @@ final class LeavePolicyController
             'user' => $_SESSION['auth'],
             'policies' => $listing['policies'],
             'summary' => $listing['summary'],
+            'list' => $listing['list'],
+            'listSorts' => $listing['sorts'],
             'notice' => \getFlash(
                 'leave_policy_notice'
             ),

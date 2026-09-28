@@ -114,6 +114,7 @@ foreach ($permissions as $permission) {
         </span>
     </div>
 
+    <?php view('administration.list-controls',['listing'=>$data['listingData']['permissionList'],'entity'=>'role-permissions','path'=>appBasePath().'/administration/roles/view']); ?>
     <?php if ($permissionGroups === []): ?>
         <p class="details-empty">
             No permissions are assigned to this role.
@@ -159,15 +160,16 @@ foreach ($permissions as $permission) {
         <div>
             <strong>Assigned users</strong>
             <span>
-                First <?= e(count($assignedUsers)) ?>
+                <?= e($data['listingData']['userList']['pagination']['total']) ?>
                 active or inactive accounts
             </span>
         </div>
         <span class="count-pill">
-            <?= e(count($assignedUsers)) ?>
+            <?= e($data['listingData']['userList']['pagination']['total']) ?>
         </span>
     </div>
 
+    <?php view('administration.list-controls',['listing'=>$data['listingData']['userList'],'entity'=>'role-users','path'=>appBasePath().'/administration/roles/view']); ?>
     <div class="table-responsive">
         <table class="data-table">
             <thead>

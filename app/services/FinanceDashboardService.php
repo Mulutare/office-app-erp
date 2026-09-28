@@ -40,6 +40,19 @@ final class FinanceDashboardService
         $this->tenant = new TenantContext();
     }
 
+    public function smartOverview(string $section,array $input,bool $canExport): array
+    {
+        $entity=$section==='expenses'?'expenses':'receivables';
+        $factory=new \App\Services\Lists\FinanceListService();
+        $list=$factory->listing($entity,$input,$entity);
+        return ['receivableSummary'=>$this->repository->salesReceivableSummary($this->tenant->companyId()),
+            'overviewEntity'=>$entity,'overviewRegister'=>[
+                'lists'=>[$entity=>$list->page()],'exportLists'=>[$entity=>$list],
+                'controls'=>[$entity=>$factory->controls($entity)],'columns'=>[$entity=>$factory->columns($entity)],
+                'path'=>\appBasePath().'/finance','canExport'=>$canExport,
+            ]];
+    }
+
     /**
      * @return array<string, mixed>
      */

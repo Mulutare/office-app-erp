@@ -14,7 +14,13 @@ final class SalesProductVariantController
     public function index(): void
     {
         $this->permit('sales.catalogue.manage');
-        $variants=(new SalesProductVariantService())->options();
+        $variants=(new SalesProductVariantService())->options($_GET);
+        $variants['canExport']=(new \App\Services\ModuleRoleService())->permissionAllowed((new \App\Services\TenantContext())->companyId(),$this->actor(),'sales.export');
+        if(isset($_GET['download'])){
+            $this->permit('sales.export');
+            \App\Services\Lists\ListDownload::send('variants',(new \App\Services\Lists\SalesListService())->listing('variants',$_GET),
+                ['sku'=>'SKU','name'=>'Product','product_family'=>'Type','mifi_subtype'=>'MiFi subtype','brand_name'=>'Brand','model_name'=>'Model','active'=>'Active'],$_GET['download']);
+        }
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Product Variants','pageDescription'=>'Company-scoped Mobile and MiFi classification for real SKUs.','contentView'=>'sales.product-variants','user'=>$_SESSION['auth'],'variants'=>$variants,'canManageVariants'=>(new \App\Services\ModuleRoleService())->permissionAllowed((new \App\Services\TenantContext())->companyId(),$this->actor(),'sales.catalogue.manage'),'notice'=>\getFlash('variant_notice'),'error'=>\getFlash('variant_error')]);
     }
     public function brand(): void { $this->mutate(fn()=>(new SalesProductVariantService())->createBrand(\postString('name'),$this->actor())); }

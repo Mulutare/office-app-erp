@@ -30,8 +30,7 @@ final class JobTitleRepository extends MySqlRepository
              ORDER BY
                 active DESC,
                 job_family,
-                name
-             LIMIT 250'
+                name'
         );
         $statement->execute([
             'company_id' => $companyId,

@@ -7,6 +7,9 @@ $schema=$data['schema'];
 </header>
 <section class="card">
 <form id="export-form" method="get" action="/office_app/public/data-exchange/<?=e($schema->entity)?>/export">
+    <?php foreach (($data['exportFilters'] ?? []) as $key => $value): ?>
+        <input type="hidden" name="<?= e($key) ?>" value="<?= e($value) ?>">
+    <?php endforeach; ?>
     <div class="form-grid">
         <div class="form-field"><label for="export-format">File type</label><select id="export-format" name="format"><option value="xlsx">Excel XLSX</option><option value="csv">CSV</option></select></div>
         <?php if($schema->canImport):?><label class="form-field"><span>Import-compatible export</span><span><input id="import-compatible" type="checkbox" name="import_compatible" value="1"> Include External ID automatically for safe updates</span></label><?php endif;?>

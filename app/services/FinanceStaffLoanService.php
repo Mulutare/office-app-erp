@@ -11,25 +11,41 @@ final class FinanceStaffLoanService
 {
     private function company(): int { return (new TenantContext())->companyId(); }
 
-    public function workspace(string $filter = ''): array
+    public function workspace(string $filter = '', ?array $visibleLoans = null): array
     {
         $company=$this->company();
         $allowed=['','active','due','paid','overdue']; if(!in_array($filter,$allowed,true))$filter='';
         $where=$filter==='overdue' ? "AND l.status IN('disbursed','active') AND EXISTS(SELECT 1 FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0 AND i.due_date<CURRENT_DATE)" : ($filter==='due' ? "AND l.status IN('disbursed','active') AND EXISTS(SELECT 1 FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0 AND i.due_date<=CURRENT_DATE)" : ($filter==='active' ? "AND l.status IN('disbursed','active')" : ($filter==='paid' ? 'AND l.status=:status' : '')));
         $params=['company'=>$company]; if($filter==='paid')$params['status']=$filter;
         $statement=\db()->prepare("SELECT l.*,CONCAT(e.first_name,' ',e.last_name) employee_name,(SELECT COUNT(*) FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0) installments_remaining,(SELECT COALESCE(SUM(i.remaining_due),0) FROM finance_staff_loan_installments i WHERE i.company_id=l.company_id AND i.loan_id=l.loan_id AND i.remaining_due>0 AND i.due_date<CURRENT_DATE AND l.status IN('disbursed','active')) overdue_amount FROM finance_staff_loans l JOIN hr_employees e ON e.company_id=l.company_id AND e.employee_id=l.employee_id WHERE l.company_id=:company $where ORDER BY l.loan_id DESC LIMIT 100");
-        $statement->execute($params);
+        if($visibleLoans===null)$statement->execute($params);
         $summary=$this->rows("SELECT currency,COUNT(*) active_loans,COALESCE(SUM(outstanding_principal),0) outstanding_principal FROM finance_staff_loans WHERE company_id=:company AND status IN('disbursed','active') GROUP BY currency ORDER BY currency",['company'=>$company]);
         $due=$this->rows("SELECT l.currency,COALESCE(SUM(CASE WHEN i.due_date BETWEEN DATE_FORMAT(CURRENT_DATE,'%Y-%m-01') AND LAST_DAY(CURRENT_DATE) THEN i.remaining_due ELSE 0 END),0) due_this_month,COALESCE(SUM(CASE WHEN i.due_date<CURRENT_DATE THEN i.remaining_due ELSE 0 END),0) overdue_amount FROM finance_staff_loan_installments i JOIN finance_staff_loans l ON l.company_id=i.company_id AND l.loan_id=i.loan_id WHERE i.company_id=:company AND l.status IN('disbursed','active') AND i.remaining_due>0 GROUP BY l.currency",['company'=>$company]);$dueMap=[];foreach($due as $item)$dueMap[$item['currency']]=$item;foreach($summary as &$item)$item+=($dueMap[$item['currency']]??['due_this_month'=>0,'overdue_amount'=>0]);unset($item);
-        return ['loans'=>$statement->fetchAll(PDO::FETCH_ASSOC),'summary'=>$summary,'employees'=>$this->rows('SELECT employee_id,employee_number,first_name,last_name FROM hr_employees WHERE company_id=:company AND deleted_at IS NULL ORDER BY first_name,last_name LIMIT 500',['company'=>$company]),'journals'=>$this->journals(),'filter'=>$filter];
+        return ['loans'=>$visibleLoans ?? $statement->fetchAll(PDO::FETCH_ASSOC),'summary'=>$summary,'employees'=>$this->rows('SELECT employee_id,employee_number,first_name,last_name FROM hr_employees WHERE company_id=:company AND deleted_at IS NULL ORDER BY first_name,last_name',['company'=>$company]),'journals'=>$this->journals(),'filter'=>$filter];
     }
 
-    public function detail(int $id): ?array
+    public function detail(int $id,?array $input=null): ?array
     {
         $company=$this->company();
         $rows=$this->rows("SELECT l.*,CONCAT(e.first_name,' ',e.last_name) employee_name FROM finance_staff_loans l JOIN hr_employees e ON e.company_id=l.company_id AND e.employee_id=l.employee_id WHERE l.company_id=:company AND l.loan_id=:id",['company'=>$company,'id'=>$id]);
         if(!$rows)return null;
         $loan=$rows[0];
+        if($input!==null) {
+            $factory=new \App\Services\Lists\FinanceLoanListService();
+            foreach(['installments','payments','history'] as $entity) {
+                $list=$factory->listing($entity,$id,$input);$loan['lists'][$entity]=$list->page();
+                $loan[$entity]=$loan['lists'][$entity]['rows'];$loan['exportLists'][$entity]=$list;$loan['controls'][$entity]=$factory->controls($entity,$id);
+            }
+            $summary=$factory->listing('installments',$id,[])->aggregate([
+                'installments_remaining'=>'COALESCE(SUM(remaining_due>0),0)',
+                'overdue_amount'=>"COALESCE(SUM(CASE WHEN remaining_due>0 AND due_date<CURRENT_DATE THEN remaining_due ELSE 0 END),0)",
+                'days_overdue'=>'COALESCE(MAX(CASE WHEN remaining_due>0 AND due_date<CURRENT_DATE THEN DATEDIFF(CURRENT_DATE,due_date) ELSE 0 END),0)',
+            ]);
+            if(!in_array($loan['status'],['disbursed','active'],true)){$summary['overdue_amount']=0;$summary['days_overdue']=0;}
+            $next=$this->rows('SELECT remaining_due FROM finance_staff_loan_installments WHERE company_id=:company AND loan_id=:id AND remaining_due>0 ORDER BY installment_number LIMIT 1',['company'=>$company,'id'=>$id]);
+            return $loan+$summary+['next_installment_amount'=>$next[0]['remaining_due']??0,'journals'=>$this->journals()];
+        }
+
         $loan['installments']=$this->rows('SELECT * FROM finance_staff_loan_installments WHERE company_id=:company AND loan_id=:id ORDER BY installment_number',['company'=>$company,'id'=>$id]);
         $loan['payments']=$this->rows('SELECT p.*,b.batch_number FROM finance_staff_loan_payments p JOIN finance_journal_batches b ON b.company_id=p.company_id AND b.journal_batch_id=p.journal_batch_id WHERE p.company_id=:company AND p.loan_id=:id ORDER BY p.payment_date,p.loan_payment_id',['company'=>$company,'id'=>$id]);
         $loan['history']=$this->rows('SELECT * FROM finance_staff_loan_history WHERE company_id=:company AND loan_id=:id ORDER BY history_id DESC',['company'=>$company,'id'=>$id]);

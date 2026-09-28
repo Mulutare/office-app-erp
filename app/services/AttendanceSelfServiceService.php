@@ -57,7 +57,8 @@ final class AttendanceSelfServiceService
      */
     public function workspace(
         int $actorUserId,
-        string $month
+        string $month,
+        ?array $input = null
     ): array {
         $range = $this->monthRange($month);
         $companyId = $this->tenant->companyId();
@@ -215,10 +216,14 @@ final class AttendanceSelfServiceService
                 true
             );
 
+        $factory=new \App\Services\Lists\PersonalAttendanceListService();
+        $exportList=$input===null?null:$factory->listing(array_replace($input,['month'=>$range['month']]),$actorUserId,$range['from'],$range['to']);
+        $list=$exportList?->page();
         return [
+            'list'=>$list,'exportList'=>$exportList,'listControls'=>$exportList?$factory->controls($exportList):[],
             'employee' => $employee,
             'profileRequired' => $employeeId < 1,
-            'records' => $records,
+            'records' => $list===null?$records:$this->presentRecords($list['rows']),
             'today' => $today,
             'todayDate' => $todayDate,
             'workSchedule' => $schedule,
@@ -263,16 +268,27 @@ final class AttendanceSelfServiceService
      */
     public function teamWorkspace(
         int $actorUserId,
-        string $month
+        string $month,
+        ?array $input = null
     ): array {
         $range = $this->monthRange($month);
-        $rows = $this->attendance
-            ->historyForManager(
-                $this->tenant->companyId(),
-                $actorUserId,
-                $range['from'],
-                $range['to']
-            );
+        $list = $input === null ? null : (new \App\Services\Lists\HrWorkspaceListService())->team(
+            array_replace($input, ['month'=>$range['month']]), $actorUserId, $range['from'], $range['to']
+        );
+        $page = $list?->page();
+        $rows = [];
+        if ($page === null) {
+            $rows = $this->attendance->historyForManager($this->tenant->companyId(), $actorUserId, $range['from'], $range['to']);
+        } else {
+            // Only page members need their bounded monthly detail (at most 31 days each).
+            foreach ($page['rows'] as $member) {
+                $history = empty($member['employee_id']) ? [] : $this->attendance->historyForEmployee(
+                    $this->tenant->companyId(), (int)$member['employee_id'], $range['from'], $range['to']
+                );
+                if ($history === []) $rows[] = array_replace($member, ['attendance_id'=>null]);
+                foreach ($history as $record) $rows[] = array_replace($member, $record);
+            }
+        }
         $people = [];
 
         foreach ($rows as $row) {
@@ -347,14 +363,17 @@ final class AttendanceSelfServiceService
 
         return [
             'people' => array_values($people),
+            'list' => $page,
+            'exportList' => $list,
             'range' => $range,
-            'summary' => [
+            'summary' => $list === null ? [
                 'directReports' => count($people),
                 'recorded' => $totalRecorded,
                 'exceptions' => $totalExceptions,
                 'profilesMissing' =>
                     $profilesMissing,
-            ],
+            ] : $list->aggregate(['directReports'=>'COUNT(*)','recorded'=>'COALESCE(SUM(recorded),0)',
+                'exceptions'=>'COALESCE(SUM(exceptions),0)','profilesMissing'=>'COALESCE(SUM(employee_id IS NULL),0)']),
         ];
     }
 

@@ -12,7 +12,7 @@ final class FinanceAccountingWorkspaceService
 {
     private const SECTIONS = ['accounts', 'ledger', 'receivables', 'payables', 'reports', 'cash-bank'];
 
-    public function workspace(string $section, array $input): array
+    public function workspace(string $section, array $input, ?array $visibleRows = null): array
     {
         if (!in_array($section, self::SECTIONS, true)) {
             throw new RuntimeException('Unknown Finance workspace.');
@@ -33,11 +33,11 @@ final class FinanceAccountingWorkspaceService
             throw new RuntimeException('Unknown Finance report.');
         }
         return match ($section) {
-            'accounts' => ['title' => 'Chart of Accounts', 'rows' => $this->accounts($company), 'columns' => ['account_code' => 'Code', 'account_name' => 'Account', 'account_type' => 'Type', 'normal_balance' => 'Normal balance', 'currency' => 'Currency', 'system_key' => 'Control / system key', 'active' => 'Active']],
-            'ledger' => ['title' => 'General Ledger', 'rows' => $this->ledger($company, $filters), 'columns' => ['posting_date' => 'Date', 'batch_number' => 'Journal', 'journal_batch_id' => 'Batch ID', 'source_type' => 'Source', 'source_number' => 'Reference', 'account_code' => 'Account', 'account_name' => 'Name', 'description' => 'Description', 'debit_amount' => 'Debit', 'credit_amount' => 'Credit', 'currency' => 'Currency', 'poster_name' => 'Posted by', 'reversal_number' => 'Reverses', 'created_at' => 'Created at', 'posted_at' => 'Posted at']],
-            'receivables' => ['title' => 'Accounts Receivable', 'rows' => $this->invoices($company, 'customer_invoice', $filters), 'columns' => $this->invoiceColumns('customer_name', 'Customer')],
-            'payables' => ['title' => 'Accounts Payable', 'rows' => $this->invoices($company, 'vendor_bill', $filters), 'columns' => $this->invoiceColumns('supplier_name', 'Supplier') + ['supplier_invoice_number' => 'Supplier invoice', 'po_number' => 'PO']],
-            'cash-bank' => ['title' => 'Cash & Bank', 'rows' => $this->cashBank($company, $filters), 'columns' => ['posting_date' => 'Date', 'batch_number' => 'Journal', 'source_number' => 'Reference', 'account_code' => 'Account', 'account_name' => 'Name', 'debit_amount' => 'Receipt / Debit', 'credit_amount' => 'Payment / Credit', 'currency' => 'Currency']],
+            'accounts' => ['title' => 'Chart of Accounts', 'rows' => $visibleRows ?? $this->accounts($company), 'columns' => ['account_code' => 'Code', 'account_name' => 'Account', 'account_type' => 'Type', 'normal_balance' => 'Normal balance', 'currency' => 'Currency', 'system_key' => 'Control / system key', 'active' => 'Active']],
+            'ledger' => ['title' => 'General Ledger', 'rows' => $visibleRows ?? $this->ledger($company, $filters), 'columns' => ['posting_date' => 'Date', 'batch_number' => 'Journal', 'journal_batch_id' => 'Batch ID', 'source_type' => 'Source', 'source_number' => 'Reference', 'account_code' => 'Account', 'account_name' => 'Name', 'description' => 'Description', 'debit_amount' => 'Debit', 'credit_amount' => 'Credit', 'currency' => 'Currency', 'poster_name' => 'Posted by', 'reversal_number' => 'Reverses', 'created_at' => 'Created at', 'posted_at' => 'Posted at']],
+            'receivables' => ['title' => 'Accounts Receivable', 'rows' => $visibleRows ?? $this->invoices($company, 'customer_invoice', $filters), 'columns' => $this->invoiceColumns('customer_name', 'Customer')],
+            'payables' => ['title' => 'Accounts Payable', 'rows' => $visibleRows ?? $this->invoices($company, 'vendor_bill', $filters), 'columns' => $this->invoiceColumns('supplier_name', 'Supplier') + ['supplier_invoice_number' => 'Supplier invoice', 'po_number' => 'PO']],
+            'cash-bank' => ['title' => 'Cash & Bank', 'rows' => $visibleRows ?? $this->cashBank($company, $filters), 'columns' => ['posting_date' => 'Date', 'batch_number' => 'Journal', 'source_number' => 'Reference', 'account_code' => 'Account', 'account_name' => 'Name', 'debit_amount' => 'Receipt / Debit', 'credit_amount' => 'Payment / Credit', 'currency' => 'Currency']],
             'reports' => ['title' => 'Finance Reports', 'selected_report' => $report, 'reports' => $report === '' ? [] : $this->reports($company, $filters, $report)],
         } + ['section' => $section, 'filters' => $filters];
     }

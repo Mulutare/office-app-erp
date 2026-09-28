@@ -7,7 +7,7 @@ $accounts=$data['expenseData']['accounts']??[];
 $journals=$data['expenseData']['journals']??[];
 $evidence=$data['expenseData']['evidence']??[];
 $categorySettings=$data['expenseData']['categorySettings']??[];
-$history=[];foreach(($data['expenseData']['history']??[]) as $event){$history[(int)$event['expense_request_id']][]=$event;}
+$historyList=$data['expenseData']['historyList'];
 $permissions=$data['user']['permissions']??[];
 $canManage=in_array('finance.records.manage',$permissions,true);
 $canApprove=in_array('finance.requests.approve',$permissions,true);
@@ -17,14 +17,21 @@ $token=csrfToken();
 <?php if(!empty($data['expenseError'])): ?><p class="alert alert-danger"><?= e($data['expenseError']) ?></p><?php endif; ?>
 <?php if(!empty($data['notice'])): ?><p class="alert alert-success"><?= e($data['notice']) ?></p><?php endif; ?>
 <div class="finance-toolbar"><div><h2>Expense register</h2><p>Review requests, private receipts and posted expenses.</p></div><?php if($canManage): ?><button class="btn btn-primary" type="button" data-open-details="new-expense">+ New Expense</button><?php endif; ?></div>
-<section class="card finance-register"><form method="get" action="<?= e(appBasePath().'/finance/expenses') ?>" class="finance-filter-bar" aria-label="Expense filters">
-<label>Search <input type="search" name="search" maxlength="100" value="<?= e($data['expenseData']['filters']['search']??'') ?>" placeholder="Number or title"></label>
-<label>Status <select name="status"><option value="">All statuses</option><?php foreach(['draft','submitted','approved','rejected','paid','reversed','cancelled'] as $option): ?><option value="<?= e($option) ?>"<?= ($data['expenseData']['filters']['status']??'')===$option?' selected':'' ?>><?= e(ucfirst($option)) ?></option><?php endforeach; ?></select></label>
-<button class="btn btn-secondary" type="submit">Apply filters</button><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/expenses') ?>">Clear</a></form>
+<section class="card finance-register">
+<?php
+if(isset($data['expenseList'])){
+    view('finance.list-controls',[
+        'list'=>$data['expenseList'],
+        'controls'=>$data['expenseControls']??[],'actions'=>['register'=>'expenses'],
+        'path'=>appBasePath().'/finance/expenses',
+        'canExport'=>$data['canExport']??false,
+    ]);
+}
+?>
 <div class="table-responsive"><table class="data-table"><thead><tr><th>Number</th><th>Employee</th><th>Type</th><th>Category / account</th><th>Date</th><th>Amount</th><th>Status</th><th>Journal</th><th>Action</th></tr></thead><tbody>
 <?php foreach($records as $row): $id=(int)$row['expense_request_id'];$status=(string)$row['status'];$own=(int)$row['created_by']===$actor; ?>
 <tr id="expense-<?= $id ?>"><td><strong><?= e($row['request_number']) ?></strong><small><?= e($row['title']) ?></small></td><td><?= e($row['employee_name']??'—') ?></td><td><?= e(str_replace('_',' ',$row['expense_kind'])) ?></td><td><?= e(($row['category_name']??'').' / '.($row['account_code']??'')) ?></td><td><?= e($row['expense_date']) ?></td><td class="erp-money-column"><?= e($row['currency'].' '.number_format((float)$row['amount'],2)) ?></td><td><span class="finance-status finance-status-<?= e($status) ?>"><?= e($status) ?></span></td><td><?= e($row['batch_number']??'') ?></td><td class="finance-row-actions">
-<details><summary class="btn btn-secondary btn-compact">History</summary><?php foreach(($history[$id]??[]) as $event): ?><p><?= e($event['occurred_at'].' '.$event['action'].' by user #'.$event['actor_id'].($event['reason']?' — '.$event['reason']:'')) ?></p><?php endforeach; ?></details>
+<a class="btn btn-secondary btn-compact" href="<?= e($historyList['query']->url(appBasePath().'/finance/expenses',['q'=>$row['request_number'],'page'=>1]).'#expense-history') ?>">History</a>
 <details><summary class="btn btn-secondary btn-compact">Evidence (<?= count($evidence[$id]??[]) ?>)</summary>
 <?php foreach(($evidence[$id]??[]) as $file): ?><div><?= e($file['original_name']) ?> · <?= e(number_format((int)$file['file_size']/1024,1)) ?> KB · <?= e($file['created_at']) ?> <a class="btn btn-secondary btn-compact" href="<?= e(appBasePath().'/finance/expenses/'.$id.'/evidence/'.(int)$file['evidence_id']) ?>">Download</a><?php if($canManage&&$own&&$status==='draft'): ?><form method="post" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/evidence/'.(int)$file['evidence_id'].'/remove') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><button class="btn btn-danger btn-compact" type="submit">Remove</button></form><?php endif; ?></div><?php endforeach; ?>
 <?php if($canManage&&$own&&$status==='draft'): ?><form method="post" enctype="multipart/form-data" action="<?= e(appBasePath().'/finance/expenses/'.$id.'/evidence') ?>"><input type="hidden" name="_token" value="<?= e($token) ?>"><label>Add receipts (up to 10 total, PDF/PNG/JPEG, 10 MB each)<input type="file" name="evidence[]" accept="application/pdf,image/png,image/jpeg" multiple></label><button class="btn btn-primary" type="submit">Add evidence</button></form><?php endif; ?></details>
@@ -85,6 +92,8 @@ $token=csrfToken();
 <?php if($canManage): ?>
 <details class="card finance-composer"><summary class="btn btn-secondary">Category account defaults</summary>
 <p class="finance-muted">Defaults suggest accounts for new drafts. They never change existing expenses or calculate tax.</p>
+<?php view('finance.list-controls',['list'=>$data['expenseData']['categoriesList'],'controls'=>$data['expenseData']['categoriesControls'],
+    'path'=>appBasePath().'/finance/expenses','canExport'=>$data['canExport']??false,'actions'=>['register'=>'expense-categories']]); ?>
 <?php foreach($categorySettings as $category): ?>
 <form method="post" action="<?= e(appBasePath().'/finance/expense-categories/'.(int)$category['category_id'].'/defaults') ?>" class="finance-inline-form">
 <input type="hidden" name="_token" value="<?= e($token) ?>"><strong><?= e($category['name']) ?><?= !$category['active']?' (inactive)':'' ?></strong>
@@ -117,3 +126,10 @@ document.querySelectorAll('[data-expense-form]').forEach(form => {
   currency.addEventListener('change',()=>{expense.value='';tax.value='';suggest();}); employeeRule();
 });
 </script>
+
+<section class="card finance-register" id="expense-history"><h2>Expense history</h2>
+<?php view('finance.list-controls',['list'=>$historyList,'controls'=>$data['expenseData']['historyControls'],
+    'path'=>appBasePath().'/finance/expenses','canExport'=>$data['canExport']??false,'actions'=>['register'=>'expense-history']]); ?>
+<div class="table-responsive"><table class="data-table"><thead><tr><th>Date</th><th>Expense</th><th>Action</th><th>Status</th><th>Reason</th><th>Recorded by</th></tr></thead><tbody>
+<?php foreach($historyList['rows'] as $event): ?><tr><td><?= e($event['occurred_at']) ?></td><td><?= e($event['request_number'].' · '.$event['title']) ?></td><td><?= e(ucfirst($event['action'])) ?></td><td><?= e(($event['from_status']??'—').' → '.$event['to_status']) ?></td><td><?= e($event['reason']??'—') ?></td><td><?= e($event['actor_name']??'—') ?></td></tr><?php endforeach; ?>
+<?php if(!$historyList['rows']): ?><tr><td colspan="6">No matching expense history.</td></tr><?php endif; ?></tbody></table></div></section>

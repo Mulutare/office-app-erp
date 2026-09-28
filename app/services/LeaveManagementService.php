@@ -151,7 +151,8 @@ final class LeaveManagementService
         bool $canManageCompany,
         bool $canApproveCompany,
         bool $canRequestSelf,
-        bool $canApproveTeam
+        bool $canApproveTeam,
+        ?array $input = null
     ): array {
         if (
             $status !== ''
@@ -179,6 +180,10 @@ final class LeaveManagementService
                 );
             }
         }
+        $list = $input === null ? null : (new \App\Services\Lists\LeaveListService())->requests(
+            $input, $actorUserId, (int)($employee['employee_id'] ?? 0), $canViewCompany, $canApproveTeam
+        );
+        $page = $list?->page();
         $selfRequests = [];
         $selfBalances = [];
         $teamRequests = [];
@@ -186,7 +191,7 @@ final class LeaveManagementService
         if ($employee !== null) {
             $employeeId = (int) $employee['employee_id'];
 
-            $selfRequests =
+            $selfRequests = $input !== null ? [] :
                 $this->leave->requestsForEmployee(
                     $companyId,
                     $employeeId,
@@ -230,7 +235,7 @@ final class LeaveManagementService
             unset($balance);
         }
 
-        if ($canApproveTeam) {
+        if ($canApproveTeam && $input === null) {
             $teamRequests =
                 $this->leave->requestsForManager(
                     $companyId,
@@ -250,7 +255,7 @@ final class LeaveManagementService
             ] = true;
         }
 
-        $requests = $canViewCompany
+        $requests = $page !== null ? $page['rows'] : ($canViewCompany
             ? $this->leave->requests(
                 $companyId,
                 $status
@@ -258,7 +263,7 @@ final class LeaveManagementService
             : $this->mergeRequests(
                 $selfRequests,
                 $teamRequests
-            );
+            ));
         $this->attachApprovals(
             $companyId,
             $requests
@@ -277,9 +282,8 @@ final class LeaveManagementService
             $isSelf = $selfEmployeeId > 0
                 && $requestEmployeeId
                     === $selfEmployeeId;
-            $isTeam = isset(
-                $teamRequestIds[$requestId]
-            );
+            $isTeam = $input === null ? isset($teamRequestIds[$requestId])
+                : ($canApproveTeam && (int)($request['manager_user_id'] ?? 0) === $actorUserId && !empty($request['membership_active']));
             $currentApproverId = (int) (
                 $request['currentApproverUserId']
                     ?? 0
@@ -331,9 +335,14 @@ final class LeaveManagementService
                 : [],
             'employee' => $employee,
             'balances' => $selfBalances,
-            'summary' => $this->summaryFrom(
-                $requests
-            ),
+            'list' => $page,
+            'exportList' => $list,
+            'summary' => $list === null ? $this->summaryFrom($requests) : $list->aggregate([
+                'pending' => "COALESCE(SUM(request_status='pending'),0)",
+                'approved' => "COALESCE(SUM(request_status='approved'),0)",
+                'onLeaveToday' => "COALESCE(SUM(request_status='approved' AND start_date<='" . date('Y-m-d') . "' AND end_date>='" . date('Y-m-d') . "'),0)",
+                'upcoming' => "COALESCE(SUM(request_status='approved' AND start_date>'" . date('Y-m-d') . "'),0)",
+            ]),
             'statuses' => array_map(
                 static fn (array $item): string =>
                     $item['label'],
@@ -342,7 +351,7 @@ final class LeaveManagementService
             'filterStatus' => $status,
             'scopeLabel' => $canViewCompany
                 ? 'Company leave'
-                : ($teamRequests !== []
+                : (($input !== null ? $canApproveTeam : $teamRequests !== [])
                     ? 'My leave and direct reports'
                     : 'My leave'),
             'canManageCompany' =>
@@ -354,7 +363,7 @@ final class LeaveManagementService
                 $canApproveCompany
                 || (
                     $canApproveTeam
-                    && $teamRequests !== []
+                    && ($input !== null ? $canApproveTeam : $teamRequests !== [])
                 ),
             'profileRequired' =>
                 !$canViewCompany

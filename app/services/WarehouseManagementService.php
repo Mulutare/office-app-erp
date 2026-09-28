@@ -61,8 +61,13 @@ final class WarehouseManagementService
      *     }
      * }
      */
-    public function listing(): array
+    public function listing(?array $input = null): array
     {
+        if($input!==null) {
+            $factory=new \App\Services\Lists\InventoryListService();$query=$factory->listing('warehouses',$input);$list=$query->page();
+            return ['warehouses'=>$list['rows'],'list'=>$list,'controls'=>$factory->controls('warehouses'),
+                'summary'=>array_map('intval',$query->aggregate(['total'=>'COUNT(*)','active'=>'COALESCE(SUM(active=1),0)','defaults'=>'COALESCE(SUM(is_default=1),0)','ready'=>'COALESCE(SUM(operational_ready=1),0)']))];
+        }
         $companyId = $this->tenant->companyId();
         $warehouses = $this->warehouses->listForCompany(
             $companyId

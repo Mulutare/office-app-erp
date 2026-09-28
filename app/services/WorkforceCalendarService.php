@@ -44,7 +44,8 @@ final class WorkforceCalendarService
     /** @return array<string, mixed> */
     public function workspace(
         int $selectedCalendarId = 0,
-        int $year = 0
+        int $year = 0,
+        ?array $input = null
     ): array {
         $companyId = $this->tenant->companyId();
         $year = $year >= 2000 && $year <= 2100
@@ -132,8 +133,11 @@ final class WorkforceCalendarService
 
         $employees = $this->calendars
             ->employeeOptions($companyId);
-        $assignments = $this->calendars
-            ->assignments($companyId);
+        $exportList = $input === null ? null : (new \App\Services\Lists\HrWorkspaceListService())->assignments(
+            array_replace($input, ['calendar'=>$selectedCalendarId,'year'=>$year])
+        );
+        $list=$exportList?->page();
+        $assignments = $list === null ? $this->calendars->assignments($companyId) : $list['rows'];
 
         foreach ($employees as &$employee) {
             $employee['displayName'] =
@@ -147,20 +151,32 @@ final class WorkforceCalendarService
         }
         unset($assignment);
 
+        $calendarLists=[];$calendarExports=[];$calendarControls=[];
+        if($input!==null){
+            $factory=new \App\Services\Lists\CalendarListService();
+            foreach(['calendars','holidays'] as $entity){
+                $calendarExports[$entity]=$factory->listing($entity,array_replace($input,['calendar'=>$selectedCalendarId,'year'=>$year]),$selectedCalendarId,$year);
+                $calendarLists[$entity]=$calendarExports[$entity]->page();
+                $calendarControls[$entity]=$factory->controls($entity,$calendarExports[$entity]);
+            }
+        }
         return [
+            'calendarLists'=>$calendarLists,'calendarExports'=>$calendarExports,'calendarControls'=>$calendarControls,
             'calendars' => $calendars,
             'selected' => $selected,
             'days' => $days,
-            'holidays' => $selected === null
+            'holidays' => isset($calendarLists['holidays'])?$calendarLists['holidays']['rows']:($selected === null
                 ? []
                 : $this->calendars->holidays(
                     $companyId,
                     $selectedCalendarId,
                     sprintf('%04d-01-01', $year),
                     sprintf('%04d-12-31', $year)
-                ),
+                )),
             'employees' => $employees,
             'assignments' => $assignments,
+            'list' => $list,
+            'exportList' => $exportList,
             'year' => $year,
             'weekdays' => self::WEEKDAYS,
             'timezones' => $this->timezones(),

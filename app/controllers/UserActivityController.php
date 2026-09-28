@@ -26,11 +26,7 @@ final class UserActivityController
             'audit.logs.view'
         );
 
-        $listing = $this->activity->listing(
-            $this->queryInteger('id', 0),
-            $this->queryString('type', 'all'),
-            $this->queryInteger('page', 1)
-        );
+        $listing=$this->activity->smartListing($this->queryInteger('id',0),$_GET);
 
         if ($listing === null) {
             $this->notFound();
@@ -38,6 +34,7 @@ final class UserActivityController
 
         $profile = $listing['user'];
 
+        if(isset($_GET['download']))\App\Services\Lists\ListDownload::send('user-activity',$listing['exportList'],(new \App\Services\Lists\AdministrationListService())->columns('user-activity'),$_GET['download']);
         \view('layouts.app', [
             'applicationName' => \config(
                 'name',
@@ -58,6 +55,7 @@ final class UserActivityController
             'contentView' =>
                 'administration.users.activity',
             'user' => $_SESSION['auth'],
+            'listing'=>$listing,
             'profile' => $profile,
             'events' => $listing['events'],
             'filters' => $listing['filters'],

@@ -118,98 +118,7 @@ function userStatusClass(array $user): string
     </section>
 <?php endif; ?>
 <section class="toolbar">
-    <form
-        method="get"
-        action="<?= e(appBasePath()) ?>/administration/users"
-        class="filter-form"
-    >
-        <div class="form-field">
-            <label for="search">
-                Search users
-            </label>
-
-            <input
-                id="search"
-                name="search"
-                type="search"
-                value="<?= e(
-                    $filters['search'] ?? ''
-                ) ?>"
-                placeholder="Name, username or email"
-                maxlength="100"
-            >
-        </div>
-
-        <div class="form-field">
-            <label for="status">
-                Account status
-            </label>
-
-            <select
-                id="status"
-                name="status"
-            >
-                <?php
-                $statuses = [
-                    'all' => 'All accounts',
-                    'active' => 'Active',
-                    'inactive' => 'Inactive',
-                    'locked' => 'Locked',
-                ];
-                ?>
-
-                <?php foreach (
-                    $statuses as $value => $label
-                ): ?>
-                    <option
-                        value="<?= e($value) ?>"
-                        <?= (
-                            $filters['status']
-                            ?? 'all'
-                        ) === $value
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e($label) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <input
-            type="hidden"
-            name="sort"
-            value="<?= e(
-                $filters['sort']
-                ?? 'created_at'
-            ) ?>"
-        >
-
-        <input
-            type="hidden"
-            name="direction"
-            value="<?= e(
-                $filters['direction']
-                ?? 'desc'
-            ) ?>"
-        >
-
-        <div class="filter-actions">
-            <button
-                type="submit"
-                class="btn btn-primary"
-            >
-                Apply filters
-            </button>
-
-            <a
-                href="<?= e(appBasePath()) ?>/administration/users"
-                class="btn btn-secondary"
-            >
-                Reset
-            </a>
-        </div>
-    </form>
+<?php view('administration.list-controls',['listing'=>$data['listing'],'entity'=>'users','path'=>appBasePath().'/administration/users']); ?>
 
     <a
         href="<?= e(appBasePath()) ?>/administration/users/create"
@@ -231,7 +140,7 @@ function userStatusClass(array $user): string
         <span>
             Showing
             <?= e($pagination['from'] ?? 0) ?>
-            â€“
+            –
             <?= e($pagination['to'] ?? 0) ?>
         </span>
     </div>
@@ -365,59 +274,5 @@ function userStatusClass(array $user): string
         </table>
     </div>
 
-    <?php if (
-        ($pagination['lastPage'] ?? 1) > 1
-    ): ?>
-        <nav
-            class="pagination"
-            aria-label="User pagination"
-        >
-            <?php
-            $page = (int) (
-                $pagination['page'] ?? 1
-            );
-
-            $lastPage = (int) (
-                $pagination['lastPage'] ?? 1
-            );
-            ?>
-
-            <?php if ($page > 1): ?>
-                <a
-                    class="pagination-link"
-                    href="<?= e(
-                        userListUrl(
-                            $filters,
-                            [
-                                'page' => $page - 1,
-                            ]
-                        )
-                    ) ?>"
-                >
-                    Previous
-                </a>
-            <?php endif; ?>
-
-            <span class="pagination-status">
-                Page <?= e($page) ?>
-                of <?= e($lastPage) ?>
-            </span>
-
-            <?php if ($page < $lastPage): ?>
-                <a
-                    class="pagination-link"
-                    href="<?= e(
-                        userListUrl(
-                            $filters,
-                            [
-                                'page' => $page + 1,
-                            ]
-                        )
-                    ) ?>"
-                >
-                    Next
-                </a>
-            <?php endif; ?>
-        </nav>
-    <?php endif; ?>
+    <?php view('components.list-pagination',['query'=>$data['listing']['list']['query'],'pagination'=>$pagination,'path'=>appBasePath().'/administration/users']); ?>
 </section>

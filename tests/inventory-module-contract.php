@@ -148,7 +148,8 @@ foreach ([
 $warehouseContractSource = $contents(
     $warehouseContractPath
 );
-$warehouseMySqlSource = $contents($warehouseMySqlPath);
+$warehouseMySqlSource = $contents($warehouseMySqlPath)
+    . $contents('app/services/Lists/InventoryListSql.php');
 $warehouseServiceSource = $contents($warehouseServicePath);
 $warehouseControllerSource = $contents(
     $warehouseControllerPath

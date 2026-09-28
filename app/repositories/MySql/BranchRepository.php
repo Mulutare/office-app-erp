@@ -57,8 +57,7 @@ final class BranchRepository extends MySqlRepository
              ORDER BY
                 is_head_office DESC,
                 active DESC,
-                name
-             LIMIT 250'
+                name'
         );
         $statement->execute([
             'company_id' => $companyId,

@@ -480,46 +480,18 @@ $formatDate = static function (mixed $value): string {
     <?php endif; ?>
 
     <div class="operations-main">
-        <section class="card operations-toolbar">
+        <section class="card operations-toolbar smart-list-toolbar">
             <div>
                 <span class="section-kicker">
                     <?= e($scopeLabel) ?>
                 </span>
                 <h2>Leave requests and history</h2>
             </div>
-            <form
-                method="get"
-                class="date-control-form"
-            >
-                <label for="leave-status">
-                    Status
-                </label>
-                <select
-                    id="leave-status"
-                    name="status"
-                    class="date-control"
-                >
-                    <option value="">All requests</option>
-                    <?php foreach (
-                        $statuses as $value => $label
-                    ): ?>
-                        <option
-                            value="<?= e($value) ?>"
-                            <?= $filterStatus === $value
-                                ? 'selected'
-                                : '' ?>
-                        >
-                            <?= e($label) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-                <button
-                    type="submit"
-                    class="btn btn-secondary"
-                >
-                    Apply
-                </button>
-            </form>
+            <?php view('components.list-filters', [
+                'query'=>$data['list']['query'], 'path'=>'/office_app/public/hr/leave',
+                'sorts'=>['date'=>'Start date','employee'=>'Employee','number'=>'Employee number','policy'=>'Policy','status'=>'Status','days'=>'Days'],
+                'filters'=>['status'=>['label'=>'Status','options'=>$statuses], 'from'=>['label'=>'From','type'=>'date'], 'to'=>['label'=>'To','type'=>'date']],
+            ]); ?>
         </section>
 
         <?php if (
@@ -865,3 +837,6 @@ $formatDate = static function (mixed $value): string {
         </section>
     </div>
 </section>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$data['list']['query'],'path'=>'/office_app/public/hr/leave']); ?>
+<?php view('components.list-pagination', ['query'=>$data['list']['query'], 'pagination'=>$data['list']['pagination'], 'path'=>'/office_app/public/hr/leave']); ?>

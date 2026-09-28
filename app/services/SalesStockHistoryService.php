@@ -10,7 +10,7 @@ use RuntimeException;
 /** Read-only daily inventory report derived from completed movement endpoint legs. */
 final class SalesStockHistoryService
 {
-    public function report(int $actor,array $filters): array
+    public function report(int $actor,array $filters,bool $paged=false): array
     {
         $company=(new TenantContext())->companyId();
         if(!(new ModuleRoleService())->permissionAllowed($company,$actor,'inventory.stock.view'))throw new RuntimeException('Stock history permission is required.');
@@ -25,6 +25,10 @@ final class SalesStockHistoryService
         $warehouseRows=array_values(array_filter($warehouses->fetchAll(PDO::FETCH_ASSOC),static fn(array $w):bool=>in_array((int)$w['warehouse_id'],$visible,true)));
         $locations=\db()->prepare("SELECT location_id,warehouse_id,code,name FROM inventory_warehouse_locations WHERE company_id=? AND warehouse_id=? AND location_usage IN('internal','transit') AND deleted_at IS NULL ORDER BY name");$locations->execute([$company,$warehouse]);
         $products=\db()->prepare('SELECT product_id,sku,name FROM sales_products WHERE company_id=? AND deleted_at IS NULL ORDER BY sku');$products->execute([$company]);$productRows=$products->fetchAll(PDO::FETCH_ASSOC);
+        if($paged)return (new \App\Services\Lists\StockHistoryListService())->workspace(
+            $company,$warehouse,$location,$product,$dateText,$end,$filters,
+            ['warehouses'=>$warehouseRows,'locations'=>$locations->fetchAll(PDO::FETCH_ASSOC),'products'=>$productRows]
+        );
         $nameById=[];foreach($productRows as $p)$nameById[(int)$p['product_id']]=$p;
         $sql="SELECT m.movement_id,m.product_id,m.movement_type,m.completed_quantity,m.quantity_delta,m.source_warehouse_id,m.source_location_id,m.destination_warehouse_id,m.destination_location_id,m.reference_type,m.reference_id,m.reference_number,m.notes,COALESCE(m.completed_at,m.occurred_at) business_at,sl.location_usage source_usage,dl.location_usage destination_usage FROM inventory_stock_movements m LEFT JOIN inventory_warehouse_locations sl ON sl.company_id=m.company_id AND sl.warehouse_id=m.source_warehouse_id AND sl.location_id=m.source_location_id LEFT JOIN inventory_warehouse_locations dl ON dl.company_id=m.company_id AND dl.warehouse_id=m.destination_warehouse_id AND dl.location_id=m.destination_location_id WHERE m.company_id=? AND m.status='completed' AND COALESCE(m.completed_at,m.occurred_at)<? AND (m.source_warehouse_id=? OR m.destination_warehouse_id=?)";
         $params=[$company,$end,$warehouse,$warehouse];if($product>0){$sql.=' AND m.product_id=?';$params[]=$product;}

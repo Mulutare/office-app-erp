@@ -18,6 +18,12 @@ use Throwable;
 
 final class CompanyProvisioningService
 {
+    public function smartListing(array $input): array
+    {
+        $data=(new \App\Services\Lists\AdministrationListService())->workspace('companies',$input);
+        foreach($data['rows'] as &$company)$company+=$this->statusPresentation($company);unset($company);
+        return $data+['companies'=>$data['rows']];
+    }
     private const PAGE_SIZE = 20;
 
     private Company $companies;

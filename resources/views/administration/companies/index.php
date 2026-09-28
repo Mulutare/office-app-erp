@@ -78,76 +78,7 @@ $companyListUrl = static function (
 </section>
 
 <section class="card company-filter-card">
-    <form
-        method="get"
-        action="<?= e(appBasePath()) ?>/administration/companies"
-        class="filter-form"
-    >
-        <div class="form-field">
-            <label for="search">
-                Search companies
-            </label>
-            <input
-                id="search"
-                name="search"
-                type="search"
-                value="<?= e(
-                    $filters['search'] ?? ''
-                ) ?>"
-                placeholder="Name, code or contact email"
-                maxlength="120"
-            >
-        </div>
-
-        <div class="form-field">
-            <label for="status">
-                Subscription status
-            </label>
-            <select id="status" name="status">
-                <?php
-                $statuses = [
-                    'all' => 'All companies',
-                    'pending' => 'Pending approval',
-                    'active' => 'Active',
-                    'trial' => 'Trial',
-                    'expired' => 'Expired',
-                    'suspended' => 'Suspended',
-                    'inactive' => 'Inactive',
-                ];
-                ?>
-                <?php foreach (
-                    $statuses as $value => $label
-                ): ?>
-                    <option
-                        value="<?= e($value) ?>"
-                        <?= (
-                            $filters['status']
-                            ?? 'all'
-                        ) === $value
-                            ? 'selected'
-                            : '' ?>
-                    >
-                        <?= e($label) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="filter-actions">
-            <button
-                type="submit"
-                class="btn btn-primary"
-            >
-                Apply filters
-            </button>
-            <a
-                href="<?= e(appBasePath()) ?>/administration/companies"
-                class="btn btn-secondary"
-            >
-                Reset
-            </a>
-        </div>
-    </form>
+<?php view('administration.list-controls',['listing'=>$data['listing'],'entity'=>'companies','path'=>appBasePath().'/administration/companies']); ?>
 
     <div class="company-result-count">
         <strong>
@@ -294,46 +225,4 @@ $companyListUrl = static function (
     </section>
 <?php endif; ?>
 
-<?php if (
-    ($pagination['lastPage'] ?? 1) > 1
-): ?>
-    <?php
-    $page = (int) (
-        $pagination['page'] ?? 1
-    );
-    $lastPage = (int) (
-        $pagination['lastPage'] ?? 1
-    );
-    ?>
-    <nav
-        class="pagination company-pagination"
-        aria-label="Company pagination"
-    >
-        <?php if ($page > 1): ?>
-            <a
-                class="pagination-link"
-                href="<?= e($companyListUrl([
-                    'page' => $page - 1,
-                ])) ?>"
-            >
-                Previous
-            </a>
-        <?php endif; ?>
-
-        <span class="pagination-status">
-            Page <?= e($page) ?>
-            of <?= e($lastPage) ?>
-        </span>
-
-        <?php if ($page < $lastPage): ?>
-            <a
-                class="pagination-link"
-                href="<?= e($companyListUrl([
-                    'page' => $page + 1,
-                ])) ?>"
-            >
-                Next
-            </a>
-        <?php endif; ?>
-    </nav>
-<?php endif; ?>
+<?php view('components.list-pagination',['query'=>$data['listing']['list']['query'],'pagination'=>$pagination,'path'=>appBasePath().'/administration/companies']); ?>

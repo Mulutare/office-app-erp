@@ -26,7 +26,8 @@ final class JobTitleController
             ->requireTenantPermission(
                 'organization.job_titles.view'
             );
-        $listing = $this->jobTitles->listing();
+        $listing = (new \App\Services\Lists\OrganizationListService())->listing('job-titles', $_GET);
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('job-titles', $listing['exportList'], (new \App\Services\Lists\OrganizationListService())->columns('job-titles'), $_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -45,6 +46,8 @@ final class JobTitleController
             'user' => $_SESSION['auth'],
             'jobTitles' => $listing['jobTitles'],
             'summary' => $listing['summary'],
+            'list' => $listing['list'],
+            'listSorts' => $listing['sorts'],
             'canManage' => $this->canManage(),
             'notice' => \getFlash(
                 'job_title_notice'

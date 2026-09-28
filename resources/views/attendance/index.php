@@ -5,6 +5,8 @@ declare(strict_types=1);
 /** @var array<string, mixed> $data */
 $data = is_array($data ?? null) ? $data : [];
 $date = (string) ($data['date'] ?? date('Y-m-d'));
+$period = $data['period'] ?? \App\Services\Lists\HrListService::attendancePeriod(['date'=>$date]);
+$daily = $period['period'] === 'daily';
 $records = is_array($data['records'] ?? null)
     ? $data['records']
     : [];
@@ -37,6 +39,7 @@ $formatDate = static function (string $value): string {
         ? $value
         : date('D, d M Y', $timestamp);
 };
+$periodLabel = $daily ? $formatDate($date) : $formatDate($period['start']) . ' – ' . $formatDate($period['end']);
 ?>
 
 <nav class="workspace-breadcrumb" aria-label="Breadcrumb">
@@ -83,9 +86,9 @@ $formatDate = static function (string $value): string {
 
 <section class="operations-summary-grid">
     <article class="operations-summary-card is-primary">
-        <span>Workforce</span>
+        <span><?= $daily ? 'Workforce' : 'Recorded employee-days' ?></span>
         <strong><?= e($summary['total'] ?? 0) ?></strong>
-        <small><?= e($formatDate($date)) ?></small>
+        <small><?= e($periodLabel) ?></small>
     </article>
     <article class="operations-summary-card">
         <span>Present</span>
@@ -103,11 +106,11 @@ $formatDate = static function (string $value): string {
         <small>Working off site</small>
     </article>
     <article class="operations-summary-card">
-        <span>Not recorded</span>
+        <span><?= $daily ? 'Not recorded' : 'Absent' ?></span>
         <strong>
-            <?= e($summary['not_recorded'] ?? 0) ?>
+            <?= e($summary[$daily ? 'not_recorded' : 'absent'] ?? 0) ?>
         </strong>
-        <small>Requires follow-up</small>
+        <small><?= $daily ? 'Requires follow-up' : 'Recorded absence days' ?></small>
     </article>
 </section>
 
@@ -140,7 +143,7 @@ $formatDate = static function (string $value): string {
                         required
                     >
                         <option value="">Select employee</option>
-                        <?php foreach ($records as $record): ?>
+                        <?php foreach (($data['employeeOptions'] ?? $records) as $record): ?>
                             <?php
                             $employeeId = (int) (
                                 $record['employee_id'] ?? 0
@@ -302,42 +305,40 @@ $formatDate = static function (string $value): string {
     <?php endif; ?>
 
     <div class="operations-main">
-        <section class="card operations-toolbar">
+        <section class="card operations-toolbar smart-list-toolbar">
             <div>
                 <span class="section-kicker">
-                    Daily register
+                    <?= e(ucfirst($period['period'])) ?> register
                 </span>
-                <h2><?= e($formatDate($date)) ?></h2>
+                <h2><?= e($periodLabel) ?></h2>
+                <p class="form-help"><?= $daily ? 'Daily roster for the current workforce, including unrecorded attendance.' : 'Recorded attendance for the current workforce, one row per employee per day. Weeks run Monday to Sunday; months use the full calendar month.' ?></p>
             </div>
-            <form method="get" class="date-control-form">
-                <label
-                    for="register-date"
-                    class="sr-only"
-                >
-                    Register date
-                </label>
-                <input
-                    id="register-date"
-                    class="date-control"
-                    name="date"
-                    type="date"
-                    value="<?= e($date) ?>"
-                >
-                <button
-                    type="submit"
-                    class="btn btn-secondary"
-                >
-                    Load date
-                </button>
-            </form>
+            <?php view('components.list-filters', [
+                'query'=>$data['listing']['query'], 'path'=>'/office_app/public/attendance',
+                'sorts'=>['name'=>'Name','number'=>'Employee number','department'=>'Department','status'=>'Status','date'=>'Date'],
+                'filters'=>[
+                    'period'=>['label'=>'Period','options'=>['daily'=>'Daily','weekly'=>'Weekly','monthly'=>'Monthly'],'allowAll'=>false],
+                    'date'=>['label'=>'Date in period','type'=>'date'],
+                    'status'=>['label'=>'Status','options'=>$statuses+['not_recorded'=>'Not recorded (daily only)']],
+                    'department'=>['label'=>'Department','options'=>$data['listOptions']['department']],
+                    'branch'=>['label'=>'Branch','options'=>$data['listOptions']['branch']],
+                ],
+            ]); ?>
+            <div class="filter-actions">
+                <?php if ($canManage): ?><a class="btn btn-secondary" href="/office_app/public/data-exchange/attendance/import">Import attendance</a><?php endif; ?>
+                <a class="btn btn-secondary" href="<?= e($data['listing']['query']->url('/office_app/public/data-exchange/attendance/export',['format'=>'xlsx'])) ?>">Export filtered</a>
+                <a class="btn btn-secondary" href="<?= e('/office_app/public/data-exchange/attendance/export?' . http_build_query(['date'=>$date,'period'=>$period['period'],'format'=>'xlsx'])) ?>">Export full <?= e($period['period']) ?> register</a>
+            </div>
         </section>
 
+        <?php view('components.list-pagination', ['query'=>$data['listing']['query'], 'pagination'=>$data['listing']['pagination'], 'path'=>'/office_app/public/attendance']); ?>
         <section class="card table-card">
             <div class="table-responsive">
                 <table class="data-table operations-table">
                     <thead>
                         <tr>
                             <th>Employee</th>
+                            <th>Date</th>
                             <th>Department</th>
                             <th>Status</th>
                             <th>Check-in</th>
@@ -350,10 +351,10 @@ $formatDate = static function (string $value): string {
                     <?php if ($records === []): ?>
                         <tr>
                             <td
-                                colspan="7"
+                                colspan="8"
                                 class="empty-state"
                             >
-                                No active employees are available.
+                                No matching attendance. Adjust the period or clear the filters.
                             </td>
                         </tr>
                     <?php else: ?>
@@ -376,6 +377,7 @@ $formatDate = static function (string $value): string {
                                         ) ?>
                                     </small>
                                 </td>
+                                <td><?= e($formatDate((string)($record['attendance_date'] ?? $date))) ?></td>
                                 <td>
                                     <?= e(
                                         $record['department_name']

@@ -322,6 +322,7 @@ $formatDate = static function (
     </article>
 </section>
 
+<?php view('components.list-filters', ['query'=>$data['list']['query'],'path'=>'/office_app/public/hr/team','sorts'=>['name'=>'Name','number'=>'Employee number','department'=>'Department','status'=>'Status'],'filters'=>['status'=>['label'=>'Status','options'=>['active'=>'Active','on_leave'=>'On leave','suspended'=>'Suspended','terminated'=>'Terminated']]],'hidden'=>[]]); ?>
 <section class="card team-directory-panel">
     <div class="team-panel-heading">
         <div>
@@ -335,7 +336,7 @@ $formatDate = static function (
             </p>
         </div>
         <span class="badge badge-info">
-            <?= e(count($reports)) ?> people
+            <?= e($data['list']['pagination']['total']) ?> people
         </span>
     </div>
 
@@ -479,3 +480,6 @@ $formatDate = static function (
         </div>
     </section>
 <?php endif; ?>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$data['list']['query'],'path'=>'/office_app/public/hr/team']); ?>
+<?php view('components.list-pagination', ['query'=>$data['list']['query'],'pagination'=>$data['list']['pagination'],'path'=>'/office_app/public/hr/team']); ?>

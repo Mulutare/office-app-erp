@@ -43,8 +43,18 @@ $record=$type==='customer'?$this->sales->customer($id):$this->sales->product($id
             ['sales', 'sales.quick_sale.use'],
             ['sales', 'sales.quick_sale.review'],
         ]);
-        $quickSale = $this->quickSales->workspace($this->actorId());
+        $quickSale = $this->quickSales->workspace($this->actorId(),$_GET);
         $managerMode = ($quickSale['mode'] ?? '') === 'manager';
+        if (isset($_GET['download'])) {
+            $this->authorization->requireModulePermission('sales','sales.export');
+            $register=\App\Services\Lists\ListQuery::text($_GET['register']??'');
+            if (!isset($quickSale['exportLists'][$register])) { http_response_code(400); echo 'Choose an available Quick Sales register.'; return; }
+            \App\Services\Lists\ListDownload::send('Quick_Sales_'.$register,$quickSale['exportLists'][$register],
+                ['quotation_number'=>'Reference','agent_name'=>'DSA/DSP','manager_name'=>'Manager','warehouse_code'=>'Shop code','warehouse_name'=>'Shop','team_name'=>'Team','status'=>'Status','event_at'=>'Date','currency'=>'Currency','total_amount'=>'Total'],
+                \App\Services\Lists\ListQuery::text($_GET['download']));
+        }
+        $quickSale['canExport']=$this->can('sales.export');
+
 
         \view('layouts.app', [
             'applicationName' =>
@@ -98,7 +108,8 @@ public function showQuickSale(string $id): void
         $detail = $this->quickSales->detail(
             (int) $id,
             $this->actorId(),
-            $privilegedReviewer
+            $privilegedReviewer,
+            false
         );
 
         if (!empty($detail['notFound'])) {
@@ -112,6 +123,9 @@ public function showQuickSale(string $id): void
 
         if (empty($detail['successful'])) {
             http_response_code(403);
+        }else{
+            $detail['related']=$this->documentLists(['quick-sale-events'],(int)$id,'/sales/quick-sale/'.(int)$id);
+            $detail['routingHistory']=$detail['related']['lists']['quick-sale-events']['rows'];
         }
 
         \view('layouts.app', [
@@ -421,8 +435,13 @@ public function showQuickSale(string $id): void
     {
 
         $this->authorize('sales.view');
-        $order=$this->sales->orderDetail((int)$id);
+        $order=$this->sales->orderDetail((int)$id,false);
         if($order===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
+        $related=$this->documentLists(['order-invoices','order-pickings','order-revisions'],(int)$id,'/sales/orders/'.(int)$id);
+        $order['revisions']=$related['lists']['order-revisions']['rows'];
+        $revisionLines=\db()->prepare('SELECT * FROM sales_order_revision_lines WHERE company_id=? AND revision_id=? ORDER BY revision_line_id');
+        foreach($order['revisions'] as &$revision){$revisionLines->execute([(new TenantContext())->companyId(),$revision['revision_id']]);$revision['lines']=$revisionLines->fetchAll(\PDO::FETCH_ASSOC);}unset($revision);
+        $order['related']=$related;
         $fulfilment=$this->sales->fulfilmentOptions($this->actorId(),array_column($order['lines'],'product_id'));
         $availability=[];if((int)($order['warehouse_id']??0)>0&&(int)($order['source_location_id']??0)>0){try{$availability=$this->sales->exactAvailability($this->actorId(),(int)$order['warehouse_id'],(int)$order['source_location_id'],array_column($order['lines'],'product_id'));}catch(\Throwable){}}
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$order['order_number'],'pageDescription'=>'Authoritative Sales, Inventory and Finance state.','contentView'=>'sales.order','order'=>$order,'fulfilmentWarehouses'=>$fulfilment['warehouses'],'fulfilmentLocations'=>$fulfilment['locations'],'fulfilmentAvailability'=>$availability,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canCreateInvoice'=>$this->can('finance.records.manage'),'canConfirm'=>$this->can('sales.orders.confirm'),'workflowTrace'=>$this->workflowTrace('order',(int)$order['order_id'])]);
@@ -439,13 +458,18 @@ $this->authorize('sales.view');$this->authorization->requireModulePermission('fi
     {
 
         $this->authorize('sales.view');
-        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Deliveries','pageDescription'=>'Authoritative Inventory pickings created from Sales Orders.','contentView'=>'sales.deliveries','deliveries'=>$this->sales->deliveries(),'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[])]);
+        $factory=new \App\Services\Lists\SalesListService();
+        $list=$factory->listing('deliveries',$_GET)->page();
+
+        \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>'Deliveries','pageDescription'=>'Authoritative Inventory pickings created from Sales Orders.','contentView'=>'sales.deliveries','deliveries'=>$list['rows'],'list'=>$list,'controls'=>$factory->controls('deliveries'),'canExport'=>$this->can('sales.export'),'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[])]);
     }
     public function showDelivery(string $id): void
     {
 
-        $this->authorize('sales.view');$delivery=$this->sales->delivery((int)$id);
+        $this->authorize('sales.view');$delivery=$this->sales->delivery((int)$id,false);
         if($delivery===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}
+        $delivery['related']=$this->documentLists(['delivery-returns'],(int)$id,'/sales/deliveries/'.(int)$id);
+        $delivery['returns']=$delivery['related']['lists']['delivery-returns']['rows'];
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$delivery['picking_number'],'pageDescription'=>'Validate authoritative Inventory delivery and return documents.','contentView'=>'sales.delivery','delivery'=>$delivery,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canComplete'=>$this->can('inventory.deliveries.validate'),'canReturn'=>$this->can('inventory.deliveries.validate'),'workflowTrace'=>$this->workflowTrace('delivery',(int)$delivery['picking_id'])]);
     }
     public function completeDelivery(string $id): void
@@ -464,7 +488,15 @@ $this->authorize('sales.view');$this->authorization->requireModulePermission('fi
     public function showTeam(string $id): void{$this->authorize('sales.catalogue.manage');$this->renderCommercial('team',(int)$id);}
     private function renderCommercial(string $type,int $id): void
     {
-$record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}$workspace=$this->sales->workspace();$canManage=$type==='pricelist'?$this->can('sales.pricing.manage')&&!(new \App\Services\SalesHierarchyScope())->isAgent((new TenantContext())->companyId(),$this->actorId()):$this->can('sales.catalogue.manage');\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$canManage]+$workspace);}
+$record=$type==='pricelist'?$this->sales->pricelist($id,false):$this->sales->salesTeam($id,$this->actorId());if($record===null){http_response_code(404);\view('errors.404',['applicationName'=>\config('name','OfficeApp ERP')]);return;}if($type==='pricelist'){$record['related']=$this->documentLists(['pricing-rules'],$id,'/sales/pricelists/'.$id);$record['rules']=$record['related']['lists']['pricing-rules']['rows'];}else{$record['related']=$this->documentLists(['team-members'],$id,'/sales/teams/'.$id);}$workspace=$this->sales->workspace();$canManage=$type==='pricelist'?$this->can('sales.pricing.manage')&&!(new \App\Services\SalesHierarchyScope())->isAgent((new TenantContext())->companyId(),$this->actorId()):$this->can('sales.catalogue.manage');\view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>(string)$record['name'],'pageDescription'=>$type==='pricelist'?'Pricelist details and deterministic rules.':'Sales team leader and members.','contentView'=>'sales.commercial','commercialType'=>$type,'record'=>$record,'user'=>$_SESSION['auth'],'notice'=>\getFlash('sales_notice'),'errors'=>\getFlash('sales_errors',[]),'canManage'=>$canManage]+$workspace);}
+
+    private function documentLists(array $entities,int $parent,string $path): array
+    {
+        if(isset($_GET['download']))$this->authorize('sales.export');
+        $workspace=(new \App\Services\Lists\DocumentListService())->workspace($entities,$_GET,$parent,\appBasePath().$path,$this->can('sales.export'));
+        \App\Services\Lists\DocumentListService::download($workspace,$_GET);
+        return $workspace;
+    }
 
     public function createQuotation(): void
     {
@@ -537,7 +569,13 @@ $record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam
         if (in_array($section, ['product_variants', 'teams'], true)) {
             $this->authorize('sales.catalogue.manage');
         }
-        $workspace = $this->sales->workspace();
+        $workspace = $this->sales->workspace($section, $_GET);
+        if(isset($_GET['download'])&&in_array($section,['products','teams'],true)){
+            $this->authorize('sales.export');
+            $entity=\App\Services\Lists\ListQuery::text($_GET['register']??'');
+            if(!in_array($entity,['serials','commissions','targets'],true)){http_response_code(400);echo 'Choose a Sales register.';return;}
+            \App\Services\Lists\ListDownload::send($entity,(new \App\Services\Lists\SalesListService())->listing($entity,$_GET,$entity),\App\Services\Lists\SalesListService::secondaryColumns($entity),$_GET['download']);
+        }
         $pricingData = [];
         $canManagePricing = false;
         if ($section === 'pricelists') {
@@ -545,7 +583,9 @@ $record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam
             $actorId = $this->actorId();
             $permissions = new \App\Services\ModuleRoleService();
             if ($permissions->permissionAllowed($companyId, $actorId, 'sales.pricing.view')) {
-                $pricingData = (new \App\Services\SalesPricingService())->register($actorId);
+                $pricingData = (new \App\Services\SalesPricingService())->register($actorId,$_GET);
+                if(isset($_GET['download']))$this->authorize('sales.export');
+                \App\Services\Lists\DocumentListService::download($pricingData['exports'],$_GET);
                 $agent = (new \App\Services\SalesHierarchyScope())->isAgent($companyId, $actorId);
                 $canManagePricing = !$agent && $permissions->permissionAllowed($companyId, $actorId, 'sales.pricing.manage');
             }
@@ -573,6 +613,8 @@ $record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam
             'canManageSerials' => $this->can('sales.serials.manage'),
             'canManageCommissions' => $this->can('sales.commissions.manage'),
             'canExportReports' => $this->can('sales.reports.export'),
+            'canExchangeExport' => $this->can('sales.export'),
+            'canExchangeImport' => $this->can('sales.import'),
             'pricingData' => $pricingData,
             'canManagePricing' => $canManagePricing,
             'pricingNotice' => \getFlash('sales_pricing_notice'),
@@ -821,26 +863,12 @@ $record=$type==='pricelist'?$this->sales->pricelist($id):$this->sales->salesTeam
     public function export(): void
     {
         $this->authorize('sales.reports.export');
-        $workspace = $this->sales->workspace();
-        header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="sales-orders-' . date('Y-m-d') . '.csv"');
-        $stream = fopen('php://output', 'wb');
-        if ($stream === false) {
-            throw new \RuntimeException('The sales export could not be opened.');
-        }
-        fputcsv($stream, [
-            'Order number', 'Customer', 'Order date', 'Due date',
-            'Currency', 'Total', 'Paid', 'Balance', 'Status', 'DSA/DSP',
-        ]);
-        foreach ($workspace['orders'] as $order) {
-            fputcsv($stream, [
-                $order['order_number'], $order['customer_name'],
-                $order['order_date'], $order['due_date'], $order['currency'],
-                $order['total_amount'], $order['paid_amount'],
-                $order['balance_due'], $order['status'], $order['agent_name'] ?? '',
-            ]);
-        }
-        fclose($stream);
+        $rows=(new \App\Services\DataExchange\ExportDataProvider())->rows('sales-orders',$_GET);
+        $file=(new \App\Services\DataExchange\ExportService())->export('sales-orders','csv',$rows);
+        header('Content-Type: '.$file['mime']);
+        header('Content-Disposition: attachment; filename="'.$file['filename'].'"');
+        header('X-Content-Type-Options: nosniff');
+        echo $file['contents'];
         exit;
     }
 

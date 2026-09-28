@@ -216,94 +216,15 @@ $permissions=$permissions??($_SESSION['auth']['permissions']??[]);
 $can=static fn(string $p):bool=>in_array($p,$permissions,true);
 $actorId=(int)($_SESSION['auth']['user_id']??0);
 $requests=$stockRequests??[];
+$lists=$lists??[];$canExport=$canExport??false;
+$stockListPath=appBasePath().'/inventory/stock-requests'.(!empty($stockRequest['request_id'])?'/'.(int)$stockRequest['request_id']:'');
+$stockListControls=static function(string $entity) use($lists,$canExport,$stockListPath):void {
+    if(!isset($lists[$entity]))return;
+    view('inventory.list-controls',['list'=>$lists[$entity],'path'=>$stockListPath,
+        'entity'=>$entity,'canExport'=>$canExport,
+        'controls'=>\App\Services\Lists\StockRequestLists::controls($entity,$lists[$entity]['exportList']??null)]);
+};
 
-/*
- * STOCK_REQUEST_LIST_FALLBACK_V1
- *
- * The controller remains the primary reporting-scope source.
- * If the nested content view receives no rows, never hide a request
- * that the signed-in user created or is currently responsible for.
- *
- * Read-only fallback; authorization is still enforced by controller.
- */
-if ($requests === [] && $actorId > 0) {
-    $requestListCompanyId =
-        (new \App\Services\TenantContext())->companyId();
-
-    $fallbackStatement = \db()->prepare(
-        "SELECT
-            r.request_id,
-            r.request_number,
-            r.requester_user_id,
-            r.current_handler_user_id,
-            r.status,
-            r.request_kind,
-            r.notes,
-            r.requested_at,
-
-            requester.display_name AS requester_name,
-            handler.display_name AS handler_name,
-
-            a.authority_level AS serving_level,
-            w.name AS serving_warehouse_name,
-            l.name AS serving_location_name,
-
-            (
-                SELECT COUNT(*)
-                FROM inventory_stock_request_lines rl
-                WHERE rl.company_id=r.company_id
-                  AND rl.request_id=r.request_id
-            ) AS line_count
-
-         FROM inventory_stock_requests r
-
-         LEFT JOIN users requester
-           ON requester.user_id=r.requester_user_id
-
-         LEFT JOIN users handler
-           ON handler.user_id=r.current_handler_user_id
-
-         LEFT JOIN inventory_stock_authorities a
-           ON a.company_id=r.company_id
-          AND a.authority_id=r.serving_authority_id
-
-         LEFT JOIN inventory_warehouses w
-           ON w.company_id=r.company_id
-          AND w.warehouse_id=a.warehouse_id
-
-         LEFT JOIN inventory_warehouse_locations l
-           ON l.company_id=r.company_id
-          AND l.warehouse_id=a.warehouse_id
-          AND l.location_id=a.location_id
-
-         WHERE r.company_id=:company_id
-           AND (
-                r.requester_user_id=:requester_id
-                OR
-                r.current_handler_user_id=:handler_id
-           )
-
-         ORDER BY
-            CASE
-                WHEN r.current_handler_user_id=:priority_id
-                 AND r.status='pending_review'
-                THEN 0
-                ELSE 1
-            END,
-            r.requested_at DESC,
-            r.request_id DESC"
-    );
-
-    $fallbackStatement->execute([
-        'company_id' => $requestListCompanyId,
-        'requester_id' => $actorId,
-        'handler_id' => $actorId,
-        'priority_id' => $actorId,
-    ]);
-
-    $requests =
-        $fallbackStatement->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-}
 
 $detailWorkspace =
     is_array($stockRequestDetailWorkspace ?? null)
@@ -369,15 +290,15 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
 </td><td><?=e($line['requested_quantity'].' '.$line['unit_of_measure'])?></td><td><?=e($line['allocated_quantity'])?></td><td><?=e($line['proposed_quantity']??0)?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['allocated_quantity']-(float)($line['proposed_quantity']??0)))?></td><td><?=e(max(0,(float)$line['requested_quantity']-(float)$line['ready_quantity']))?></td><td><?=e($line['ready_quantity'])?></td></tr><?php endforeach;?>
 </tbody></table></div></section>
 
-<?php if(!empty($request['events'])):?><section class="card"><h3>Immutable request history</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Reason</th><th>Previous values</th><th>New values</th></tr></thead><tbody><?php foreach($request['events'] as $event):?><tr><td><?=e($event['occurred_at'])?></td><td><?=e(str_replace('_',' ',$event['event_type']))?></td><td><?=e($event['actor_id'])?></td><td><?=e($event['reason']??'—')?></td><td><details><summary>View snapshot</summary><pre><?=e($event['previous_values_json']??'—')?></pre></details></td><td><details><summary>View snapshot</summary><pre><?=e($event['new_values_json']??'—')?></pre></details></td></tr><?php endforeach;?></tbody></table></div></section><?php endif;?>
+<?php if(isset($lists['events'])):?><section class="card"><h3>Immutable request history</h3><?php $stockListControls('events'); if(empty($request['events'])): ?><p>No matching records.</p><?php endif; ?><div class="table-responsive"><table class="data-table"><thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Reason</th><th>Previous values</th><th>New values</th></tr></thead><tbody><?php foreach($request['events'] as $event):?><tr><td><?=e($event['occurred_at'])?></td><td><?=e(str_replace('_',' ',$event['event_type']))?></td><td><?=e($event['actor_name']??'System')?></td><td><?=e($event['reason']??'—')?></td><td><details><summary>View snapshot</summary><pre><?=e($event['previous_values_json']??'—')?></pre></details></td><td><details><summary>View snapshot</summary><pre><?=e($event['new_values_json']??'—')?></pre></details></td></tr><?php endforeach;?></tbody></table></div></section><?php endif;?>
 
 <?php if($request['status']==='rejected' && (int)$request['requester_user_id']===$actorId && $can('inventory.stock_requests.create')):?><section class="card"><h3>Correct and resubmit</h3><p>The rejected values remain in immutable history. Enter the corrected quantities; zero means omit that SKU.</p><form method="post" data-stock-request-quantities action="<?=e(appBasePath())?>/inventory/stock-requests/<?=(int)$request['request_id']?>/resubmit"><?=csrfField()?><?php foreach($request['lines'] as $line):?><div class="form-grid"><label>Product<select name="product_id[]" required><option value="<?=(int)$line['product_id']?>"><?=e($line['sku'].' — '.$line['name'])?></option></select></label><label>Quantity<input type="number" name="quantity[]" min="0" step="0.001" value="<?=e($line['requested_quantity'])?>" required></label></div><?php endforeach;?><label>Notes<textarea name="notes" maxlength="1000"><?=e($request['notes']??'')?></textarea></label><button class="btn btn-primary">Resubmit corrected request</button></form></section><?php endif;?>
 
-<?php if(!empty($request['allocations'])):?><section class="card"><h3>Allocation and transfer history</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Level</th><th>Manager</th><th>Product</th><th>Qty</th><th>Source</th><th>Status</th><th>Transfer</th></tr></thead><tbody>
+<?php if(isset($lists['allocations'])):?><section class="card"><h3>Allocation and transfer history</h3><?php $stockListControls('allocations'); if(empty($request['allocations'])): ?><p>No matching records.</p><?php endif; ?><div class="table-responsive"><table class="data-table"><thead><tr><th>Level</th><th>Manager</th><th>Product</th><th>Qty</th><th>Source</th><th>Status</th><th>Transfer</th></tr></thead><tbody>
 <?php foreach($request['allocations'] as $a):?><tr><td><?=e(ucfirst($a['authority_level']))?></td><td><?=e($a['authority_name'])?></td><td><?=e($a['product_name'])?></td><td><?=e($a['quantity'])?></td><td><?=e($a['source_warehouse_name'].' / '.$a['source_location_name'])?></td><td><?=e(str_replace('_',' ',$a['status']))?></td><td><?php if(!empty($a['transfer_id'])):?><a href="<?=e(appBasePath())?>/inventory/transfers/<?=$a['transfer_id']?>"><?=e($a['transfer_number']??('TRF #'.$a['transfer_id']))?></a> · <?=e($a['transfer_status']??'')?><?php else:?>Direct Shop allocation<?php endif;?></td></tr><?php endforeach;?>
 </tbody></table></div></section><?php endif;?>
 
-<?php if(!empty($request['procurements'])):?><section class="card"><h3>Linked company procurement</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Requisition</th><th>Status</th><th>Purchase order</th><th>PO status</th></tr></thead><tbody>
+<?php if(isset($lists['procurements'])):?><section class="card"><h3>Linked company procurement</h3><?php $stockListControls('procurements'); if(empty($request['procurements'])): ?><p>No matching records.</p><?php endif; ?><div class="table-responsive"><table class="data-table"><thead><tr><th>Requisition</th><th>Status</th><th>Purchase order</th><th>PO status</th></tr></thead><tbody>
 <?php foreach($request['procurements'] as $p):?><tr><td><?=e($p['requisition_number'])?></td><td><?=e($p['requisition_status'])?></td><td><?php if(!empty($p['purchase_order_id'])):?><a href="<?=e(appBasePath())?>/procurement/<?=$p['purchase_order_id']?>"><?=e($p['po_number'])?></a><?php else:?>—<?php endif;?></td><td><?=e($p['purchase_order_status']??'—')?></td></tr><?php endforeach;?>
 </tbody></table></div></section><?php endif;?>
 
@@ -407,10 +328,10 @@ $statusClass=static fn(string $s):string=>in_array($s,['closed','issued','ready_
 <label>Parent warehouse (Shop → District, District → Regional)<select name="parent_warehouse_id"><option value="">Keep existing / infer only an unambiguous parent</option><?php foreach(($stockAuthorityWarehouses['warehouses']??[]) as $w):?><option value="<?=$w['warehouse_id']?>"><?=e($w['code'].' — '.$w['name'])?></option><?php endforeach;?></select></label>
 <label><input type="checkbox" name="active" value="1" checked> Active</label>
 </div><button class="btn btn-primary">Save stock authority</button></form></section>
-<section class="card"><h3>Configured authorities</h3><div class="table-responsive"><table class="data-table"><thead><tr><th>Manager</th><th>HR Job Title</th><th>Level</th><th>Represented stock</th><th>Reports to</th><th>Active</th></tr></thead><tbody><?php foreach($stockAuthorities??[] as $a):?><tr><td><?=e($a['display_name'])?></td><td><?=e($a['job_title'])?></td><td><?=e(ucfirst($a['authority_level']))?></td><td><?=e($a['warehouse_name'].' / '.$a['location_name'])?></td><td><?=e($a['manager_name']??'—')?></td><td><?=!empty($a['active'])?'Yes':'No'?></td></tr><?php endforeach;?></tbody></table></div></section>
+<section class="card"><h3>Configured authorities</h3><?php $stockListControls('authorities'); ?><div class="table-responsive"><table class="data-table"><thead><tr><th>Manager</th><th>HR Job Title</th><th>Level</th><th>Represented stock</th><th>Reports to</th><th>Active</th></tr></thead><tbody><?php foreach($stockAuthorities??[] as $a):?><tr><td><?=e($a['display_name'])?></td><td><?=e($a['job_title'])?></td><td><?=e(ucfirst($a['authority_level']))?></td><td><?=e($a['warehouse_name'].' / '.$a['location_name'])?></td><td><?=e($a['manager_name']??'—')?></td><td><?=!empty($a['active'])?'Yes':'No'?></td></tr><?php endforeach;?></tbody></table></div></section>
 
 <?php elseif($section==='reorder' && !empty($canManageReorderThresholds)):?>
-<section class="card"><h2>Regional company-stock notifications</h2><p><strong><?=e(($regionalReorder['warehouse_name']??'').' / '.($regionalReorder['location_name']??''))?></strong>. Thresholds create a visible low-stock warning only; they never create a requisition or PO automatically.</p></section>
+<section class="card"><?php $stockListControls('reorder'); ?><h2>Regional company-stock notifications</h2><p><strong><?=e(($regionalReorder['warehouse_name']??'').' / '.($regionalReorder['location_name']??''))?></strong>. Thresholds create a visible low-stock warning only; they never create a requisition or PO automatically.</p></section>
 <section class="card"><div class="table-responsive"><table class="data-table"><thead><tr><th>Product</th><th>On hand</th><th>Reserved</th><th>Available</th><th>Notification at/below</th><th>State</th><th>Action</th></tr></thead><tbody>
 <?php foreach($regionalReorder['products']??[] as $p):?><tr><td><?=e($p['sku'].' — '.$p['name'])?></td><td><?=e($p['quantity_on_hand'])?></td><td><?=e($p['quantity_reserved'])?></td><td><?=e($p['quantity_available'])?></td><td><form method="post" action="<?=e(appBasePath())?>/inventory/stock-requests/reorder-thresholds" class="proc-actions"><?=csrfField()?><input type="hidden" name="product_id" value="<?=$p['product_id']?>"><input name="notification_quantity" type="number" min="0" step="0.001" value="<?=e($p['notification_quantity']??0)?>" required><label><input type="checkbox" name="active" value="1" <?=!isset($p['threshold_active'])||!empty($p['threshold_active'])?'checked':''?>> active</label><button class="btn btn-secondary">Save</button></form></td><td><?php if(!empty($p['low_stock'])):?><strong>⚠ Low stock</strong><?php else:?>OK<?php endif;?></td><td><?php if(!empty($p['low_stock'])):?><a class="btn btn-primary" href="<?=e(appBasePath())?>/procurement?section=requisitions&source=regional-low-stock&product_id=<?=$p['product_id']?>&warehouse_id=<?=e($regionalReorder['warehouse_id'])?>">Create purchase requisition</a><?php else:?>—<?php endif;?></td></tr><?php endforeach;?>
 </tbody></table></div></section>
@@ -649,7 +570,7 @@ $isStockHierarchyManager = in_array(
 
 <?php endif;?>
 <section class="card" id="stock-request-status-table">
-    <h2>Stock requests</h2>
+    <h2>Stock requests</h2><?php $stockListControls('requests'); ?>
 
     <?php
     $listActorId = (int) ($_SESSION['auth']['user_id'] ?? 0);
@@ -850,8 +771,8 @@ $isStockHierarchyManager = in_array(
 </script>
 <script src="<?= e(appBasePath()) ?>/assets/js/stock-request-validation.js?v=091" defer></script>
 
-<?php if(!empty($peerProposals)): ?>
-<section class="card"><h2>Peer transfer decisions and history</h2>
+<?php if(isset($lists['peers']) || !empty($peerProposals)): ?>
+<section class="card"><h2>Peer transfer decisions and history</h2><?php $stockListControls('peers'); if(empty($peerProposals)): ?><p>No matching peer proposals.</p><?php endif; ?>
 <?php foreach($peerProposals as $peer): ?>
 <article class="card"><h3><?=e($peer['proposal_number'])?> · <?=e(str_replace('_',' ',$peer['state']))?></h3>
 <p><?=e($peer['request_number'])?> · <?=e($peer['product_name'])?> · <?=e($peer['quantity'])?> units<br>

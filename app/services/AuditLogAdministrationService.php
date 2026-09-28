@@ -9,6 +9,11 @@ use DateTimeImmutable;
 
 final class AuditLogAdministrationService
 {
+    public function smartListing(array $input): array
+    {
+        $data=(new \App\Services\Lists\AdministrationListService())->workspace('audit',$input);
+        return $data+['logs'=>array_map(fn(array $row):array=>$this->present($row),$data['rows']),'options'=>[]];
+    }
     private const PAGE_SIZE = 25;
 
     private AuditLogQuery $auditLogs;

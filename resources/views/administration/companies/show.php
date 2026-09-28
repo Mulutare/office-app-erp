@@ -206,8 +206,9 @@ $companyInitials = strtoupper(substr(
                 Vendor password recovery is audited and company-scoped.
             </small>
         </div>
-        <span><?= e(count($companyUsers)) ?> users</span>
+        <span><?= e($data['memberListing']['pagination']['total']) ?> users</span>
     </div>
+    <?php view('administration.list-controls',['listing'=>$data['memberListing'],'entity'=>'company-users','path'=>appBasePath().'/administration/companies/view']); ?>
     <div class="table-responsive">
         <table class="data-table">
             <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Password</th><th>Action</th></tr></thead>

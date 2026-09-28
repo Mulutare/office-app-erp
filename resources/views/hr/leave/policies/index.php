@@ -102,9 +102,10 @@ $formatDate = static function (mixed $value): string {
                 be selected for new requests.
             </span>
         </div>
-        <span><?= e(count($policies)) ?> policies</span>
+        <span><?= e($data['list']['pagination']['total']) ?> policies</span>
     </div>
 
+<?php view('components.list-filters', ['query'=>$data['list']['query'], 'path'=>'/office_app/public/hr/leave/policies', 'sorts'=>$data['listSorts'], 'filters'=>['active'=>['label'=>'Status','options'=>['1'=>'Active','0'=>'Inactive']]]]); ?>
     <div class="table-responsive">
         <table class="data-table policy-table">
             <thead>
@@ -260,3 +261,6 @@ $formatDate = static function (mixed $value): string {
         </p>
     </article>
 </section>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$data['list']['query'],'path'=>'/office_app/public/hr/leave/policies']); ?>
+<?php view('components.list-pagination', ['query'=>$data['list']['query'], 'pagination'=>$data['list']['pagination'], 'path'=>'/office_app/public/hr/leave/policies']); ?>

@@ -26,7 +26,8 @@ final class PositionController
             ->requireTenantPermission(
                 'organization.positions.view'
             );
-        $listing = $this->positions->listing();
+        $listing = (new \App\Services\Lists\OrganizationListService())->listing('positions', $_GET);
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('positions', $listing['exportList'], (new \App\Services\Lists\OrganizationListService())->columns('positions'), $_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -45,6 +46,8 @@ final class PositionController
             'user' => $_SESSION['auth'],
             'positions' => $listing['positions'],
             'summary' => $listing['summary'],
+            'list' => $listing['list'],
+            'listSorts' => $listing['sorts'],
             'canManage' => $this->canManage(),
             'notice' => \getFlash(
                 'position_notice'

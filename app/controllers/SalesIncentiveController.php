@@ -17,11 +17,25 @@ final class SalesIncentiveController
         $agent=(new \App\Services\SalesHierarchyScope())->isAgent($company,$this->actor());
         \view('layouts.app',['applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'pageTitle'=>$title,'pageDescription'=>'Cumulative confirmed sales, manager-approved Safaricom incentives and external settlement.','contentView'=>$content,'user'=>$_SESSION['auth'],'simpleSalesUser'=>$agent,'moduleContext'=>['module'=>'sales','section'=>'incentives'],'notice'=>\getFlash('incentive_notice'),'error'=>\getFlash('incentive_error'),'canSubmitIncentive'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.submit'),'canApproveIncentive'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.approve'),'canSettleIncentive'=>$permissions->permissionAllowed($company,$this->actor(),'sales.incentive.settle')]+$extra);
     }
-    public function index(): void { $this->permit('view');$this->render('DSA/DSP Incentives','sales.incentives',['incentiveData'=>(new SalesIncentiveService())->register($this->actor(),$_GET)]); }
+    public function index(): void
+    {
+        $this->permit('view');$register=(new SalesIncentiveService())->register($this->actor(),$_GET);
+        $canExport=in_array('sales.export',$_SESSION['auth']['permissions']??[],true);
+        if(isset($_GET['download'])) {
+            (new AuthorizationService())->requireTenantPermission('sales.export');
+            \App\Services\Lists\ListDownload::send('sales-incentives',$register['exportList'],[
+                'submitted_at'=>'Submitted','dsa_name'=>'DSA/DSP','manager_name'=>'Manager','external_reference'=>'Safaricom reference',
+                'currency'=>'Currency','proposed_amount'=>'Proposed','approved_amount'=>'Approved','settled_amount'=>'Settled',
+                'outstanding'=>'Outstanding','status'=>'Status'],$_GET['download']);
+        }
+        $this->render('DSA/DSP Incentives','sales.incentives',['incentiveData'=>$register,'canExportList'=>$canExport]);
+    }
+
     public function show(string $id): void
     {
         $this->permit('view');
-        try{$detail=(new SalesIncentiveService())->detail((int)$id,$this->actor());}catch(\Throwable $e){http_response_code(404);echo \e($e->getMessage());return;}
+        try{$detail=(new SalesIncentiveService())->detail((int)$id,$this->actor(),$_GET);}catch(\Throwable $e){http_response_code(404);echo \e($e->getMessage());return;}
+        \App\Services\Lists\DocumentListService::download($detail['related'],$_GET);
         $this->render('Safaricom Incentive','sales.incentive-detail',['incentiveDetail'=>$detail]);
     }
     public function issueFloat(): void { $this->mutate('approve',fn()=>(new SalesIncentiveService())->issueFloat($_POST,$this->actor()),'Cash float issued.',null,max(0,(int)($_POST['report_id']??0))); }

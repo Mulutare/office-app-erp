@@ -15,12 +15,15 @@ final class ImportResult
         public int $skipped = 0,
         public int $failed = 0,
         public array $errors = [],
+        public int $invalidRows = 0,
+        public int $duplicateRows = 0,
+        public array $warnings = [],
     ) {
     }
 
-    public function addError(int $row, string $field, string $message): void
+    public function addError(int $row, string $field, string $message, string $value = ''): void
     {
-        $this->errors[] = compact('row', 'field', 'message');
+        $this->errors[] = compact('row', 'field', 'value', 'message');
         ++$this->failed;
     }
 

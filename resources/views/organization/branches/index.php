@@ -77,11 +77,12 @@ $formatDate = static function (mixed $value): string {
     </div>
 </section>
 
+<?php view('components.list-filters', ['query'=>$data['list']['query'], 'path'=>'/office_app/public/organization/branches', 'sorts'=>$data['listSorts'], 'filters'=>['active'=>['label'=>'Status','options'=>['1'=>'Active','0'=>'Inactive']]]]); ?>
 <section class="card table-card">
     <div class="table-summary">
         <div>
             <strong>
-                <?= e(count($branches)) ?>
+                <?= e($data['list']['pagination']['total']) ?>
                 registered branches
             </strong>
             <span class="table-summary-note">
@@ -204,3 +205,6 @@ $formatDate = static function (mixed $value): string {
         </table>
     </div>
 </section>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$data['list']['query'],'path'=>'/office_app/public/organization/branches']); ?>
+<?php view('components.list-pagination', ['query'=>$data['list']['query'], 'pagination'=>$data['list']['pagination'], 'path'=>'/office_app/public/organization/branches']); ?>

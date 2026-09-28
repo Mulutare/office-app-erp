@@ -9,6 +9,13 @@ use App\Models\EmployeeActivity;
 
 final class EmployeeActivityService
 {
+    public function smartListing(int $employeeId,array $input): ?array
+    {
+        $employee=$this->employees->find($this->tenant->companyId(),$employeeId);
+        if(!$employee)return null;$employee['displayName']=$this->displayName($employee);
+        $data=(new \App\Services\Lists\AdministrationListService())->workspace('employee-activity',$input,'',['employee_id'=>$employeeId]);
+        return $data+['employee'=>$employee,'events'=>array_map(fn(array $row):array=>$this->presentEvent($row),$data['rows'])];
+    }
     private const PAGE_SIZE = 15;
 
     private Employee $employees;

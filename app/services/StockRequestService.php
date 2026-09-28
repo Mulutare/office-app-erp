@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Repositories\RepositoryFactory;
 use PDO;
+use App\Services\Lists\StockRequestLists;
 use RuntimeException;
 use Throwable;
 
@@ -20,7 +21,7 @@ final class StockRequestService
     }
 
     /** @return array<string,mixed> */
-    public function workspace(int $actorId, ?int $requestId = null): array
+    public function workspace(int $actorId, ?int $requestId = null, ?array $input = null): array
     {
         $companyId = $this->tenant->companyId();
         try {
@@ -71,16 +72,12 @@ final class StockRequestService
             $parameters['scope_actor'] = $actorId;
             $parameters['scope_actor_two'] = $actorId;
         }
-        if ($requestId !== null) {
-            $where[] = 'r.request_id=:request_id';
-            $parameters['request_id'] = $requestId;
-        }
-
         $sql = "SELECT r.*,
                        COALESCE(NULLIF(TRIM(CONCAT(e.first_name,' ',COALESCE(e.middle_name,''),' ',e.last_name)),''),u.display_name) requester_name,
                        h.display_name current_handler_name,
                        sa.authority_level serving_level,
                        sw.name serving_warehouse_name,sl.name serving_location_name,
+                       (SELECT COUNT(*) FROM inventory_stock_request_lines l WHERE l.company_id=r.company_id AND l.request_id=r.request_id) line_count,
                        COALESCE((SELECT SUM(l.requested_quantity) FROM inventory_stock_request_lines l
                                  WHERE l.company_id=r.company_id AND l.request_id=r.request_id),0) requested_quantity,
                        COALESCE((SELECT SUM(a.quantity) FROM inventory_stock_request_allocations a
@@ -94,23 +91,34 @@ final class StockRequestService
                 INNER JOIN inventory_stock_authorities sa ON sa.company_id=r.company_id AND sa.authority_id=r.serving_authority_id
                 INNER JOIN inventory_warehouses sw ON sw.company_id=sa.company_id AND sw.warehouse_id=sa.warehouse_id
                 INNER JOIN inventory_warehouse_locations sl ON sl.company_id=sa.company_id AND sl.warehouse_id=sa.warehouse_id AND sl.location_id=sa.location_id
-                WHERE " . implode(' AND ', $where) . "
-                ORDER BY r.request_id DESC";
-        $statement = \db()->prepare($sql);
-        $statement->execute($parameters);
-        $requests = $statement->fetchAll(PDO::FETCH_ASSOC);
-        if (!is_array($requests)) $requests = [];
+                WHERE " . implode(' AND ', $where);
+        $lists=[];$exportLists=[];
+        if($input!==null) {
+            $exportLists['requests']=StockRequestLists::listing('requests',$sql,$parameters,$input);
+            $lists['requests']=$exportLists['requests']->page();
+            $requests=$lists['requests']['rows'];
+        } else $requests=[];
+        if($requestId!==null || $input===null) {
+            $detailParameters=$parameters;
+            if($requestId!==null)$detailParameters['request_id']=$requestId;
+            $statement=\db()->prepare($sql.($requestId!==null?' AND r.request_id=:request_id':'').' ORDER BY r.request_id DESC');
+            $statement->execute($detailParameters);$detailRows=$statement->fetchAll(PDO::FETCH_ASSOC);
+            if($input===null)$requests=$detailRows;
+        }
 
         $request = null;
         if ($requestId !== null) {
-            $request = $requests[0] ?? null;
+            $request = $detailRows[0] ?? null;
             if (is_array($request)) {
                 $request['lines'] = $this->requestLines($companyId, $requestId);
-                $request['allocations'] = $this->requestAllocations($companyId, $requestId);
-                $request['procurements'] = $this->requestProcurements($companyId, $requestId);
-                $events=\db()->prepare('SELECT event_type,from_status,to_status,previous_values_json,new_values_json,reason,actor_id,occurred_at FROM inventory_stock_request_events WHERE company_id=? AND request_id=? ORDER BY occurred_at,request_event_id');
-                $events->execute([$companyId,$requestId]);
-                $request['events']=$events->fetchAll(PDO::FETCH_ASSOC);
+                foreach(['allocations'=>'requestAllocations','procurements'=>'requestProcurements'] as $entity=>$method){
+                    $children=$this->$method($companyId,$requestId,$input);
+                    $request[$entity]=$input===null?$children:$children['rows'];
+                    if($input!==null){$lists[$entity]=$children;$exportLists[$entity]=$children['exportList'];}
+                }
+                $eventSql='SELECT e.*,u.display_name actor_name FROM inventory_stock_request_events e LEFT JOIN users u ON u.user_id=e.actor_id WHERE e.company_id=? AND e.request_id=?';
+                if($input!==null){$exportLists['events']=StockRequestLists::listing('events',$eventSql,[$companyId,$requestId],$input);$lists['events']=$exportLists['events']->page()+['exportList'=>$exportLists['events']];$request['events']=$lists['events']['rows'];}
+                else{$events=\db()->prepare($eventSql.' ORDER BY e.occurred_at,e.request_event_id');$events->execute([$companyId,$requestId]);$request['events']=$events->fetchAll(PDO::FETCH_ASSOC);}
             }
         }
 
@@ -180,9 +188,18 @@ final class StockRequestService
                 'inventory.reorder_thresholds.manage'
             );
 
+        $peerData=$this->peerWorkspace($companyId,$actorId,$requestId,$input);
+        $authorityData=$manageAuthorities?$this->authorities($companyId,$input):[];
+        $reorderData=$canManageReorder?$this->regionalReorderWorkspace($companyId,$authority,$input):[];
+        if($input!==null) {
+            $lists['peers']=$peerData;$exportLists['peers']=$peerData['exportList'];
+            if($manageAuthorities){$lists['authorities']=$authorityData;$exportLists['authorities']=$authorityData['exportList'];}
+            if($canManageReorder){$lists['reorder']=$reorderData['list'];$exportLists['reorder']=$reorderData['list']['exportList'];}
+        }
         return [
-            'stockRequests' => $requestId === null ? $requests : $this->listVisibleRequests($companyId, $actorId, (new InventoryReadScope())->isAdministrator($companyId, $actorId), $visibleRequesterIds),
-            'peerProposals' => $this->peerWorkspace($companyId,$actorId,$requestId),
+            'lists'=>$lists,'exportLists'=>$exportLists,
+            'stockRequests' => $input!==null || $requestId === null ? $requests : $this->listVisibleRequests($companyId, $actorId, (new InventoryReadScope())->isAdministrator($companyId, $actorId), $visibleRequesterIds),
+            'peerProposals' => $input===null?$peerData:$peerData['rows'],
             'peerCandidates' => $this->peerCandidates($companyId,$actorId,$request),
             'stockRequest' => $request,
             'stockRequestProducts' => $this->requestableProducts($companyId),
@@ -207,10 +224,10 @@ final class StockRequestService
             ),
             'canManageStockAuthorities' => $manageAuthorities,
             'canManageReorderThresholds' => $canManageReorder,
-            'stockAuthorities' => $manageAuthorities ? $this->authorities($companyId) : [],
+            'stockAuthorities' => $input!==null && $manageAuthorities?$authorityData['rows']:$authorityData,
             'stockAuthorityCandidates' => $manageAuthorities ? $this->authorityCandidates($companyId) : [],
             'stockAuthorityWarehouses' => $manageAuthorities ? $this->warehousesAndLocations($companyId) : [],
-            'regionalReorder' => $canManageReorder ? $this->regionalReorderWorkspace($companyId, $authority) : [],
+            'regionalReorder' => $reorderData,
         ];
     }
 
@@ -1395,9 +1412,9 @@ final class StockRequestService
     }
 
     /** @return list<array<string,mixed>> */
-    private function requestAllocations(int $companyId, int $requestId): array
+    private function requestAllocations(int $companyId, int $requestId,?array $input=null): array
     {
-        $statement = \db()->prepare(
+        $sql =
             "SELECT a.*,p.sku,p.name product_name,au.authority_level,u.display_name authority_name,
                     sw.name source_warehouse_name,sl.name source_location_name,
                     dw.name destination_warehouse_name,dl.name destination_location_name,t.transfer_number,t.status transfer_status
@@ -1413,25 +1430,29 @@ final class StockRequestService
              INNER JOIN inventory_warehouse_locations dl ON dl.company_id=a.company_id AND dl.warehouse_id=a.destination_warehouse_id AND dl.location_id=a.destination_location_id
              LEFT JOIN inventory_transfers t ON t.company_id=a.company_id AND t.transfer_id=a.transfer_id
              WHERE a.company_id=:company_id AND a.request_id=:request_id
-             ORDER BY a.allocation_id"
-        );
+             ";
+        $parameters=['company_id'=>$companyId,'request_id'=>$requestId];
+        if($input!==null){$list=StockRequestLists::listing('allocations',$sql,$parameters,$input);return $list->page()+['exportList'=>$list];}
+        $statement=\db()->prepare($sql.' ORDER BY a.allocation_id');
         $statement->execute(['company_id' => $companyId, 'request_id' => $requestId]);
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         return is_array($rows) ? $rows : [];
     }
 
     /** @return list<array<string,mixed>> */
-    private function requestProcurements(int $companyId, int $requestId): array
+    private function requestProcurements(int $companyId, int $requestId,?array $input=null): array
     {
-        $statement = \db()->prepare(
+        $sql =
             "SELECT l.link_id,r.requisition_id,r.requisition_number,r.status requisition_status,
                     po.purchase_order_id,po.po_number,po.status purchase_order_status
              FROM inventory_stock_request_procurements l
              INNER JOIN purchase_requisitions r ON r.company_id=l.company_id AND r.requisition_id=l.requisition_id
              LEFT JOIN purchase_orders po ON po.company_id=r.company_id AND po.requisition_id=r.requisition_id
              WHERE l.company_id=:company_id AND l.request_id=:request_id
-             ORDER BY l.link_id DESC"
-        );
+             ";
+        $parameters=['company_id'=>$companyId,'request_id'=>$requestId];
+        if($input!==null){$list=StockRequestLists::listing('procurements',$sql,$parameters,$input);return $list->page()+['exportList'=>$list];}
+        $statement=\db()->prepare($sql.' ORDER BY l.link_id DESC');
         $statement->execute(['company_id' => $companyId, 'request_id' => $requestId]);
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         return is_array($rows) ? $rows : [];
@@ -1567,9 +1588,9 @@ final class StockRequestService
     }
 
     /** @return list<array<string,mixed>> */
-    private function authorities(int $companyId): array
+    private function authorities(int $companyId, ?array $input=null): array
     {
-        $statement = \db()->prepare(
+        $sql =
             "SELECT a.*,u.display_name,COALESCE(pa.job_title_name_snapshot,e.job_title) job_title,
                     w.code warehouse_code,w.name warehouse_name,l.code location_code,l.name location_name,
                     cu.manager_user_id,mu.display_name manager_name,pw.name parent_warehouse_name
@@ -1582,8 +1603,9 @@ final class StockRequestService
              INNER JOIN inventory_warehouse_locations l ON l.company_id=a.company_id AND l.warehouse_id=a.warehouse_id AND l.location_id=a.location_id
              LEFT JOIN users mu ON mu.user_id=cu.manager_user_id
              LEFT JOIN inventory_warehouses pw ON pw.company_id=w.company_id AND pw.warehouse_id=w.parent_warehouse_id
-             WHERE a.company_id=:company_id ORDER BY FIELD(a.authority_level,'shop','district','regional'),u.display_name"
-        );
+             WHERE a.company_id=:company_id";
+        if($input!==null){$list=StockRequestLists::listing('authorities',$sql,['company_id'=>$companyId],$input);return $list->page()+['exportList'=>$list];}
+        $statement=\db()->prepare($sql." ORDER BY FIELD(a.authority_level,'shop','district','regional'),u.display_name");
         $statement->execute(['company_id' => $companyId]);
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         return is_array($rows) ? $rows : [];
@@ -1932,9 +1954,9 @@ final class StockRequestService
             );
         }
     }
-    private function regionalReorderWorkspace(int $companyId, array $authority): array
+    private function regionalReorderWorkspace(int $companyId, array $authority, ?array $input=null): array
     {
-        $statement = \db()->prepare(
+        $sql =
             "SELECT p.product_id,p.sku,p.name,p.unit_of_measure,
                     COALESCE(b.quantity_on_hand,0) quantity_on_hand,
                     COALESCE(b.quantity_reserved,0) quantity_reserved,
@@ -1950,17 +1972,19 @@ final class StockRequestService
               AND t.warehouse_id=:threshold_warehouse AND t.location_id=:threshold_location
              WHERE p.company_id=:company_id AND p.active=TRUE AND p.deleted_at IS NULL
                AND p.product_type NOT IN('service','fixed_asset')
-             ORDER BY low_stock DESC,p.name,p.product_id"
-        );
-        $statement->execute([
+             ";
+        $parameters=[
             'warehouse_id' => (int) $authority['warehouse_id'],
             'location_id' => (int) $authority['location_id'],
             'threshold_warehouse' => (int) $authority['warehouse_id'],
             'threshold_location' => (int) $authority['location_id'],
             'company_id' => $companyId,
-        ]);
-        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        ];
+        $list=null;
+        if($input!==null){$export=StockRequestLists::listing('reorder',$sql,$parameters,$input);$list=$export->page()+['exportList'=>$export];$rows=$list['rows'];}
+        else {$statement=\db()->prepare($sql.' ORDER BY low_stock DESC,p.name,p.product_id');$statement->execute($parameters);$rows=$statement->fetchAll(PDO::FETCH_ASSOC);}
         return [
+            'list'=>$list,
             'warehouse_id' => (int) $authority['warehouse_id'],
             'location_id' => (int) $authority['location_id'],
             'warehouse_name' => (string) $authority['warehouse_name'],

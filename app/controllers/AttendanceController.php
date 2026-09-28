@@ -34,7 +34,8 @@ final class AttendanceController
 
         $this->requireView();
         $dashboard = $this->attendance->dashboard(
-            $this->queryDate()
+            $this->queryDate(),
+            $_GET
         );
 
         \view('layouts.app', [
@@ -48,11 +49,15 @@ final class AttendanceController
             ),
             'pageTitle' => 'Attendance Control',
             'pageDescription' =>
-                'Daily workforce presence, exceptions and recorded working time.',
+                'Daily, weekly and monthly attendance, exceptions and recorded working time.',
             'contentView' => 'attendance.index',
             'user' => $_SESSION['auth'],
             'date' => $dashboard['date'],
+            'period' => $dashboard['period'],
             'records' => $dashboard['records'],
+            'employeeOptions' => $this->canManage() ? (new \App\Services\Lists\HrListService())->employeeOptions() : [],
+            'listing' => $dashboard['listing'],
+            'listOptions' => (new \App\Services\Lists\HrListService())->options(),
             'summary' => $dashboard['summary'],
             'statuses' => $dashboard['statuses'],
             'canManage' => $this->canManage(),

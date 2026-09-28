@@ -23,7 +23,7 @@ final class WarehouseLocationController
     public function index(): void
     {
         $this->authorize('inventory.warehouses.view');
-        $listing = $this->locations->listing();
+        $listing = $this->locations->listing($_GET);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -43,6 +43,7 @@ final class WarehouseLocationController
             'locations' => $listing['locations'],
             'warehouses' => $listing['warehouses'],
             'summary' => $listing['summary'],
+            'list'=>$listing['list'],'controls'=>$listing['controls'],'canExport'=>(new \App\Services\ModuleRoleService())->permissionAllowed((new \App\Services\TenantContext())->companyId(),(int)($_SESSION['auth']['user_id']??0),'inventory.export'),
             'canManage' => $this->canManage(),
             'notice' => \getFlash('location_notice'),
             'errors' => \getFlash(

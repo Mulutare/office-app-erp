@@ -58,8 +58,13 @@ final class WarehouseLocationManagementService
      *     }
      * }
      */
-    public function listing(): array
+    public function listing(?array $input = null): array
     {
+        if($input!==null) {
+            $factory=new \App\Services\Lists\InventoryListService();$query=$factory->listing('locations',$input);$list=$query->page();
+            return ['locations'=>$list['rows'],'warehouses'=>$factory->warehouseOptions(),'list'=>$list,'controls'=>$factory->controls('locations'),
+                'summary'=>array_map('intval',$query->aggregate(['total'=>'COUNT(*)','active'=>'COALESCE(SUM(active=1),0)','receiving'=>'COALESCE(SUM(receiving_allowed=1),0)','picking'=>'COALESCE(SUM(picking_allowed=1),0)']))];
+        }
         $companyId = $this->tenant->companyId();
         $locations = $this->locations->listForCompany(
             $companyId

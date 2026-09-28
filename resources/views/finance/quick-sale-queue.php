@@ -1,7 +1,11 @@
 <?php declare(strict_types=1); $queue = $data['quickSaleQueue'] ?? []; ?>
-<?php if ($queue !== []): ?>
+<?php if (isset($data['quickSaleList']) || $queue !== []): ?>
 <section class="card">
     <h2>Quick Sales handed to Finance</h2>
+    <?php if(isset($data['quickSaleList'])) view('finance.list-controls',['list'=>$data['quickSaleList'],'controls'=>$data['quickSaleControls'],
+        'path'=>appBasePath().'/finance/customer-invoices','canExport'=>$data['canExport']??false,'actions'=>['register'=>'quick-sales']]); ?>
+    <?php if(!$queue): ?><p>No Quick Sales match the selected filters.</p><?php endif; ?>
+
     <p>Open the invoice to post it and record payment. Use Sales settlement for the eligible payment, then add separate bank confirmation and reconcile.</p>
     <div class="qs-finance-grid">
     <?php foreach ($queue as $task): ?>

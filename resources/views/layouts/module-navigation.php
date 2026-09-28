@@ -64,6 +64,13 @@ if ($module === 'assets' && !in_array($section, ['register', 'direct', 'categori
 }
 
 $items = $definitions[$module] ?? [];
+
+if (
+    $module === 'finance'
+    && $can('finance.expenses.view')
+) {
+    unset($items['legacy-expenses']);
+}
 if (array_filter($items, [\App\Services\WorkspaceAccessService::class, 'allowed']) !== []):
 ?>
 <?php if ($module === 'finance'):
@@ -95,7 +102,7 @@ if (array_filter($items, [\App\Services\WorkspaceAccessService::class, 'allowed'
 <nav class="finance-workspace-nav" aria-label="Finance workspace">
     <div class="finance-primary-nav" aria-label="Finance work centers">
         <?php foreach ($financeGroups as $groupKey => [$label, $keys]):
-            $visibleKeys = array_values(array_filter($keys, static fn (string $key): bool => $linkVisible($financeLinks[$key])));
+            $visibleKeys = array_values(array_filter($keys, static fn (string $key): bool => isset($financeLinks[$key]) && $linkVisible($financeLinks[$key])));
             if ($visibleKeys === []) continue;
             $path = $financeLinks[$visibleKeys[0]][1];
         ?>
@@ -104,7 +111,7 @@ if (array_filter($items, [\App\Services\WorkspaceAccessService::class, 'allowed'
     </div>
     <div class="finance-secondary-nav" aria-label="<?= e($financeGroups[$currentGroup][0]) ?> pages">
         <?php foreach ($financeGroups[$currentGroup][1] as $key):
-            $item = $financeLinks[$key]; if (!$linkVisible($item)) continue;
+            $item = $financeLinks[$key] ?? null; if ($item === null || !$linkVisible($item)) continue;
             [$label, $path] = $item;
             $actionCount = (int) ($actionRequiredCounts['finance'][$key] ?? 0);
         ?>

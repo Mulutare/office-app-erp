@@ -26,12 +26,11 @@
     <?php endif; ?>
 </section>
 <?php endif; ?>
-<?php if (!empty($detail['routingHistory'])): ?>
+<?php if (isset($detail['related'])): ?>
 <section class="card qs-routing">
-    <h2>Activity</h2>
+    <h2>Activity</h2><?php view('components.document-list-controls',['workspace'=>$detail['related'],'entity'=>'quick-sale-events']); ?>
     <ul>
     <?php foreach ($detail['routingHistory'] as $event): ?>
-        <?php if ($isOwner && $event['action'] === 'quick_sale.finance_handoff') continue; ?>
         <?php $values = json_decode((string) $event['new_values'], true) ?: []; ?>
         <li>
             <strong>

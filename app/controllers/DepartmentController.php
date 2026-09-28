@@ -26,8 +26,8 @@ final class DepartmentController
             ->requireTenantPermission(
                 'organization.departments.view'
             );
-        $catalogue = $this->departments
-            ->catalogue();
+        $catalogue = (new \App\Services\Lists\OrganizationListService())->listing('departments', $_GET);
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('departments', $catalogue['exportList'], (new \App\Services\Lists\OrganizationListService())->columns('departments'), $_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -47,6 +47,8 @@ final class DepartmentController
             'departments' =>
                 $catalogue['departments'],
             'summary' => $catalogue['summary'],
+            'list' => $catalogue['list'],
+            'listSorts' => $catalogue['sorts'],
             'canManage' => $this->canManage(),
             'notice' => \getFlash(
                 'department_catalogue_notice'

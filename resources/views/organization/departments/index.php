@@ -88,11 +88,12 @@ $formatDate = static function (mixed $value): string {
     </div>
 </section>
 
+<?php view('components.list-filters', ['query'=>$data['list']['query'], 'path'=>'/office_app/public/organization/departments', 'sorts'=>$data['listSorts'], 'filters'=>['active'=>['label'=>'Status','options'=>['1'=>'Active','0'=>'Inactive']]]]); ?>
 <section class="card table-card">
     <div class="table-summary">
         <div>
             <strong>
-                <?= e(count($departments)) ?>
+                <?= e($data['list']['pagination']['total']) ?>
                 registered departments
             </strong>
             <span class="table-summary-note">
@@ -126,8 +127,7 @@ $formatDate = static function (mixed $value): string {
                         colspan="<?= $canManage ? '7' : '6' ?>"
                         class="empty-state"
                     >
-                        No departments have been created for
-                        this company.
+                        No matching departments. Clear filters to see all records.
                     </td>
                 </tr>
             <?php else: ?>
@@ -228,3 +228,6 @@ $formatDate = static function (mixed $value): string {
         </table>
     </div>
 </section>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$data['list']['query'],'path'=>'/office_app/public/organization/departments']); ?>
+<?php view('components.list-pagination', ['query'=>$data['list']['query'], 'pagination'=>$data['list']['pagination'], 'path'=>'/office_app/public/organization/departments']); ?>

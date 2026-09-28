@@ -40,7 +40,8 @@ final class LeaveBalanceManagementService
     public function workspace(
         int $employeeId,
         int $year,
-        int $leaveTypeId
+        int $leaveTypeId,
+        ?array $input = null
     ): array {
         $companyId = $this->tenant->companyId();
         $year = $this->year($year);
@@ -74,14 +75,17 @@ final class LeaveBalanceManagementService
 
         $yearStart = sprintf('%04d-01-01', $year);
         $yearEnd = sprintf('%04d-12-31', $year);
-        $records = $employee === null
+        $balanceList=$input===null?null:(new \App\Services\Lists\HrWorkspaceListService())->balances(
+            array_replace($input,['employee'=>$employeeId,'year'=>$year,'policy'=>$leaveTypeId]),$employeeId,$year);
+        $balancePage=$balanceList?->page();
+        $records = $balancePage!==null?$balancePage['rows']:($employee === null
             ? []
             : $this->leave->balancesForEmployee(
                 $companyId,
                 $employeeId,
                 $yearStart,
                 $yearEnd
-            );
+            ));
         $summary = [
             'policies' => count($records),
             'allocated' => 0.0,
@@ -102,6 +106,8 @@ final class LeaveBalanceManagementService
             );
         }
         unset($record);
+        if ($balanceList!==null) $summary=$balanceList->aggregate(['policies'=>'COUNT(*)',
+            'allocated'=>'COALESCE(SUM(available_days),0)','used'=>'COALESCE(SUM(used_days),0)','remaining'=>'COALESCE(SUM(remaining_days),0)']);
 
         $policy = null;
         $allocation = null;
@@ -132,8 +138,15 @@ final class LeaveBalanceManagementService
                 $this->employeeName($employee);
         }
 
+        $exportList = $input === null ? null : (new \App\Services\Lists\HrWorkspaceListService())->adjustments(
+            array_replace($input, ['employee'=>$employeeId,'year'=>$year,'policy'=>$leaveTypeId]), $employeeId, $year
+        );
+        $list=$exportList?->page();
         return [
             'notFound' => false,
+            'list' => $list,
+            'exportList' => $exportList,
+            'balanceList'=>$balancePage,'balanceExportList'=>$balanceList,
             'employees' => $employees,
             'employee' => $employee,
             'employeeId' => $employeeId,
@@ -178,11 +191,7 @@ final class LeaveBalanceManagementService
             'adjustments' => $employee === null
                 ? []
                 : $this->presentAdjustments(
-                    $this->balances->adjustments(
-                        $companyId,
-                        $employeeId,
-                        $year
-                    )
+                    $list !== null ? $list['rows'] : $this->balances->adjustments($companyId, $employeeId, $year)
                 ),
         ];
     }

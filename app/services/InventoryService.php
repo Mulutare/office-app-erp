@@ -109,11 +109,19 @@ final class InventoryService
     }
 
     /** @return array<string,mixed> */
-    public function transferWorkspace(?int $transferId=null): array
+    public function transferWorkspace(?int $transferId=null, ?array $input=null): array
     {
         $company=$this->tenant->companyId();$actor=(int)($_SESSION['auth']['user_id']??0);$access=new InventoryOperationalAccessService();$connection=\db();
+        if($transferId===null && $input!==null) {
+            $factory=new \App\Services\Lists\InventoryListService();$query=$factory->listing('transfers',$input);$list=$query->page();
+            $products=$connection->prepare("SELECT product_id,sku,name FROM sales_products WHERE company_id=? AND active=1 AND deleted_at IS NULL AND product_type NOT IN ('service','fixed_asset') ORDER BY name,product_id");$products->execute([$company]);
+            return ['transfers'=>$list['rows'],'list'=>$list,'exportList'=>$query,'controls'=>$factory->controls('transfers'),'transfer'=>null,
+                'warehouses'=>$access->warehousesForUser($company,$actor),'locations'=>$access->locationsForUser($company,$actor),
+                'products'=>$products->fetchAll(\PDO::FETCH_ASSOC)]+$access->transferDestinations($company,$actor);
+        }
         $read=new InventoryReadScope();$transferScope='('.$read->predicate($company,$actor,'t.source_warehouse_id').' OR '.$read->predicate($company,$actor,'t.destination_warehouse_id').')';
-        $list=$connection->prepare("SELECT t.*,sw.name source_warehouse_name,dw.name destination_warehouse_name,MAX(sl.name) source_location_name,MAX(dl.name) destination_location_name,COALESCE(SUM(l.quantity),0) requested_quantity,COALESCE(SUM(l.dispatched_quantity),0) dispatched_quantity,COALESCE(SUM(l.received_quantity),0) received_quantity,GROUP_CONCAT(CONCAT(p.name,' x ',l.quantity) ORDER BY l.transfer_line_id SEPARATOR ', ') product_summary FROM inventory_transfers t INNER JOIN inventory_warehouses sw ON sw.company_id=t.company_id AND sw.warehouse_id=t.source_warehouse_id INNER JOIN inventory_warehouses dw ON dw.company_id=t.company_id AND dw.warehouse_id=t.destination_warehouse_id LEFT JOIN inventory_transfer_lines l ON l.company_id=t.company_id AND l.transfer_id=t.transfer_id LEFT JOIN inventory_warehouse_locations sl ON sl.company_id=l.company_id AND sl.warehouse_id=l.source_warehouse_id AND sl.location_id=l.source_location_id LEFT JOIN inventory_warehouse_locations dl ON dl.company_id=l.company_id AND dl.warehouse_id=l.destination_warehouse_id AND dl.location_id=l.destination_location_id LEFT JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id WHERE t.company_id=:company_id AND ($transferScope) GROUP BY t.transfer_id ORDER BY t.transfer_id DESC");$list->execute(['company_id'=>$company]);
+        $detailPredicate=$transferId===null?'':' AND t.transfer_id=:selected_transfer';
+        $list=$connection->prepare("SELECT t.*,sw.name source_warehouse_name,dw.name destination_warehouse_name,MAX(sl.name) source_location_name,MAX(dl.name) destination_location_name,COALESCE(SUM(l.quantity),0) requested_quantity,COALESCE(SUM(l.dispatched_quantity),0) dispatched_quantity,COALESCE(SUM(l.received_quantity),0) received_quantity,GROUP_CONCAT(CONCAT(p.name,' x ',l.quantity) ORDER BY l.transfer_line_id SEPARATOR ', ') product_summary FROM inventory_transfers t INNER JOIN inventory_warehouses sw ON sw.company_id=t.company_id AND sw.warehouse_id=t.source_warehouse_id INNER JOIN inventory_warehouses dw ON dw.company_id=t.company_id AND dw.warehouse_id=t.destination_warehouse_id LEFT JOIN inventory_transfer_lines l ON l.company_id=t.company_id AND l.transfer_id=t.transfer_id LEFT JOIN inventory_warehouse_locations sl ON sl.company_id=l.company_id AND sl.warehouse_id=l.source_warehouse_id AND sl.location_id=l.source_location_id LEFT JOIN inventory_warehouse_locations dl ON dl.company_id=l.company_id AND dl.warehouse_id=l.destination_warehouse_id AND dl.location_id=l.destination_location_id LEFT JOIN sales_products p ON p.company_id=l.company_id AND p.product_id=l.product_id WHERE t.company_id=:company_id AND ($transferScope) $detailPredicate GROUP BY t.transfer_id ORDER BY t.transfer_id DESC");$list->execute($transferId===null?['company_id'=>$company]:['company_id'=>$company,'selected_transfer'=>$transferId]);
         $products=$connection->prepare("SELECT product_id,sku,name FROM sales_products WHERE company_id=:company_id AND active=TRUE AND deleted_at IS NULL AND product_type NOT IN('service','fixed_asset') ORDER BY name");$products->execute(['company_id'=>$company]);
         $data=['transfers'=>$list->fetchAll(\PDO::FETCH_ASSOC),'warehouses'=>$access->warehousesForUser($company,$actor),'locations'=>$access->locationsForUser($company,$actor),'products'=>$products->fetchAll(\PDO::FETCH_ASSOC),'transfer'=>null];
         $data += $access->transferDestinations($company,$actor);
@@ -440,8 +448,20 @@ final class InventoryService
     /**
      * @return array<string, mixed>
      */
-    public function workspace(): array
+    public function workspace(?array $input = null): array
     {
+        if($input!==null) {
+            $factory=new \App\Services\Lists\InventoryListService();$lists=[];$exports=[];$controls=[];
+            foreach(['stock','movements','receipts'] as $entity) {
+                $exports[$entity]=$factory->listing($entity,$input,$entity);$lists[$entity]=$exports[$entity]->page();$controls[$entity]=$factory->controls($entity);
+            }
+            $stockSummary=$exports['stock']->aggregate(['total'=>'COUNT(*)','quantity'=>'COALESCE(SUM(quantity_on_hand),0)']);
+            $warehouses=$factory->listing('warehouses',[])->aggregate(['total'=>'COUNT(*)']);
+            $receipts=$factory->listing('receipts',[])->aggregate(['pending'=>"COALESCE(SUM(status<>'posted'),0)"]);
+            return ['lists'=>$lists,'exportLists'=>$exports,'listControls'=>$controls,'stockBalances'=>$lists['stock']['rows'],
+                'stockMovements'=>$lists['movements']['rows'],'goodsReceipts'=>$lists['receipts']['rows'],
+                'inventorySummary'=>['warehouseCount'=>(int)$warehouses['total'],'stockItemCount'=>(int)$stockSummary['total'],'totalQuantity'=>(float)$stockSummary['quantity'],'pendingReceiptCount'=>(int)$receipts['pending']]];
+        }
         $companyId = $this->tenant->companyId();
         $connection = \db();
 

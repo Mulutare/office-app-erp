@@ -11,7 +11,7 @@ final class FinanceExpenseService
 {
     private function company(): int { return (new TenantContext())->companyId(); }
 
-    public function workspace(array $filters = []): array
+    public function workspace(array $filters = [], ?array $visibleExpenses = null): array
     {
         $company = $this->company();
         $status = trim((string)($filters['status'] ?? ''));
@@ -22,19 +22,27 @@ final class FinanceExpenseService
             $statement->execute(['company' => $company]);
             return $statement->fetchAll(PDO::FETCH_ASSOC);
         };
-        $expenses = $this->expenseRows($company, $status, $search);
+        $expenses = $visibleExpenses ?? $this->expenseRows($company, $status, $search);
         $evidence = (new FinanceExpenseEvidenceService())->listMany(array_column($expenses,'expense_request_id'));
+        $support=[];
+        if($visibleExpenses!==null) {
+            $factory=new \App\Services\Lists\FinanceListService();
+            foreach(['categories'=>'expense-categories','history'=>'expense-history'] as $key=>$entity) {
+                $list=$factory->listing($entity,$filters,$key);
+                $support[$key.'List']=$list->page();$support[$key.'Controls']=$factory->controls($entity);
+            }
+        }
         return [
             'expenses' => $expenses,
             'evidence' => $evidence,
             'filters' => ['status' => $status, 'search' => $search],
-            'employees' => $query('SELECT employee_id,employee_number,first_name,last_name FROM hr_employees WHERE company_id=:company AND deleted_at IS NULL ORDER BY first_name,last_name LIMIT 500', $company),
+            'employees' => $query('SELECT employee_id,employee_number,first_name,last_name FROM hr_employees WHERE company_id=:company AND deleted_at IS NULL ORDER BY first_name,last_name', $company),
             'categories' => $query('SELECT category_id,name,default_expense_account_id,default_recoverable_tax_account_id FROM finance_expense_categories WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL ORDER BY name', $company),
-            'categorySettings' => $query('SELECT category_id,name,active,default_expense_account_id,default_recoverable_tax_account_id FROM finance_expense_categories WHERE company_id=:company AND deleted_at IS NULL ORDER BY name', $company),
+            'categorySettings' => isset($support['categoriesList'])?$support['categoriesList']['rows']:$query('SELECT category_id,name,active,default_expense_account_id,default_recoverable_tax_account_id FROM finance_expense_categories WHERE company_id=:company AND deleted_at IS NULL ORDER BY name', $company),
             'accounts' => $query("SELECT account_id,account_code,account_name,account_type,currency FROM finance_accounts WHERE company_id=:company AND active=TRUE AND deleted_at IS NULL AND account_type IN('expense','asset') ORDER BY account_code", $company),
             'journals' => $query("SELECT journal_id,journal_code,journal_name,journal_type FROM finance_journals WHERE company_id=:company AND active=TRUE AND journal_type IN('cash','bank') ORDER BY journal_name", $company),
-            'history' => $query('SELECT h.expense_request_id,h.from_status,h.to_status,h.action,h.reason,h.actor_id,h.occurred_at FROM finance_expense_history h JOIN finance_expense_requests r ON r.company_id=h.company_id AND r.expense_request_id=h.expense_request_id WHERE h.company_id=:company AND r.deleted_at IS NULL ORDER BY h.history_id DESC LIMIT 500', $company),
-        ];
+            'history' => isset($support['historyList'])?$support['historyList']['rows']:$query('SELECT h.expense_request_id,h.from_status,h.to_status,h.action,h.reason,h.actor_id,h.occurred_at FROM finance_expense_history h JOIN finance_expense_requests r ON r.company_id=h.company_id AND r.expense_request_id=h.expense_request_id WHERE h.company_id=:company AND r.deleted_at IS NULL ORDER BY h.history_id DESC LIMIT 500', $company),
+        ]+$support;
     }
 
     private function expenseRows(int $company, string $status, string $search): array

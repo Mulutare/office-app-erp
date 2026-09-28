@@ -49,7 +49,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function deliveryPicking(int $companyId, int $pickingId): ?array
+    public function deliveryPicking(int $companyId, int $pickingId, bool $withReturns=true): ?array
     {
         $statement=$this->connection()->prepare(
             "SELECT p.*,o.order_number,c.name customer_name,w.name warehouse_name,
@@ -77,6 +77,8 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
         );
         $lines->execute(['company_id'=>$companyId,'picking_id'=>$pickingId]);
         $picking['lines']=$lines->fetchAll(PDO::FETCH_ASSOC);
+        $picking['returns']=[];
+        if($withReturns){
         $returns=$this->connection()->prepare(
             "SELECT picking_id,picking_number,status,created_at,completed_at
              FROM inventory_pickings
@@ -86,6 +88,7 @@ final class InventoryRepository extends MySqlRepository implements InventoryRepo
         );
         $returns->execute(['company_id'=>$companyId,'picking_id'=>$pickingId]);
         $picking['returns']=$returns->fetchAll(PDO::FETCH_ASSOC);
+        }
         if(!empty($picking['original_picking_id'])){
             $original=$this->connection()->prepare(
                 "SELECT picking_id,picking_number,status

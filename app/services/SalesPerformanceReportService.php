@@ -71,6 +71,25 @@ final class SalesPerformanceReportService
             $parameters['shop_id'] = $shopId;
         }
 
+        $search=\App\Services\Lists\ListQuery::text($input['q']??'');
+        if($search!=='') {
+            $like='%'.strtr(mb_substr($search,0,100),['!'=>'!!','%'=>'!%','_'=>'!_']).'%';
+            $parts=[];
+            foreach(['employee.display_name','quotations.quotation_number','reports.invoice_reference','invoices.invoice_number','products.sku','products.name','shops.name'] as $index=>$column) {
+                $parts[]=$column." LIKE :report_search_$index ESCAPE '!'";$parameters['report_search_'.$index]=$like;
+            }
+            $parts[]="EXISTS(SELECT 1 FROM users manager_search WHERE manager_search.user_id=quick_sales.manager_user_id AND manager_search.display_name LIKE :report_manager ESCAPE '!')";
+            $parameters['report_manager']=$like;
+            $filters.=' AND ('.implode(' OR ',$parts).')';
+        }
+        foreach(['from'=>'>=','to'=>'<='] as $key=>$operator) {
+            $value=\App\Services\Lists\ListQuery::text($input[$key]??'');
+            if(preg_match('/^\d{4}-\d{2}-\d{2}$/',$value)) {
+                if($key==='from') $parameters['date_start']=$value.' 00:00:00';
+                else $parameters['date_end']=(new DateTimeImmutable($value))->modify('+1 day')->format('Y-m-d H:i:s');
+            }
+        }
+        $start=$parameters['date_start'];$end=$parameters['date_end'];
         $base = $this->baseSql($scopeSql, $filters);
         [$select, $group, $order] = match ($viewBy) {
             'employee' => [
@@ -102,16 +121,18 @@ final class SalesPerformanceReportService
         $summary->execute($parameters);
         $summaryRows = $summary->fetchAll(PDO::FETCH_ASSOC);
 
-        $rows = $connection->prepare(
-            "SELECT {$select}, SUM(sold_quantity) sold_quantity,
-                    SUM(returned_quantity) returned_quantity,
-                    SUM(sales_amount) sales_amount,
-                    COUNT(DISTINCT report_id) report_count
-             FROM ({$base}) scoped_sales
-             GROUP BY {$group}
-             ORDER BY {$order}"
-        );
-        $rows->execute($parameters);
+        $sorts=['amount'=>'sales_amount','sold'=>'sold_quantity','returned'=>'returned_quantity','reports'=>'report_count','currency'=>'currency'];
+        if($viewBy!=='employee')$sorts+=['product'=>'product_name','sku'=>'sku'];
+        if($viewBy!=='product')$sorts+=['employee'=>'employee_name','shop'=>'shop_name'];
+        $default=$viewBy==='product'?'product':'employee';
+        $query=new \App\Services\Lists\ListQuery(array_replace($input,['period'=>$period,'date'=>$selector,'view_by'=>$viewBy]),
+            $sorts,$default,['period','date','view_by','product_id','employee_id','shop_id','from','to']);
+        $grouped="SELECT {$select}, SUM(sold_quantity) sold_quantity,SUM(returned_quantity) returned_quantity,
+            SUM(sales_amount) sales_amount,COUNT(DISTINCT report_id) report_count
+            FROM ({$base}) scoped_sales GROUP BY {$group}";
+        // Every grouping column is a deterministic tie-breaker, including currency.
+        $list=new \App\Services\Lists\SqlList($connection,$grouped,$parameters,$query,[],$sorts,$group);
+        $page=$list->page();
 
         return [
             'period' => $period,
@@ -127,7 +148,9 @@ final class SalesPerformanceReportService
             'shops' => $options['shops'],
             'showShopFilter' => count($options['shops']) > 1,
             'summary' => is_array($summaryRows) ? $summaryRows : [],
-            'rows' => $rows->fetchAll(PDO::FETCH_ASSOC),
+            'rows' => $page['rows'],
+            'list' => $page,'exportList'=>$list,
+            'listSorts'=>array_combine(array_keys($sorts),array_map('ucfirst',array_keys($sorts))),
             'isAgent' => $isAgent,
         ];
     }

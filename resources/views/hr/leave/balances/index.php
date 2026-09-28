@@ -294,10 +294,13 @@ $defaultEffectiveDate = $year === (int) date('Y')
                 </span>
             </div>
             <span>
-                <?= e(count($balances)) ?> active policies
+                <?= e($workspace['balanceList']['pagination']['total']) ?> matching policies
             </span>
         </div>
 
+<?php view('components.list-filters',['query'=>$workspace['balanceList']['query'],'path'=>'/office_app/public/hr/leave/balances',
+    'sorts'=>['name'=>'Policy','code'=>'Code','available'=>'Available','used'=>'Used','remaining'=>'Remaining'],'filters'=>[]]); ?>
+<?php view('components.list-download',['allowed'=>true,'query'=>$workspace['balanceList']['query'],'path'=>'/office_app/public/hr/leave/balances','actions'=>['register'=>'balances']]); ?>
         <div class="table-responsive">
             <table class="data-table balance-table">
                 <thead>
@@ -403,15 +406,7 @@ $defaultEffectiveDate = $year === (int) date('Y')
                             <td>
                                 <a
                                     class="table-link"
-                                    href="/office_app/public/hr/leave/balances?<?= e(
-                                        http_build_query([
-                                            'employee' =>
-                                                $employeeId,
-                                            'year' => $year,
-                                            'policy' =>
-                                                $rowPolicyId,
-                                        ])
-                                    ) ?>"
+                                    href="<?= e($workspace['balanceList']['query']->url('/office_app/public/hr/leave/balances',[],['policy'=>$rowPolicyId])) ?>"
                                 >
                                     Configure
                                 </a>
@@ -422,6 +417,7 @@ $defaultEffectiveDate = $year === (int) date('Y')
                 </tbody>
             </table>
         </div>
+<?php view('components.list-pagination',['query'=>$workspace['balanceList']['query'],'pagination'=>$workspace['balanceList']['pagination'],'path'=>'/office_app/public/hr/leave/balances']); ?>
     </section>
 
     <?php if ($selectedPolicy !== null): ?>
@@ -785,6 +781,7 @@ $defaultEffectiveDate = $year === (int) date('Y')
         </section>
     <?php endif; ?>
 
+<?php view('components.list-filters', ['query'=>$workspace['list']['query'],'path'=>'/office_app/public/hr/leave/balances','sorts'=>['date'=>'Effective date','policy'=>'Policy','days'=>'Days'],'filters'=>[],'hidden'=>['employee'=>$workspace['employeeId'],'year'=>$workspace['year'],'policy'=>$workspace['selectedPolicy']['leave_type_id'] ?? 0]]); ?>
     <section class="card table-card balance-ledger-card">
         <div class="table-summary">
             <div>
@@ -893,3 +890,6 @@ $defaultEffectiveDate = $year === (int) date('Y')
         </div>
     </section>
 <?php endif; ?>
+
+<?php view('components.list-download', ['allowed'=>true,'query'=>$workspace['list']['query'],'path'=>'/office_app/public/hr/leave/balances','actions'=>['register'=>'adjustments']]); ?>
+<?php view('components.list-pagination', ['query'=>$workspace['list']['query'],'pagination'=>$workspace['list']['pagination'],'path'=>'/office_app/public/hr/leave/balances']); ?>

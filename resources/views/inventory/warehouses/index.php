@@ -34,7 +34,7 @@ $canManage = !empty($data['canManage']);
         </div>
 
         <div class="details-toolbar">
-            <a href="/office_app/public/data-exchange/warehouses/export/configure" class="btn btn-secondary">Export</a>
+            <?php if(!empty($data['canExport'])): ?><a href="<?= e($data['list']['query']->url(appBasePath().'/data-exchange/warehouses/export/configure')) ?>" class="btn btn-secondary">Export filtered</a><?php endif; ?>
             <a
                 href="/office_app/public/inventory"
                 class="btn btn-secondary"
@@ -79,9 +79,11 @@ $canManage = !empty($data['canManage']);
 </section>
 
 <section class="card table-card">
+<?php view('components.list-filters',['query'=>$data['list']['query'],'path'=>appBasePath().'/inventory/warehouses']+$data['controls']);
+view('components.list-pagination',['query'=>$data['list']['query'],'pagination'=>$data['list']['pagination'],'path'=>appBasePath().'/inventory/warehouses']); ?>
     <div class="table-summary">
         <div>
-            <strong><?= e(count($warehouses)) ?> registered warehouses</strong>
+            <strong><?= e($data['list']['pagination']['total']) ?> registered warehouses</strong>
             <span class="table-summary-note">
                 Results are restricted to the active company.
             </span>

@@ -33,7 +33,11 @@ final class SpreadsheetCodec
                 if ($cell->getDataType() === DataType::TYPE_FORMULA) {
                     throw new RuntimeException('Spreadsheet formulas are not accepted.');
                 }
-                $values[] = $cell->getValue();
+                $value = $cell->getValue();
+                if (is_numeric($value) && ExcelDate::isDateTime($cell)) {
+                    $value = ExcelDate::excelToDateTimeObject((float)$value)->format((float)$value < 1 ? 'H:i' : 'Y-m-d');
+                }
+                $values[] = $value;
             }
             $records[] = $values;
         }
@@ -58,9 +62,9 @@ final class SpreadsheetCodec
                 if (in_array($type, ['decimal','integer'], true) && is_numeric($value)) {
                     $sheet->setCellValueExplicit($cell, $type === 'integer' ? (int)$value : (float)$value, DataType::TYPE_NUMERIC);
                     $sheet->getStyle($cell)->getNumberFormat()->setFormatCode($type === 'integer' ? '#,##0' : '#,##0.00');
-                } elseif ($type === 'date' && is_string($value) && strtotime($value) !== false) {
+                } elseif (in_array($type,['date','datetime'],true) && is_string($value) && $value!=='' && strtotime($value) !== false) {
                     $sheet->setCellValue($cell, ExcelDate::PHPToExcel(new \DateTimeImmutable($value)));
-                    $sheet->getStyle($cell)->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+                    $sheet->getStyle($cell)->getNumberFormat()->setFormatCode($type==='datetime'?'yyyy-mm-dd hh:mm:ss':'yyyy-mm-dd');
                 } else {
                     $text = (string)($value ?? '');
                     if ($text !== '' && in_array($text[0], ['=','+','-','@'], true)) $text = "'".$text;
@@ -80,7 +84,12 @@ final class SpreadsheetCodec
             foreach ($schema->fields as $index => $field) {
                 $instructions->fromArray([[ $field->label, $field->required ? 'Yes' : 'No', $field->type, $field->example ?? '' ]], null, 'A' . ($index + 2));
             }
-            $instructions->setCellValue('A' . (count($schema->fields) + 3), 'External IDs are company-scoped. Re-importing the same External ID updates the existing record.');
+            $instruction=!$schema->canImport?'Export only. Use the application workflow to create or change these records.'
+                :(MasterImportValidator::supportsUpdate($schema->entity)
+                    ?'Choose Create new records or Update existing records explicitly. Update requires a company-scoped External ID. Any invalid row prevents all writes. Quotations must remain drafts; approved pricing controls their amounts.'
+                    :'Create-only import in the active company. Duplicates are rejected; any invalid row prevents all writes. Dates: YYYY-MM-DD. Times: HH:MM.');
+            $instructions->setCellValue('A'.(count($schema->fields)+3),$instruction);
+
         }
         $stream = fopen('php://temp', 'w+b');
         (new Xlsx($book))->save($stream);

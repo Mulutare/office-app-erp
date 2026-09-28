@@ -38,13 +38,24 @@ $render = static function (array $rows, array $columns) use ($money, $workspace,
 <?php endif; ?>
 <?php if ($section !== 'reports' || $report !== ''): ?>
 <section class="card finance-register">
+<?php if($section==='reports'): ?>
 <form method="get" class="finance-filter-bar" action="<?= e(appBasePath().'/finance/accounting/'.$section) ?>">
-<?php if ($section === 'reports'): ?><input type="hidden" name="report" value="<?= e($report) ?>"><?php endif; ?>
+<input type="hidden" name="report" value="<?= e($report) ?>">
 <label>Currency <input name="currency" maxlength="3" value="<?= e($filters['currency'] ?? '') ?>" placeholder="All"></label>
 <label>From <input name="from" type="date" value="<?= e($filters['from'] ?? '') ?>"></label>
 <label>To <input name="to" type="date" value="<?= e($filters['to'] ?? '') ?>"></label>
 <button class="btn btn-primary" type="submit">Apply filters</button>
 </form>
+<?php elseif(isset($workspace['list'])): ?>
+<?php
+view('finance.list-controls',[
+    'list'=>$workspace['list'],
+    'controls'=>$data['listControls']??[],
+    'path'=>appBasePath().'/finance/accounting/'.$section,
+    'canExport'=>$data['canExport']??false,
+]);
+?>
+<?php endif; ?>
 <?php if($section==='receivables'): ?><p class="finance-action-bar"><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/customer-invoices') ?>">Customer invoices</a><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/statements/customer') ?>">Customer statements</a><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/reconciliation') ?>">AR reconciliation</a></p><?php endif; ?>
 <?php if($section==='cash-bank' && in_array('finance.bank_reconciliation.view',$data['user']['permissions']??[],true)): ?><p class="finance-action-bar"><a class="btn btn-primary" href="<?= e(appBasePath().'/finance/bank-reconciliation') ?>">Open Bank Reconciliation</a><?php if(in_array('finance.settlements.view',$data['user']['permissions']??[],true)): ?><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/settlements') ?>">Sales Settlement Reconciliation</a><?php endif; ?></p><?php endif; ?>
 <?php if($section==='payables'): ?><p class="finance-action-bar"><?php if(in_array('procurement.view',$data['user']['permissions']??[],true)): ?><a class="btn btn-secondary" href="<?= e(appBasePath().'/procurement?section=bills') ?>">Procurement supplier bills</a><?php endif; ?><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/statements/supplier') ?>">Supplier statements</a><a class="btn btn-secondary" href="<?= e(appBasePath().'/finance/reconciliation?focus=ap') ?>">AP reconciliation</a></p><?php endif; ?>
@@ -62,8 +73,7 @@ $render = static function (array $rows, array $columns) use ($money, $workspace,
 <?php foreach(($workspace['reports']['balance_sheet_totals']??[]) as $currency=>$totals): $assets=$totals['asset']??0;$liabilities=$totals['liability']??0;$equity=$totals['equity']??0;$earnings=$totals['current_earnings']??0; ?><p><?= e($currency) ?> · Assets <?= e(number_format($assets,2)) ?> · Liabilities <?= e(number_format($liabilities,2)) ?> · Equity <?= e(number_format($equity,2)) ?> · Current earnings <?= e(number_format($earnings,2)) ?> · Difference <?= e(number_format($assets-$liabilities-$equity-$earnings,2)) ?></p><?php endforeach; ?>
 <p>Balance Sheet uses all posted entries through the selected end date.</p>
 <?php else: ?>
-<?php $render($workspace['rows'] ?? [], $workspace['columns'] ?? []); ?>
+<?php $render($workspace['list']['rows'] ?? $workspace['rows'] ?? [], $workspace['columns'] ?? []); ?>
 <?php endif; ?>
-<?php if($section!=='reports'): ?><p class="finance-muted">Showing up to 500 rows. Use date and currency filters to narrow the register.</p><?php endif; ?>
 </section>
 <?php endif; ?>

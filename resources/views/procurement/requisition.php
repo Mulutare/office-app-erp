@@ -21,6 +21,4 @@ $canEdit=$owner && $r['status']==='rejected' && in_array('procurement.requisitio
 <?php if($canEdit): ?><p>Product and destination stay unchanged. Linked replenishment quantities must stay unchanged.</p><button class="btn btn-primary">Edit and Resubmit</button><?php endif; ?>
 </form></section>
 
-<section class="card"><h2>Approval history</h2>
-<?php foreach($r['history']??[] as $history): ?><p><?=e($history['occurred_at'])?> · <?=e($history['action'])?> · <?=e($history['reason']??'')?></p><?php endforeach; ?>
-</section>
+<?php view('components.document-list',['workspace'=>$r['related'],'entity'=>'requisition-history','title'=>'Approval history']); ?>

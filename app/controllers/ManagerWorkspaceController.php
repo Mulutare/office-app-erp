@@ -46,8 +46,11 @@ final class ManagerWorkspaceController
             ),
             $this->modules->isEnabled(
                 'attendance'
-            )
+            ),
+            $_GET
         );
+
+        if (isset($_GET['download'])) \App\Services\Lists\ListDownload::send('team', $workspace['exportList'], \App\Services\Lists\HrWorkspaceListService::columns('team'), $_GET['download']);
 
         \view('layouts.app', [
             'applicationName' => \config(
@@ -66,6 +69,7 @@ final class ManagerWorkspaceController
             'reporting' =>
                 $workspace['reporting'],
             'reports' => $workspace['reports'],
+            'list' => $workspace['list'],
             'pendingRequests' =>
                 $workspace['pendingRequests'],
             'upcomingRequests' =>

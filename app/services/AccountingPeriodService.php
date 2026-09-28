@@ -17,11 +17,19 @@ final class AccountingPeriodService
     }
 
     /** @return array{years:list<array<string,mixed>>,periods:list<array<string,mixed>>,history:list<array<string,mixed>>} */
-    public function workspace(): array
+    public function workspace(?array $input=null): array
     {
         $company = $this->tenant->companyId();
         $years = \db()->prepare('SELECT * FROM finance_fiscal_years WHERE company_id=:company ORDER BY date_from DESC');
         $years->execute(['company' => $company]);
+        if($input!==null) {
+            $factory=new \App\Services\Lists\FinanceListService();$data=['years'=>$years->fetchAll(PDO::FETCH_ASSOC),'lists'=>[],'controls'=>[],'exportLists'=>[]];
+            foreach(['periods'=>'accounting-periods','history'=>'period-history','fiscal_years'=>'fiscal-years'] as $key=>$entity) {
+                $list=$factory->listing($entity,$input,$key);$data['lists'][$key]=$list->page();$data[$key]=$data['lists'][$key]['rows'];
+                $data['controls'][$key]=$factory->controls($entity);$data['exportLists'][$entity]=$list;
+            }
+            return $data;
+        }
         $periods = \db()->prepare('SELECT p.*,y.fiscal_year_name FROM finance_accounting_periods p LEFT JOIN finance_fiscal_years y ON y.company_id=p.company_id AND y.fiscal_year_id=p.fiscal_year_id WHERE p.company_id=:company ORDER BY p.date_from DESC');
         $periods->execute(['company' => $company]);
         $history = \db()->prepare('SELECT h.*,p.period_name FROM finance_accounting_period_history h INNER JOIN finance_accounting_periods p ON p.company_id=h.company_id AND p.period_id=h.period_id WHERE h.company_id=:company ORDER BY h.acted_at DESC,h.period_history_id DESC LIMIT 100');

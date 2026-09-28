@@ -30,12 +30,12 @@ final class ImportValidator
                 if ($value === null || $value === '') {
                     continue;
                 }
-                if ($field->type === 'decimal' && !is_numeric($value)) {
+                if ($field->type === 'decimal' && (!is_numeric($value) || !is_finite((float)$value))) {
                     $result->addError($rowNumber, $field->label, 'Enter a valid number.');
                 } elseif ($field->type === 'integer' && filter_var($value, FILTER_VALIDATE_INT) === false) {
                     $result->addError($rowNumber, $field->label, 'Enter a whole number.');
-                } elseif ($field->type === 'date' && strtotime((string) $value) === false) {
-                    $result->addError($rowNumber, $field->label, 'Enter a valid date.');
+                } elseif ($field->type === 'date' && (($date=\DateTimeImmutable::createFromFormat('!Y-m-d',(string)$value))===false || $date->format('Y-m-d')!==(string)$value)) {
+                    $result->addError($rowNumber, $field->label, 'Enter a valid YYYY-MM-DD date.');
                 } elseif ($field->type === 'email' && filter_var($value, FILTER_VALIDATE_EMAIL) === false) {
                     $result->addError($rowNumber, $field->label, 'Enter a valid email address.');
                 }
@@ -43,6 +43,8 @@ final class ImportValidator
             if (count($result->errors) === $before) {
                 $validRows[] = $row;
                 ++$result->valid;
+            } else {
+                ++$result->invalidRows;
             }
         }
         return ['rows' => $validRows, 'result' => $result];

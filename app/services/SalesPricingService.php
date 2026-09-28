@@ -15,11 +15,32 @@ final class SalesPricingService
         return RepositoryFactory::sales()->resolvePrice($companyId,$productId,$at,$currency);
     }
 
-    public function register(int $actorId): array
+    public function register(int $actorId, ?array $input = null): array
     {
         $company=(new TenantContext())->companyId();$this->permit($company,$actorId,'view');
         $canManage=!(new SalesHierarchyScope())->isAgent($company,$actorId)
             && (new ModuleRoleService())->permissionAllowed($company,$actorId,'sales.pricing.manage');
+        if ($input !== null) {
+            $factory = new \App\Services\Lists\SalesListService();
+            $productExport = $factory->listing('pricing',$input,'pricing');
+            $products = $productExport->page();
+            $sorts = ['date'=>'requested_at','sku'=>'sku','product'=>'product_name','status'=>'status'];
+            $query = new \App\Services\Lists\ListQuery($input,$sorts,'date',['status','from','to'],'desc','price_history');
+            $historyExport = new \App\Services\Lists\SqlList(\db(),
+                'SELECT c.*,p.sku,p.name product_name,u.display_name changed_by_name,DATE(c.requested_at) change_date
+                 FROM sales_product_price_changes c JOIN sales_products p ON p.company_id=c.company_id AND p.product_id=c.product_id
+                 LEFT JOIN users u ON u.user_id=c.requested_by WHERE c.company_id=:company'.($canManage?'':" AND c.status='approved'"),
+                ['company'=>$company],$query,['sku','product_name','changed_by_name','reason','status'],$sorts,'price_change_id',
+                ['status'=>'status','from'=>['change_date','>='],'to'=>['change_date','<=']]);
+            $history=$historyExport->page();
+            return ['changes'=>$history['rows'],'products'=>$products['rows'],'productList'=>$products,
+                'productControls'=>$factory->controls('pricing'),'historyList'=>$history,
+                'exports'=>['canExport'=>(new ModuleRoleService())->permissionAllowed($company,$actorId,'sales.export'),
+                    'exportLists'=>['pricing'=>$productExport,'price-history'=>$historyExport],
+                    'columns'=>[
+                        'pricing'=>['sku'=>'SKU','name'=>'Product','product_family'=>'Family','brand_name'=>'Brand','model_name'=>'Model','unit_price'=>'Price','approved_discount_percent'=>'Discount percent','approved_tax_percent'=>'Tax percent','effective_from'=>'Effective from','updated_by'=>'Changed by','active'=>'Active'],
+                        'price-history'=>['sku'=>'SKU','product_name'=>'Product','old_price'=>'Old price','proposed_price'=>'New price','old_discount_percent'=>'Old discount percent','approved_discount_percent'=>'New discount percent','old_tax_percent'=>'Old tax percent','approved_tax_percent'=>'New tax percent','changed_by_name'=>'Changed by','requested_at'=>'Changed at','reason'=>'Reason','status'=>'Status']]]];
+        }
         $changes=\db()->prepare('SELECT c.*,p.sku,p.name product_name,u.display_name changed_by_name FROM sales_product_price_changes c JOIN sales_products p ON p.company_id=c.company_id AND p.product_id=c.product_id LEFT JOIN users u ON u.user_id=c.requested_by WHERE c.company_id=?'
             .($canManage?'':" AND c.status='approved'").' ORDER BY c.price_change_id DESC LIMIT 300');
         $changes->execute([$company]);
