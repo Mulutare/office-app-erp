@@ -83,6 +83,12 @@ $companySwitchSuccess = getFlash(
 <head>
     <meta charset="UTF-8">
 
+    <link
+        rel="icon"
+        type="image/png"
+        href="<?= e(assetUrl('images/passion-favicon-v2.png')) ?>"
+    >
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1"
