@@ -20,7 +20,14 @@ $oldLogin = (string) old('login');
     <link
         rel="icon"
         type="image/png"
-        href="<?= e(assetUrl('images/passion-favicon-v2.png')) ?>"
+        sizes="64x64"
+        href="<?= e(assetUrl('images/passion-logo-64x64.png')) ?>"
+    >
+    <link
+        rel="icon"
+        type="image/png"
+        sizes="32x32"
+        href="<?= e(assetUrl('images/passion-logo-32x32.png')) ?>"
     >
     <meta
         name="viewport"
