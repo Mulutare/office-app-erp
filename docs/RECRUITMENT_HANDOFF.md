@@ -16,6 +16,8 @@ Disposable MySQL 8.4.11 with `ONLY_FULL_GROUP_BY` passed 109→110 and 110→111
 
 See `docs/RECRUITMENT_VERIFICATION.txt` for every failure/classification and `docs/RECRUITMENT_DEPLOYMENT_CHECKLIST.txt` for backups, configuration, approved commands, live checks and data-preserving rollback. `docs/RECRUITMENT.md` describes permissions and operation. The verbose local evidence bundle, synthetic exported workbook and unrelated working files remain on the office PC; they are not all uploaded to Git.
 
+The read-only operational review in `docs/RECRUITMENT_BASELINE_IMPACT.txt` explains all 18 failures and unresolved release risks; baseline reproduction does not establish operational acceptability. `docs/RECRUITMENT_VERIFICATION_GAPS.txt` records source-review boundaries, isolation limitations and pending verification commands. Preserving these reports adds no runtime checks or production approval.
+
 ## Dependencies preserved
 
 The branch descends from **c4a8d08936b035151ea5806c7a99aa92b8092478**, the actual pre-recruitment Power BI/deployment baseline. At initial inspection, `origin/main` was verified at that commit; there were no unpushed Power BI commits to rescue. Its committed migrations 100–110 and deployment/profile validators are preserved in this branch's ancestry. Shared recruitment changes to deployment validation/rehearsal scripts are included here.

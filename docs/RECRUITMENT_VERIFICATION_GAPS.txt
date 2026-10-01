@@ -1,0 +1,81 @@
+Recruitment candidate: read-only verification gaps
+Inspected 2026-10-01. No repository, database, mailbox, scheduler or production changes; no runtime tests were executed.
+
+Candidate root:
+C:/Users/hp/Documents/Codex/2026-10-01/files-pasted-by-the-user-implement/work/validation/candidate
+
+Snapshot boundary (historical review; preservation addendum)
+- Candidate HEAD is c4a8d08936b035151ea5806c7a99aa92b8092478. Recruitment files are added to its index and therefore are included by git ls-files, which the rehearsal source copier uses.
+- The review originally inspected the saved candidate, not the pushed object. Preservation addendum: implementation f394219bf801bb37a0f952d143d2f24a05fcce81 and documentation successor 0b351f271a2bf1bb56f7a8f2ea795e631d674aa9 were independently verified on the remote during handoff. The committed PowerShell rehearsal script was read and retains the described outer guard behavior. This addendum adds no runtime verification.
+- This is the original Power BI 110 line. Do not transplant recruitment 111 or its release validators onto the separately corrected target-109 line without explicit integration review.
+
+Exact migration 111 dependencies
+- 111_recruitment.php creates nine additive, company-scoped tables: vacancies, applicants, mailboxes, applications, emails, attachments, history, events and runs.
+- Foreign keys require existing companies, users and company_users, including company_users(company_id,user_id). Grants require permissions, roles, role_permissions and company_role_permissions; effective application authorization also uses the existing 093 module gates and 096 per-user overrides.
+- It creates eight hr.recruitment capabilities: view, edit, export, hire, mailboxes, merge, delete, quarantine; grants target company_owner/hr_administrator roles.
+- Its own preflight does NOT explicitly require migration 110 or Power BI objects. It applies only when all recruitment tables are absent; any existing recruitment table without its completed ledger row throws. Normal full-catalog execution supplies ordering and the reviewed ERP prerequisite layer.
+- Release helper auditPowerBiUpgradeLedger(true) requires exact 015-110 or exact 015-111, and validates 111's normalized source checksum when present. View health still requires the Power BI 110 sentinel and the original Power BI invariants.
+- The restored-backup PHP rehearsal requires exactly 100-111, reference sync, an empty second application/baseline result, final 111 and zero step residue. Its post-test audit likewise requires final 111.
+
+Outer PowerShell catalogue check
+- I searched the complete inspected tools/rehearse-production-upgrade.ps1 for migration/catalog/schema/015/109/110/111. There is no separate hard-coded outer 015-110 catalogue guard in this snapshot. The only 110 reference is the explicit additional-source list containing the Power BI 110 migration.
+- The actual sequence/final-ledger guard is in the PHP helper and targets 111. The committed script at the documentation successor 0b351f2 was subsequently read during preservation and agrees with this finding; no rehearsal was executed.
+
+Restored production-backup harness: suitable infrastructure, incomplete recruitment verification
+- Infrastructure uses a unique internal Docker network, no published ports, disposable database/users, preserved original definers, copied reviewed source, locked Composer dependencies and a sleep-only PHP entrypoint. Production credentials/configuration are excluded.
+- Current source enumeration includes the staged recruitment additions; an untracked 111 outside git ls-files and outside the explicit extra-source list would be omitted.
+- Existing harness runtime remains APP_ENV=development and DB_DATABASE=passiontech_officeapp. All recruitment fixture suites require APP_ENV=testing and DB_DATABASE=office_app_test. They must NOT be pointed at the restored backup or have their guards weakened.
+- The PowerShell focused-test list runs seven deployment/Power BI suites and no recruitment suite. It can prove the original backup's full migration suffix and ERP/Power BI preservation, but does not prove recruitment import/controller/retry behavior on that restored database.
+- Use a separate clean synthetic test project for the destructive fixture suites. recruitment-local-bootstrap.php refuses any non-empty database; recruitment-integration.php deliberately resets only synthetic company recruitment records; endpoint tests create synthetic roles/users and update synthetic entitlement data.
+- No restored-backup rehearsal was executed during this inspection. Docs explicitly leave that verification pending. They also document 18 matched broader failures (tests/run.php: 246 checks/16 failures; module authorization: 23 checks/2 failures). The broad suite aborts before later checks. These are reported baseline failures, not a green ERP-wide certificate.
+
+Outbound and scheduler isolation
+- The restore harness's internal network and sleep entrypoint prevent unsolicited worker execution and outbound mailbox access. Migration 111 initially creates no mailboxes; enabled defaults false.
+- Recruitment test Compose publishes no ports and sleeps, but its default Compose network is NOT explicitly internal. For an authorized verification run, add a reviewed unique-project internal-network overlay or otherwise prove blocked egress; use no live mailbox configuration.
+- No global recruitment scheduler-disable environment switch exists in the inspected Scheduler. Operational prevention is not launching a scheduler, keeping mailboxes disabled and keeping the host allowlist empty. The synthetic image has no IMAP extension, and fixture tests use replacement providers.
+- Scheduler selects due enabled mailboxes, then verifies effective HR/company entitlements before constructing ImapProvider. Security tests cover disabled HR, inactive companies and suspended subscriptions without opening a provider.
+- Do not execute bin/sync-recruitment.php or bin/run-production-task.php recruitment during static release checks. Do not install cron, run production deploy -Execute or connect to a real mailbox.
+
+Mailbox state and retry coverage
+- ImapProvider source opens OP_READONLY, uses TLS with certificate validation and /norsh, enforces exact host allowlist and TLS ports, and fetches bodies with FT_UID|FT_PEEK. No send/delete/move/expunge/mark-read operation exists in the provider interface or inspected provider source.
+- This is source evidence of intended behavior; native TLS/authentication/folder/UID/message-flag preservation has not been proven against a real provider. The PHP 8.1 fixture Dockerfile does not install IMAP. OAuth-only providers have no implemented connector.
+- ImportService commits original raw mail/checksum before parsing, uses connection-scoped mailbox locks, bounded retries and batches, tracks UIDVALIDITY/UID identities, revisits incomplete stored rows and reuses an exact prior-epoch byte match. Generic errors avoid leaking provider/content details.
+- Integration fixtures exercise idempotency, interrupted fetch, malformed MIME preservation, UIDVALIDITY, concurrent lock behavior and attachment interruption. Retry-integrity fixture injects a disposable trigger to interrupt final persistence, verifies unchanged application/attachment snapshots and document checksums, then retries without refetching original raw mail.
+- That trigger fixture requires CREATE/DROP TRIGGER privileges. Its test Compose enables log_bin_trust_function_creators; those synthetic permissions are not proof of production privileges. Never run this fault-injection test in production.
+
+Attachment/quarantine/export runtime requirements
+- PHP 8.1+ plus locked Composer/PhpSpreadsheet; PDO MySQL, fileinfo, iconv, ZipArchive, mbstring and OpenSSL. Native mail additionally requires PHP IMAP and valid provider TLS/authentication.
+- Stable private RECRUITMENT_STORAGE outside public and outside replaced release directories; web/CLI write access; sufficient storage/upload limits; preserve the existing authenticated encryption key with the paired database and private file backup.
+- DocumentStore uses generated company-scoped identifiers, restrictive file/directory modes, flushed writes and checksum verification. Manual invalid uploads are rejected; imported invalid/oversized/executable parts remain classified and quarantined.
+- No trusted malware scanning/release integration exists. All imported files remain quarantine. Ordinary viewers cannot download them; privileged quarantine permission AND explicit acknowledgement are required. Do not fabricate clean status to pass a smoke test.
+- Export needs trusted RECRUITMENT_APP_ORIGIN plus application base path and an installed SpreadsheetCodec/PhpSpreadsheet runtime. Links point to authenticated ERP downloads; they do not bypass quarantine/tenant authorization. Formula/control-prefix content is written as literal spreadsheet text in the security fixtures.
+- Export audits create recruitment events, so an authorized functional export is a synthetic test write, not a read-only database check.
+
+Candidate local commands (proposed, NOT executed)
+Run only in a clean checkout of the exact final recruitment branch. Use a fresh unique Compose project name so the other chat's active project cannot be affected. Review an internal-network overlay and a unique image tag before running; the checked-in image tag is shared.
+
+Set-Location <clean-final-recruitment-checkout>
+git status --short
+git log -1 --format="%H %s"
+git diff --check
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-internal-network-and-unique-image-overlay> up -d --build
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-overlay> exec -T app php tests/recruitment-local-bootstrap.php
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-overlay> exec -T app php tests/recruitment-migration.php
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-overlay> exec -T app php tests/recruitment-integration.php
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-overlay> exec -T app php tests/recruitment-endpoints.php
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-overlay> exec -T app php tests/recruitment-security.php
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-overlay> exec -T app php tests/recruitment-retry-integrity.php
+docker compose -p <unique-recruitment-check-project> -f compose.recruitment.test.yaml -f <reviewed-overlay> exec -T app php tests/recruitment-release-contract.php
+
+Run each only after its predecessor passes; the latter suites intentionally depend on earlier synthetic fixtures. Broader suites should each run against separately recreated unique-project fixtures so an early abort cannot hide later results. Destruction/cleanup must be limited to that exact unique synthetic project.
+
+Proposed separate restored-backup command, only after review of exact committed branch/profile and explicit authorization:
+powershell -NoProfile -ExecutionPolicy Bypass -File <clean-final-recruitment-checkout>/tools/rehearse-production-upgrade.ps1 -RepositoryRoot <clean-final-recruitment-checkout> -BackupPath <original-verified-099-backup> -ProductionEnvironmentPath <proven-production-profile-json> -ReportDirectory <new-isolated-recruitment-111-report-directory>
+This command must remain local and preserve the complete 100-111 suffix. It does not certify live mailbox or production scheduler behavior.
+
+Required completion evidence
+- Exact final committed recruitment source, ancestry, clean status and protected Power BI prefix proof.
+- Fresh original-backup 099->111 migration/second-run/step/data/view preservation evidence.
+- Current independent synthetic recruitment totals and recorded broader baseline failures.
+- Final runtime/storage/IMAP configuration evidence and a reviewed rollback artifact that accepts retained 111 without deleting recruitment tables, imports, documents or encryption key.
+- Keep live mailbox/scheduler evidence explicitly pending until separately authorized. Local fixture success does not resolve those facts.
