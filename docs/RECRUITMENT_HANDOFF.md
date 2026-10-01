@@ -18,7 +18,11 @@ See `docs/RECRUITMENT_VERIFICATION.txt` for every failure/classification and `do
 
 ## Dependencies preserved
 
-The branch descends from **c4a8d08936b035151ea5806c7a99aa92b8092478**, the actual pre-recruitment Power BI/deployment baseline. Before pushing, `origin/main` was verified at that commit. There were no unpushed Power BI commits to rescue. Its committed migrations 100–110 and deployment/profile validators are part of this branch's ancestry; do not transplant recruitment 111 alone onto an older ERP release. Shared recruitment changes to deployment validation/rehearsal scripts are included in this branch.
+The branch descends from **c4a8d08936b035151ea5806c7a99aa92b8092478**, the actual pre-recruitment Power BI/deployment baseline. At initial inspection, `origin/main` was verified at that commit; there were no unpushed Power BI commits to rescue. Its committed migrations 100–110 and deployment/profile validators are preserved in this branch's ancestry. Shared recruitment changes to deployment validation/rehearsal scripts are included here.
+
+During the handoff push, `origin/main` advanced to **35840d7a637fdf63275b276d751d2421cb34d5dd** (`powerbi: keep production upgrade target at 109`). That commit removes Power BI 110 and changes earlier migration definitions and production tooling. **This recruitment branch deliberately retains the tested Power BI 110 → recruitment 111 catalog and has not merged/rebased that main update.** Neither branch is merged or deployed by this session. Do not transplant recruitment 111 alone onto the new 109 catalog or pull main into this branch without reviewing migration ordering, historical checksum compatibility and deployment targets.
+
+Five edited files overlap with that concurrent main change: `deployment/powerbi-upgrade-validation.php`, `docs/PRODUCTION_DEPLOYMENT_RUNBOOK.md`, `tests/powerbi-mysql84-readiness-contract.php`, `tools/rehearsal-post-tests-audit.php`, and `tools/rehearse-production-upgrade.php`. The main change also modifies migrations 101/105/106/109, removes 110, and changes the production runner and additional rehearsal/deployment tests. Reconcile these side by side in an isolated checkout; do not automatically resolve the conflict by choosing either file wholesale. The 113/18 results apply to this branch's c4 baseline, not to an unverified combination with 35840d7.
 
 Unrelated local SQL exports, archives, screenshots, recovery scripts, audit files and `work/` were deliberately not staged, deleted or uploaded. Protected runtime configuration, credentials, production data and actual applicant documents are not included. RFC822 fixtures contain only invented `example.test` messages and a minimal synthetic PDF marker. Compose passwords/keys are disposable test values, never production credentials.
 
@@ -44,6 +48,16 @@ docker compose -f compose.recruitment.test.yaml exec -T app php tests/recruitmen
 ```
 
 Run each command only after its predecessor passes. `tests/recruitment-local-bootstrap.php` refuses a non-empty database; it does not erase data. It creates explicitly synthetic missing BI source tables/manager records needed by the existing 072/102/107 prerequisites, then uses the real catalog through 111. This helper is not a production installer or a restored-backup rehearsal. The test Compose publishes no ports and uses a disposable tmpfs database; destroying/recreating it loses only that project's synthetic data.
+
+For read-only comparison with current main after a single-branch clone:
+
+```powershell
+git fetch origin main:refs/remotes/origin/main
+git log --oneline --left-right origin/main...HEAD
+git diff origin/main HEAD -- database/migrations/mysql deployment docs/PRODUCTION_DEPLOYMENT_RUNBOOK.md tests/powerbi-mysql84-readiness-contract.php tools/rehearse-production-upgrade.php tools/rehearsal-post-tests-audit.php
+```
+
+These commands inspect divergence; they do not merge or deploy it.
 
 To examine broader regressions, recreate **only this test project**, initialize fresh fixtures and run each suite separately so an expected failure does not hide later results:
 
