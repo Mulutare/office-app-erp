@@ -121,10 +121,10 @@ try {
     $check(in_array($claimId,array_map('intval',array_column($pending['claims'],'incentive_claim_id')),true),'Direct manager sees pending claim without report/float joins');
     $tasks=(new App\Services\ActionRequiredCountService())->itemsFor($company,$manager,(new CompanyMembership())->permissionCodes($manager,$company),'sales','incentives');
     $check(in_array($claimId,array_column($tasks,'id'),true),'Action Required links the new cumulative claim to manager review');
-    ob_start();view('sales.incentive-detail',['incentiveDetail'=>$service->detail($claimId,$manager),'canApproveIncentive'=>true]);$html=(string)ob_get_clean();
+    ob_start();view('sales.incentive-detail',['incentiveDetail'=>$service->detail($claimId,$manager,[]),'canApproveIncentive'=>true]);$html=(string)ob_get_clean();
     $check(str_contains($html,'Approve incentive') && str_contains($html,'Reject claim') && str_contains($html,'Cumulative confirmed-sales snapshot'),'Manager review displays snapshot and approval/rejection actions');
     $check($reject(fn()=>$service->settle($claimId,['amount'=>1,'settlement_date'=>'2026-09-25','currency'=>$currency,'external_payment_reference'=>'PENDING-'.$suffix],$manager)),'Pending claim cannot receive repayment');
-    ob_start();view('sales.incentive-detail',['incentiveDetail'=>$service->detail($claimId,$manager),'canSettleIncentive'=>true]);$html=(string)ob_get_clean();
+    ob_start();view('sales.incentive-detail',['incentiveDetail'=>$service->detail($claimId,$manager,[]),'canSettleIncentive'=>true]);$html=(string)ob_get_clean();
     $check(!str_contains($html,'id="record-safaricom-repayment"'),'Pending claim hides repayment form even for authorized users');
     $check($reject(fn()=>$service->decideClaim($claimId,true,1001,'',$manager)),'Approval cannot exceed the proposed amount');
     $service->decideClaim($claimId,true,1000,'Company funded',$manager);
@@ -138,7 +138,7 @@ try {
     $check($rejected['claim']['rejection_reason']==='Unsupported reference' && (int)$rejected['claim']['rejected_by']===$manager && count($rejected['events'])===2,'Rejection actor, date, reason and event history are retained');
     $payment=['amount'=>400,'settlement_date'=>'2026-09-25','currency'=>$currency,'external_payment_reference'=>'PAY1-'.$suffix];
     $assertRepaymentUi=static function(float $paid,float $outstanding,bool $showForm) use($service,$manager,$claimId,$check,$currency):void {
-        $detail=$service->detail($claimId,$manager);
+        $detail=$service->detail($claimId,$manager,[]);
         $row=$detail['claim'];
         $check((float)$row['approved_amount']===1000.0 && (float)$row['settled_amount']===$paid && (float)$row['outstanding']===$outstanding && (float)$row['unexplained_variance']===-$outstanding,'Detail recalculates repayment balance: '.$paid.' paid');
         ob_start();view('sales.incentive-detail',['incentiveDetail'=>$detail,'canSettleIncentive'=>true]);$html=(string)ob_get_clean();
@@ -148,7 +148,7 @@ try {
         $register=$service->register($manager);
         $rows=array_values(array_filter($register['claims'],static fn(array $r):bool=>(int)$r['incentive_claim_id']===$claimId));
         $check(count($rows)===1 && (float)$rows[0]['settled_amount']===$paid && (float)$rows[0]['outstanding']===$outstanding && (float)$rows[0]['unexplained_variance']===-$outstanding,'Register refresh matches detail after '.$paid.' paid');
-        ob_start();view('sales.incentives',['incentiveData'=>['claims'=>$rows]]);$html=(string)ob_get_clean();
+        $register['claims']=$rows; ob_start();view('sales.incentives',['incentiveData'=>$register]);$html=(string)ob_get_clean();
         $check(str_contains($html,'<th>Safaricom settled</th>') && str_contains($html,'<th>Variance</th>') && str_contains($html,'<strong>'.number_format(-$outstanding,2).'</strong>'),'Register renders settlement and formatted variance columns');
     };
     $assertRepaymentUi(0.0,1000.0,true);
@@ -164,11 +164,11 @@ try {
     $check($reject(fn()=>$service->settle($claimId,array_replace($payment,['currency'=>'XXX']),$manager)),'Settlement rejects currency mismatch');
     $service->settle($claimId,$payment,$manager);
     $assertRepaymentUi(400.0,600.0,true);
-    $check($service->detail($claimId,$manager)['claim']['status']==='partially_settled' && (float)$service->detail($claimId,$manager)['claim']['unexplained_variance']===-600.0,'Partial repayment moves the negative claim variance toward zero');
+    $check($service->detail($claimId,$manager,[])['claim']['status']==='partially_settled' && (float)$service->detail($claimId,$manager,[])['claim']['unexplained_variance']===-600.0,'Partial repayment moves the negative claim variance toward zero');
     $check($reject(fn()=>$service->settle($claimId,$payment,$manager)),'Duplicate settlement cannot pay twice');
     $check($reject(fn()=>$service->settle($claimId,array_replace($payment,['amount'=>601,'external_payment_reference'=>'OVER-'.$suffix]),$manager)),'Overpayment is rejected');
     $service->settle($claimId,array_replace($payment,['amount'=>600,'external_payment_reference'=>'PAY2-'.$suffix]),$manager);
-    $settled=$service->detail($claimId,$manager);
+    $settled=$service->detail($claimId,$manager,[]);
     $assertRepaymentUi(1000.0,0.0,false);
     $check($reject(fn()=>$service->settle($claimId,array_replace($payment,['amount'=>1,'external_payment_reference'=>'EXTRA-'.$suffix]),$manager)),'Additional 1 repayment after full settlement is rejected');
     $check($settled['claim']['status']==='settled' && (float)$settled['claim']['unexplained_variance']===0.0 && count($settled['settlements'])===2,'Full Safaricom repayment settles the negative variance');
@@ -177,7 +177,7 @@ try {
     $pdo->beginTransaction();
     $pdo->prepare("INSERT INTO sales_incentive_settlements(company_id,incentive_claim_id,settlement_date,amount,currency,external_body,external_payment_reference,idempotency_key,entered_by,created_at,reversed_by,reversed_at,reversal_reason)
         VALUES(?,?, '2026-09-25',25,?,'Safaricom',?,?,?,NOW(),?,NOW(),'Test reversed repayment')")->execute([$company,$claimId,$currency,'REVERSED-'.$suffix,hash('sha256','REVERSED-'.$suffix),$manager,$manager]);
-    $reversedDetail=$service->detail($claimId,$manager)['claim'];
+    $reversedDetail=$service->detail($claimId,$manager,[])['claim'];
     $reversedRegister=array_values(array_filter($service->register($manager)['claims'],static fn(array $r):bool=>(int)$r['incentive_claim_id']===$claimId))[0];
     $check((float)$reversedDetail['settled_amount']===1000.0 && (float)$reversedRegister['settled_amount']===1000.0 && (float)$reversedDetail['unexplained_variance']===0.0 && (float)$reversedRegister['unexplained_variance']===0.0,'Reversed repayments are excluded from detail and register balances');
     $pdo->rollBack();

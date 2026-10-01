@@ -27,6 +27,7 @@ final class WorkspaceAccessService
         'pricelists' => ['Pricelists', '/sales/pricelists', 'sales.pricing.view'],
         'teams' => ['DSA / DSP & Teams', '/sales/teams', 'sales.catalogue.manage'],
         'deliveries' => ['Deliveries', '/sales/deliveries', 'sales.deliveries.view', 'sales.view'],
+        'daily_shop_metrics' => ['Daily Shop Metrics', '/sales/daily-shop-metrics', ['sales.quick_sale.review', 'sales.report.review']],
         'settlements' => ['Settlements', '/sales/settlements', 'sales.settlements.view'],
     ],
     'procurement' => [

@@ -102,7 +102,7 @@ try {
     // Seed an old-format claim, as existing pre-098 claims are retained, not resubmitted.
     $pdo->prepare("INSERT INTO sales_incentive_claims(company_id,originating_report_id,float_id,dsa_dsp_user_id,responsible_manager_id,currency,proposed_amount,external_body,status,submitted_by,submitted_at) VALUES(?,?,?,?,?,?,100,'Safaricom','submitted',?,NOW())")->execute([$company,$reportId,$id,$dsa,$manager,$currency,$dsa]);
     $claimId=(int)$pdo->lastInsertId();$claimIds[]=$claimId;
-    $historical=$service->detail($claimId,$manager);
+    $historical=$service->detail($claimId,$manager,[]);
     $check($historical['claim']['claim_basis']==='legacy_float' && $historical['claim']['confirmed_sales_snapshot']===null,'Old-format claims retain legacy basis without a fabricated snapshot');
     ob_start();view('sales.incentive-detail',['incentiveDetail'=>$historical]);$html=(string)ob_get_clean();
     $check(str_contains($html,'Historical cash float') && str_contains($html,'Historical report'),'Historical report and float context remain readable');

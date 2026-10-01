@@ -35,6 +35,7 @@ use App\Controllers\SalesProductVariantController;
 use App\Controllers\SalesIncentiveController;
 use App\Controllers\SalesStockHistoryController;
 use App\Controllers\SalesSettlementController;
+use App\Controllers\PowerBiLiveCaptureController;
 use App\Controllers\CommercialDocumentController;
 use App\Controllers\IntegrationEventController;
 use App\Controllers\ApiV1SalesController;
@@ -99,6 +100,7 @@ $salesProductVariantController = new SalesProductVariantController();
 $salesIncentiveController = new SalesIncentiveController();
 $salesStockHistoryController = new SalesStockHistoryController();
 $salesSettlementController = new SalesSettlementController();
+$powerBiLiveCaptureController = new PowerBiLiveCaptureController();
 $commercialDocumentController = new CommercialDocumentController();
 $integrationEventController = new IntegrationEventController();
 $dataExchangeController = new DataExchangeController();
@@ -382,6 +384,8 @@ $router->post(
     [$warehouseLocationController, 'provision']
 );
 $router->get('/sales', [$salesController, 'index']);
+$router->get('/sales/daily-shop-metrics', [$powerBiLiveCaptureController, 'index']);
+$router->post('/sales/daily-shop-metrics', [$powerBiLiveCaptureController, 'save']);
 $router->get('/sales/settlements', [$salesSettlementController, 'index']);
 $router->post('/sales/settlements', [$salesSettlementController, 'create']);
 $router->get('/sales/settlements/{id}', [$salesSettlementController, 'show']);
