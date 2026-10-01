@@ -43,3 +43,4 @@ dist/
 
 backups/
 *.before-*
+/.deploy/approved-release.json

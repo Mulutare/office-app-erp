@@ -73,6 +73,8 @@ try {
         $result['skipped'] === ['040'],
         'Migration 040 accepts the exact known production legacy checksum'
     );
+    $audit = $runner->auditAppliedMigrations(dirname(__DIR__) . '/database/migrations/mysql');
+    $check(in_array('040', $audit['applied_versions'], true), 'Read-only catalog audit honors exact legacy 040 checksum');
 
     file_put_contents(
         $fixtureRoot . '/040_fixture.php',
@@ -141,6 +143,8 @@ try {
     $updateChecksum->execute(['checksum' => $legacy062Checksum, 'version' => '062']);
     $result = $runner->run($fixtureRoot);
     $check($result['skipped'] === ['062'], 'Migration 062 accepts the exact known production checksum for reviewed contents');
+    $audit = $runner->auditAppliedMigrations(dirname(__DIR__) . '/database/migrations/mysql');
+    $check(in_array('062', $audit['applied_versions'], true), 'Read-only catalog audit honors exact legacy 062 checksum');
     file_put_contents($fixtureRoot . '/062_fixture.php', "\n// Altered fixture.\n", FILE_APPEND);
     $altered062Rejected = false;
     try {

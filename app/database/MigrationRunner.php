@@ -46,7 +46,7 @@ final class MigrationRunner
      *     skipped: list<string>
      * }
      */
-    public function run(string $directory): array
+    public function run(string $directory, ?callable $observer = null): array
     {
         if (!is_dir($directory)) {
             throw new RuntimeException(
@@ -112,6 +112,9 @@ final class MigrationRunner
                 continue;
             }
 
+            if ($observer !== null) {
+                $observer($version, 'begin');
+            }
             $preflight = $migration['preflight'];
 
             if ($preflight !== null) {
@@ -143,6 +146,9 @@ final class MigrationRunner
             );
 
             $applied[] = $version;
+            if ($observer !== null) {
+                $observer($version, 'end');
+            }
         }
 
         return [
@@ -150,6 +156,73 @@ final class MigrationRunner
             'baselined' => $baselined,
             'skipped' => $skipped,
         ];
+    }
+
+    /** Validate an existing ledger without creating tables or invoking preflights. */
+    public function auditAppliedMigrations(string $directory): array
+    {
+        if (!is_dir($directory)) {
+            throw new RuntimeException('The migration directory does not exist.');
+        }
+        $files = glob(rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '*.php');
+        if (!is_array($files) || $files === []) {
+            throw new RuntimeException('The migration catalog is empty or unreadable.');
+        }
+        sort($files, SORT_STRING);
+        $catalog = [];
+        foreach ($files as $file) {
+            $migration = $this->definition($file);
+            $version = $migration['version'];
+            if (isset($catalog[$version])) {
+                throw new RuntimeException('Duplicate migration version: ' . $version);
+            }
+            $catalog[$version] = $this->checksum($file);
+        }
+        $rows = $this->connection->query('SELECT version, checksum FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_ASSOC);
+        $versions = array_map('strval', array_keys($catalog));
+        $applied = [];
+        foreach ($rows as $index => $row) {
+            $version = (string)$row['version'];
+            if (!isset($versions[$index]) || $versions[$index] !== $version) {
+                throw new RuntimeException('Migration ledger gap or divergence: ' . $version);
+            }
+            if (!$this->checksumsMatchVersion($version, rtrim((string)$row['checksum']), $catalog[$version])) {
+                throw new RuntimeException('An applied migration was modified: ' . $version);
+            }
+            $applied[] = $version;
+        }
+        return ['applied_versions' => $applied, 'first_unapplied' => $versions[count($applied)] ?? null];
+    }
+
+    /** Evaluate only the next reviewed preflight under a database read-only transaction. */
+    public function auditFirstUnappliedPreflight(string $directory): ?string
+    {
+        $audit = $this->auditAppliedMigrations($directory);
+        if ($audit['first_unapplied'] === null) {
+            return null;
+        }
+        if ($this->connection->inTransaction()) {
+            throw new RuntimeException('Read-only preflight requires its own transaction.');
+        }
+        $this->connection->exec($this->driver === 'mysql' ? 'START TRANSACTION READ ONLY' : 'SET TRANSACTION READ ONLY');
+        try {
+            foreach (glob(rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '*.php') as $file) {
+                $migration = $this->definition($file);
+                if ($migration['version'] !== $audit['first_unapplied']) {
+                    continue;
+                }
+                $state = $migration['preflight'] === null ? 'apply' : ($migration['preflight'])($this->connection);
+                if (!in_array($state, ['apply', 'baseline'], true)) {
+                    throw new RuntimeException('Migration preflight returned an invalid state: ' . $migration['version']);
+                }
+                return $state;
+            }
+            throw new RuntimeException('First unapplied migration disappeared from the catalog.');
+        } finally {
+            if ($this->connection->inTransaction()) {
+                $this->connection->rollBack();
+            }
+        }
     }
 
     private function checksumsMatchVersion(

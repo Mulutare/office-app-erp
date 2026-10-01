@@ -18,9 +18,11 @@ $pdo = db();
 
 try {
     $database = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
-    $check($database === 'office_app_dev', 'Running only against office_app_dev');
-    if ($database !== 'office_app_dev') {
-        throw new RuntimeException('REFUSING: database is not office_app_dev.');
+    $isolated = getenv('OFFICEAPP_REHEARSAL_ISOLATED') === '1' && getenv('DB_HOST') === 'db' && getenv('DB_DATABASE') === 'passiontech_officeapp' && preg_match('/^officeapp-rehearsal-[a-f0-9]{32}-php$/', (string)getenv('OFFICEAPP_REHEARSAL_CONTAINER')) === 1;
+    $safe = getenv('OFFICEAPP_REHEARSAL_ISOLATED') === '1' ? ($isolated && $database === 'passiontech_officeapp') : $database === 'office_app_dev';
+    $check($safe, 'Running against the permitted development or isolated rehearsal database');
+    if (!$safe) {
+        throw new RuntimeException('REFUSING: database isolation guard failed.');
     }
 
     $_SESSION['auth']['company'] = ['company_id' => 2];

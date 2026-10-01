@@ -3,6 +3,7 @@ param([string] $OutputDirectory = 'dist')
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'deployment-release-common.ps1')
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $outputRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot $OutputDirectory))
 $projectPrefix = $projectRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -15,6 +16,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Docker is installed but its Linux engine is un
 
 $commitSha = (git -C $projectRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $commitSha -notmatch '^[0-9a-f]{40}$') { throw 'Unable to determine the current Git commit SHA.' }
+Assert-ReviewedRuntimeSource $projectRoot
 $composerLock = Join-Path $projectRoot 'composer.lock'
 if (-not (Test-Path -LiteralPath $composerLock)) { throw 'composer.lock is required.' }
 $lockHash = (Get-FileHash -LiteralPath $composerLock -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -42,15 +44,13 @@ try {
     New-Item -ItemType Directory -Path $vendorExport -Force | Out-Null
     docker cp ($containerName + ':/app/vendor/.') $vendorExport
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $vendorExport 'autoload.php'))) { throw 'The production vendor export is incomplete.' }
-    foreach ($directory in $directories) {
-        $source = Join-Path $projectRoot $directory
-        if (-not (Test-Path -LiteralPath $source)) { throw "Required source directory is missing: $directory" }
-        Copy-Item -LiteralPath $source -Destination $packageRoot -Recurse
-    }
-    foreach ($file in $rootFiles) {
-        $source = Join-Path $projectRoot $file
-        if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $packageRoot }
-    }
+    # Materialize only reviewed HEAD objects, never recurse through the checkout.
+    $sourceArchive=Join-Path $stageRoot 'tracked-source.tar'
+    git -C $projectRoot archive --format=tar --output=$sourceArchive HEAD -- $directories $rootFiles
+    if($LASTEXITCODE-ne0){throw 'Tracked HEAD source archive failed.'}
+    tar -xf $sourceArchive -C $packageRoot
+    if($LASTEXITCODE-ne0){throw 'Tracked HEAD source extraction failed.'}
+    foreach($directory in $directories){if(-not(Test-Path -LiteralPath (Join-Path $packageRoot $directory))){throw "Required tracked source directory missing: $directory"}}
     Copy-Item -LiteralPath $vendorExport -Destination (Join-Path $packageRoot 'vendor') -Recurse
     foreach ($relative in $runtimeDirectories) { New-Item -ItemType Directory -Path (Join-Path $packageRoot $relative) -Force | Out-Null }
     foreach ($protected in @('config/database.php', 'config/app.local.php')) {
@@ -73,7 +73,7 @@ try {
     if ($topLevels.Count -ne 1 -or $topLevels[0] -ne 'office_app') { throw 'Archive top-level directory must be exactly office_app/.' }
     foreach ($required in $requiredEntries) { if (-not ($entries -contains $required)) { throw "Required archive entry is missing: $required" } }
     foreach ($forbidden in @('office_app/config/database.php', 'office_app/config/app.local.php')) { if ($entries -contains $forbidden) { throw "Protected configuration entered the archive: $forbidden" } }
-    if ($entries | Where-Object { $_ -match '(^|/)(\.git|tests|dist|artifacts|node_modules)(/|$)' }) { throw 'Development-only content entered the archive.' }
+    if ($entries | Where-Object { $_ -match '(^|/)(\.git|work|tests|dist|artifacts|node_modules|backups|\.deploy)(/|$)' }) { throw 'Development-only content entered the archive.' }
     if ($entries | Where-Object { $_ -match '^[A-Za-z]:|^/' }) { throw 'An absolute filesystem path entered the archive.' }
     foreach ($relative in @('storage/cache/', 'storage/logs/', 'storage/private/', 'storage/uploads/')) {
         $prefix = 'office_app/' + $relative

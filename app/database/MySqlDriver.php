@@ -75,7 +75,7 @@ final class MySqlDriver implements DatabaseDriver
             $charset
         );
 
-        return new PDO(
+        $connection = new PDO(
             $dsn,
             $username,
             $password,
@@ -87,6 +87,15 @@ final class MySqlDriver implements DatabaseDriver
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]
         );
+
+        // Keep connection literal comparisons aligned with the utf8mb4
+        // reporting views, including connections opened outside deployment.
+        if ($charset === 'utf8mb4') {
+            $connection->exec('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+            $connection->exec("SET collation_connection = 'utf8mb4_unicode_ci'");
+        }
+
+        return $connection;
     }
 
     public function assertHealthy(PDO $connection): void
