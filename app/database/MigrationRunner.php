@@ -175,6 +175,20 @@ final class MigrationRunner
             return true;
         }
 
+        if (
+            $version === '062'
+            && hash_equals(
+                $appliedChecksum,
+                'c7afbf6e450702ed1c512c5ace9e41045402660c50b23e2ebab7a1a3faff5550'
+            )
+            && hash_equals(
+                $currentChecksum,
+                '1d85d826ec2d6fb1255e0e36ec6b6390e445788afbc3b72e15d1c61e13e0699e'
+            )
+        ) {
+            return true;
+        }
+
         return false;
     }
 

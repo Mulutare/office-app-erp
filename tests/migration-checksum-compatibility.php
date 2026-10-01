@@ -28,6 +28,11 @@ $fixtureRoot = sys_get_temp_dir()
 $migration040 = dirname(__DIR__)
     . '/database/migrations/mysql/040_location_aware_stock_movements.php';
 $original040Checksum = null;
+$migration062 = dirname(__DIR__)
+    . '/database/migrations/mysql/062_harden_employee_self_service_scope.php';
+$legacy062Checksum =
+    'c7afbf6e450702ed1c512c5ace9e41045402660c50b23e2ebab7a1a3faff5550';
+$original062Checksum = null;
 
 try {
     if (!mkdir($fixtureRoot, 0700, true) && !is_dir($fixtureRoot)) {
@@ -115,6 +120,48 @@ try {
         'version' => '040',
     ]);
     unlink($fixtureRoot . '/040_fixture.php');
+    $checksumStatement->execute(['version' => '062']);
+    $original062Checksum = $checksumStatement->fetchColumn();
+    if (!is_string($original062Checksum)) {
+        throw new RuntimeException('Migration 062 is missing from the test ledger.');
+    }
+    if (!copy($migration062, $fixtureRoot . '/062_fixture.php')) {
+        throw new RuntimeException('Unable to copy migration 062 test fixture.');
+    }
+    $reviewed062Checksum = hash('sha256', str_replace(
+        ["\r\n", "\r"], "\n", (string)file_get_contents($migration062)
+    ));
+    $check(
+        $reviewed062Checksum === '1d85d826ec2d6fb1255e0e36ec6b6390e445788afbc3b72e15d1c61e13e0699e',
+        'Migration 062 contents match the exact reviewed checksum'
+    );
+    $updateChecksum->execute(['checksum' => $reviewed062Checksum, 'version' => '062']);
+    $result = $runner->run($fixtureRoot);
+    $check($result['skipped'] === ['062'], 'Migration 062 exact current checksum is accepted');
+    $updateChecksum->execute(['checksum' => $legacy062Checksum, 'version' => '062']);
+    $result = $runner->run($fixtureRoot);
+    $check($result['skipped'] === ['062'], 'Migration 062 accepts the exact known production checksum for reviewed contents');
+    file_put_contents($fixtureRoot . '/062_fixture.php', "\n// Altered fixture.\n", FILE_APPEND);
+    $altered062Rejected = false;
+    try {
+        $runner->run($fixtureRoot);
+    } catch (RuntimeException $exception) {
+        $altered062Rejected = $exception->getMessage() === 'An applied migration was modified: 062';
+    }
+    $check($altered062Rejected, 'Migration 062 legacy checksum fails when fixture contents change');
+    if (!copy($migration062, $fixtureRoot . '/062_fixture.php')) {
+        throw new RuntimeException('Unable to restore migration 062 test fixture.');
+    }
+    $updateChecksum->execute(['checksum' => $wrongChecksum, 'version' => '062']);
+    $wrong062Rejected = false;
+    try {
+        $runner->run($fixtureRoot);
+    } catch (RuntimeException $exception) {
+        $wrong062Rejected = $exception->getMessage() === 'An applied migration was modified: 062';
+    }
+    $check($wrong062Rejected, 'Migration 062 rejects an unrecognized applied checksum');
+    $updateChecksum->execute(['checksum' => $original062Checksum, 'version' => '062']);
+    unlink($fixtureRoot . '/062_fixture.php');
     file_put_contents(
         $fixtureRoot . '/999_fixture.php',
         "<?php\nreturn [\n"
@@ -144,6 +191,13 @@ try {
     $check(
         $otherVersionRejected,
         'The migration 040 legacy checksum is rejected for every other version'
+    );
+    // Use the exact reviewed 062 contents under another version, ensuring the
+    // compatibility exception requires the version as well as both checksums.
+    $match = new ReflectionMethod(MigrationRunner::class, 'checksumsMatchVersion');
+    $check(
+        $match->invoke($runner, '999', $legacy062Checksum, $reviewed062Checksum) === false,
+        'The migration 062 legacy checksum cannot be used for another version'
     );
     $connection->prepare(
         'DELETE FROM schema_migrations WHERE version = :version'
@@ -183,10 +237,38 @@ try {
         $partialMismatchRejected,
         'Partial migration step checksum mismatches remain rejected'
     );
+
+    // Inspect only the two action branches; never invoke the authenticated
+    // deployment endpoint or access production from this local contract test.
+    $deploymentSource = (string)file_get_contents(dirname(__DIR__) . '/deployment/production-runner.php');
+    foreach (['migrate' => 'MigrationRunner', 'sync-reference-data' => 'ReferenceDataSynchronizer'] as $action => $class) {
+        $start = strpos($deploymentSource, "elseif(\$action==='$action')");
+        // The runner's action branches are single lines. Support both LF and CRLF.
+        $branch = $start === false ? '' : strtok(substr($deploymentSource, $start), "\r\n");
+        $rootPosition = strpos($branch, "\$root=releaseDir(\$id).'/office_app'");
+        $guard = "if(class_exists(App\\Database\\$class::class,false))throw new RuntimeException(";
+        $guardPosition = strpos($branch, $guard);
+        $requirePosition = strpos($branch, "require\$root.'/app/database/$class.php'");
+        $newPosition = strpos($branch, "new App\\Database\\$class(");
+        $check(
+            $rootPosition !== false && $requirePosition !== false && $newPosition !== false
+                && $rootPosition < $requirePosition && $requirePosition < $newPosition,
+            "$action explicitly requires staged $class before instantiation"
+        );
+        $check(
+            $guardPosition !== false && $requirePosition !== false && $guardPosition < $requirePosition,
+            "$action rejects an already-loaded $class without triggering autoload"
+        );
+    }
 } catch (Throwable $exception) {
     echo 'FAIL unexpected: ' . $exception->getMessage() . PHP_EOL;
     $failed++;
 } finally {
+    if (is_string($original062Checksum)) {
+        $connection->prepare(
+            'UPDATE schema_migrations SET checksum = :checksum WHERE version = :version'
+        )->execute(['checksum' => $original062Checksum, 'version' => '062']);
+    }
     if (is_string($original040Checksum)) {
         $connection->prepare(
             'UPDATE schema_migrations
@@ -205,7 +287,7 @@ try {
         "DELETE FROM schema_migrations WHERE version IN ('998', '999')"
     )->execute();
 
-    foreach (['040_fixture.php', '998_fixture.php', '999_fixture.php'] as $file) {
+    foreach (['040_fixture.php', '062_fixture.php', '998_fixture.php', '999_fixture.php'] as $file) {
         $path = $fixtureRoot . DIRECTORY_SEPARATOR . $file;
 
         if (is_file($path)) {
