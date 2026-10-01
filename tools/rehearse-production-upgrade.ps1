@@ -48,7 +48,9 @@ try {
     # Copy reviewed checkout source only, excluding every ignored config/secret.
     $tracked=@(git -C $root ls-files)
     if($LASTEXITCODE-ne0){throw 'Cannot enumerate reviewed source.'}
-    $newReviewed=@('deployment/powerbi-upgrade-validation.php','database/migrations/mysql/110_powerbi_mysql84_readiness_compatibility.php','tests/powerbi-mysql84-readiness-contract.php','tools/rehearsal-post-tests-audit.php','tools/rehearse-production-upgrade.php','tests/deployment-migration-audit.php','tools/deployment-release-common.ps1','tools/test-production-deployment.ps1','tools/rehearse-production-upgrade.ps1','tools/rehearsal-dump-audit.ps1','tools/rehearsal-baseline-audit.php','tools/rehearsal-test-session.php','tools/test-rehearsal-baseline-guard.php','tools/test-rehearsal-baseline-guard.ps1')
+    $newReviewed=@('deployment/powerbi-upgrade-validation.php','tests/powerbi-mysql84-readiness-contract.php','tools/rehearsal-post-tests-audit.php','tools/rehearse-production-upgrade.php','tests/deployment-migration-audit.php','tools/deployment-release-common.ps1','tools/test-production-deployment.ps1','tools/rehearse-production-upgrade.ps1','tools/rehearsal-dump-audit.ps1','tools/rehearsal-baseline-audit.php','tools/rehearsal-test-session.php','tools/test-rehearsal-baseline-guard.php','tools/test-rehearsal-baseline-guard.ps1')
+    $catalog=@(Get-ChildItem -LiteralPath (Join-Path $root 'database/migrations/mysql') -File -Filter '*.php'|Where-Object{$_.Name-match'^\d{3}_'}|ForEach-Object{[int]$_.Name.Substring(0,3)}|Sort-Object)
+    if($catalog.Count-ne95-or($catalog-join',')-ne((15..109)-join',')){throw 'Reviewed release must contain exactly migrations 015-109.'}
     foreach($relative in @($tracked+$newReviewed|Sort-Object -Unique)){
         if($relative-match'^(\.deploy/|storage/|work/|dist/|artifacts/)'-or$relative-in@('config/database.php','config/app.local.php')){continue}
         $from=Join-Path $root $relative;if(-not(Test-Path -LiteralPath $from -PathType Leaf)){continue}

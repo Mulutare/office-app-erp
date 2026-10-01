@@ -523,40 +523,49 @@ LEFT JOIN hr_employees me
 LEFT JOIN vw_powerbi_employee_role_scope er ON er.employee_id=me.employee_id
 WHERE w.pbi_shop_id IS NOT NULL OR w.manager_user_id IS NOT NULL
 UNION ALL
-SELECT qs.company_id,DATE(COALESCE(r.reviewed_at,r.created_at)) AS report_date,
-       qs.warehouse_id,w.pbi_shop_id,w.shop_name AS shop_manager_label,w.shop_name AS shop_location,
-       er.employee_name,er.role,'DSA/DSP' AS role_group,h.cluster_name,h.region_name,
-       prm.reporting_product_name AS product_name,prm.section_name,
+SELECT q.company_id,q.report_date,q.warehouse_id,q.pbi_shop_id,
+       q.shop_name AS shop_manager_label,q.shop_name AS shop_location,
+       q.employee_name,q.role,'DSA/DSP' AS role_group,q.cluster_name,q.region_name,
+       q.product_name,q.section_name,
        CAST(0 AS DECIMAL(20,4)) AS auto_beginning_stock,
-       ROUND(SUM(rl.allocated_quantity)*COALESCE(pp.reporting_unit_value,p.unit_price),4) AS total_received,
-       ROUND(SUM(rl.sold_quantity)*COALESCE(pp.reporting_unit_value,p.unit_price),4) AS total_sold,
-       ROUND(SUM(rl.allocated_quantity-rl.sold_quantity-rl.returned_quantity)*COALESCE(pp.reporting_unit_value,p.unit_price),4) AS closing_stock,
-       COALESCE(pp.reporting_unit_value,p.unit_price) AS reporting_unit_value,
-       COALESCE(pp.price_basis,'PRODUCT_MASTER_FALLBACK') AS value_basis,
-       er.role_basis AS role_mapping_status,
+       ROUND(q.allocated_quantity*q.reporting_unit_value,4) AS total_received,
+       ROUND(q.sold_quantity*q.reporting_unit_value,4) AS total_sold,
+       ROUND(q.remaining_quantity*q.reporting_unit_value,4) AS closing_stock,
+       q.reporting_unit_value,q.value_basis,q.role_basis AS role_mapping_status,
        'QUICK_SALE_EMPLOYEE_PRODUCT_DAY' AS source_grain,
        'ERP_LIVE' AS SourceSystem
-FROM sales_quick_sale_reports r
-INNER JOIN sales_quick_sales qs
-  ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id
-INNER JOIN sales_quick_sale_report_lines rl
-  ON rl.company_id=r.company_id AND rl.report_id=r.report_id
-INNER JOIN vw_powerbi_warehouses w ON w.warehouse_id=qs.warehouse_id
-LEFT JOIN vw_powerbi_shop_hierarchy h ON h.warehouse_id=qs.warehouse_id
-INNER JOIN vw_powerbi_products p ON p.product_id=rl.product_id
-INNER JOIN bi_powerbi_product_reporting_map prm
-  ON prm.company_id=rl.company_id AND prm.product_id=rl.product_id AND prm.active=TRUE
-LEFT JOIN vw_powerbi_product_reporting_price_periods pp
-  ON pp.company_id=rl.company_id AND pp.product_id=rl.product_id
- AND DATE_ADD(DATE(COALESCE(r.reviewed_at,r.created_at)),INTERVAL 86399 SECOND)
-     BETWEEN pp.valid_from AND pp.valid_to
-LEFT JOIN vw_powerbi_employee_role_scope er ON er.user_id=qs.user_id
-WHERE r.company_id=2 AND r.status='confirmed'
-  AND er.role_group='DSA/DSP'
-GROUP BY qs.company_id,DATE(COALESCE(r.reviewed_at,r.created_at)),qs.warehouse_id,
-         w.pbi_shop_id,w.shop_name,er.employee_name,er.role,er.role_basis,
-         h.cluster_name,h.region_name,prm.reporting_product_name,prm.section_name,
-         COALESCE(pp.reporting_unit_value,p.unit_price),COALESCE(pp.price_basis,'PRODUCT_MASTER_FALLBACK')
+FROM (
+    SELECT qs.company_id,DATE(COALESCE(r.reviewed_at,r.created_at)) AS report_date,
+           qs.warehouse_id,w.pbi_shop_id,w.shop_name,
+           er.employee_name,er.role,er.role_basis,h.cluster_name,h.region_name,
+           prm.reporting_product_name AS product_name,prm.section_name,
+           SUM(rl.allocated_quantity) AS allocated_quantity,
+           SUM(rl.sold_quantity) AS sold_quantity,
+           SUM(rl.allocated_quantity-rl.sold_quantity-rl.returned_quantity) AS remaining_quantity,
+           COALESCE(pp.reporting_unit_value,p.unit_price) AS reporting_unit_value,
+           COALESCE(pp.price_basis,'PRODUCT_MASTER_FALLBACK') AS value_basis
+    FROM sales_quick_sale_reports r
+    INNER JOIN sales_quick_sales qs
+      ON qs.company_id=r.company_id AND qs.quick_sale_id=r.quick_sale_id
+    INNER JOIN sales_quick_sale_report_lines rl
+      ON rl.company_id=r.company_id AND rl.report_id=r.report_id
+    INNER JOIN vw_powerbi_warehouses w ON w.warehouse_id=qs.warehouse_id
+    LEFT JOIN vw_powerbi_shop_hierarchy h ON h.warehouse_id=qs.warehouse_id
+    INNER JOIN vw_powerbi_products p ON p.product_id=rl.product_id
+    INNER JOIN bi_powerbi_product_reporting_map prm
+      ON prm.company_id=rl.company_id AND prm.product_id=rl.product_id AND prm.active=TRUE
+    LEFT JOIN vw_powerbi_product_reporting_price_periods pp
+      ON pp.company_id=rl.company_id AND pp.product_id=rl.product_id
+     AND DATE_ADD(DATE(COALESCE(r.reviewed_at,r.created_at)),INTERVAL 86399 SECOND)
+         BETWEEN pp.valid_from AND pp.valid_to
+    LEFT JOIN vw_powerbi_employee_role_scope er ON er.user_id=qs.user_id
+    WHERE r.company_id=2 AND r.status='confirmed'
+      AND er.role_group='DSA/DSP'
+    GROUP BY qs.company_id,DATE(COALESCE(r.reviewed_at,r.created_at)),qs.warehouse_id,
+             w.pbi_shop_id,w.shop_name,er.employee_name,er.role,er.role_basis,
+             h.cluster_name,h.region_name,prm.reporting_product_name,prm.section_name,
+             COALESCE(pp.reporting_unit_value,p.unit_price),COALESCE(pp.price_basis,'PRODUCT_MASTER_FALLBACK')
+) q
 SQL,
         <<<'SQL'
 CREATE OR REPLACE VIEW vw_powerbi_live_bank_transaction_detail AS

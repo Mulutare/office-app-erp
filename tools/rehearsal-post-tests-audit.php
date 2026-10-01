@@ -14,7 +14,7 @@ try {
         $report['ledger_audit']=(new App\Database\MigrationRunner($pdo,'mysql'))->auditAppliedMigrations(__DIR__.'/../database/migrations/mysql');
         $report['final_migration']=$pdo->query('SELECT MAX(version) FROM schema_migrations')->fetchColumn();
         $report['step_residue']=(int)$pdo->query('SELECT COUNT(*) FROM schema_migration_steps')->fetchColumn();
-        $assert($report['ledger_audit']['first_unapplied']===null&&$report['final_migration']==='110'&&$report['step_residue']===0,'Post-test migration ledger changed');
+        $assert($report['ledger_audit']['first_unapplied']===null&&$report['final_migration']==='109'&&$report['step_residue']===0,'Post-test migration ledger changed');
         $report['protected_data']=[];
         foreach($before['protected_baseline_data'] as $table=>$expected){
             $q=$pdo->prepare("SELECT column_name FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name='PRIMARY' ORDER BY seq_in_index");$q->execute([$table]);$keys=$q->fetchAll(PDO::FETCH_COLUMN);
@@ -24,7 +24,7 @@ try {
             $actual=['count'=>count($rows),'sha256'=>hash('sha256',json_encode($rows,JSON_THROW_ON_ERROR))];
             $report['protected_data'][$table]=$actual;$assert($actual===$expected,'Post-test protected rows changed: '.$table);
         }
-        $report['readiness_audit']=$pdo->query('SELECT * FROM vw_powerbi_110_mysql84_readiness_audit WHERE company_id=2')->fetch(PDO::FETCH_ASSOC);
+        $report['readiness_audit']=$pdo->query('SELECT r.company_id,r.reporting_mode,r.live_cutover_date,s.explicit_pbi_shop_count,s.unexpected_scoped_external_ids,(SELECT COUNT(*) FROM vw_powerbi_cutover_blockers b WHERE b.company_id=r.company_id) AS cutover_blocker_rows FROM vw_powerbi_reporting_readiness r INNER JOIN vw_powerbi_109_explicit_shop_scope_audit s ON s.company_id=r.company_id WHERE r.company_id=2')->fetch(PDO::FETCH_ASSOC);
         $audit=$report['readiness_audit'];
         $assert(is_array($audit)&&(int)$audit['company_id']===2&&$audit['reporting_mode']==='HISTORY_ONLY'&&$audit['live_cutover_date']===null&&(int)$audit['explicit_pbi_shop_count']===22&&(int)$audit['unexpected_scoped_external_ids']===0,'Post-test readiness/shop invariants failed');
         $report['unresolved_history_rows']=(int)$pdo->query('SELECT unresolved_history_role_rows FROM vw_powerbi_reporting_readiness WHERE company_id=2')->fetchColumn();

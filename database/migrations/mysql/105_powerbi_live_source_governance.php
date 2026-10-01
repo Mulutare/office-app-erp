@@ -222,73 +222,83 @@ SQL,
         <<<'SQL'
 CREATE OR REPLACE VIEW vw_powerbi_cutover_blockers AS
 SELECT 2 AS company_id,'SHOP_MANAGER_CONFIRMATION' AS blocker_code,
-       COUNT(*) AS issue_count,
+       q.issue_count AS issue_count,
        'Unique warehouse access candidates require explicit business confirmation before live cutover.' AS blocker_note
-FROM vw_powerbi_current_shop_manager_scope
-WHERE mapping_status IN(
-    'PENDING_BUSINESS_CONFIRMATION',
-    'UNRESOLVED_NO_MANAGER',
-    'UNRESOLVED_MULTIPLE_CANDIDATES'
-)
-HAVING COUNT(*)>0
-
+FROM (
+    SELECT COUNT(*) AS issue_count
+    FROM vw_powerbi_current_shop_manager_scope
+    WHERE mapping_status IN(
+        'PENDING_BUSINESS_CONFIRMATION',
+        'UNRESOLVED_NO_MANAGER',
+        'UNRESOLVED_MULTIPLE_CANDIDATES'
+    )
+) q
+WHERE q.issue_count>0
 UNION ALL
-
-SELECT 2,'REPORTING_PRODUCT_SCOPE',
-       ABS(11-COUNT(*)),
-       'Exactly the 11 verified legacy reporting products must be active in the Power BI reporting map.'
-FROM bi_powerbi_product_reporting_map
-WHERE company_id=2 AND active=TRUE
-HAVING COUNT(*)<>11
-
+SELECT 2 AS company_id,'REPORTING_PRODUCT_SCOPE' AS blocker_code,
+       ABS(11-q.issue_count) AS issue_count,
+       'Exactly the 11 verified legacy reporting products must be active in the Power BI reporting map.' AS blocker_note
+FROM (
+    SELECT COUNT(*) AS issue_count
+    FROM bi_powerbi_product_reporting_map
+    WHERE company_id=2 AND active=TRUE
+) q
+WHERE q.issue_count<>11
 UNION ALL
-
-SELECT 2,'UNEXPECTED_ACTIVE_REPORTING_PRODUCT',
-       COUNT(*),
-       'Products outside the verified legacy Power BI product set are still active in the reporting map.'
-FROM bi_powerbi_product_reporting_map m
-INNER JOIN sales_products p
-  ON p.company_id=m.company_id AND p.product_id=m.product_id
-WHERE m.company_id=2
-  AND m.active=TRUE
-  AND UPPER(p.sku) NOT IN(
-      'FLOAT','PHYSICAL-SIM','ESIM','MIFI-DEVICE',
-      'SCRATCH-005','SCRATCH-010','SCRATCH-015',
-      'SCRATCH-020','SCRATCH-025','SCRATCH-050','SCRATCH-100'
-  )
-HAVING COUNT(*)>0
-
+SELECT 2 AS company_id,'UNEXPECTED_ACTIVE_REPORTING_PRODUCT' AS blocker_code,
+       q.issue_count AS issue_count,
+       'Products outside the verified legacy Power BI product set are still active in the reporting map.' AS blocker_note
+FROM (
+    SELECT COUNT(*) AS issue_count
+    FROM bi_powerbi_product_reporting_map m
+    INNER JOIN sales_products p
+      ON p.company_id=m.company_id AND p.product_id=m.product_id
+    WHERE m.company_id=2
+      AND m.active=TRUE
+      AND UPPER(p.sku) NOT IN(
+          'FLOAT','PHYSICAL-SIM','ESIM','MIFI-DEVICE',
+          'SCRATCH-005','SCRATCH-010','SCRATCH-015',
+          'SCRATCH-020','SCRATCH-025','SCRATCH-050','SCRATCH-100'
+      )
+) q
+WHERE q.issue_count>0
 UNION ALL
-
-SELECT 2,'HISTORY_ROLE_MAPPING',
-       COUNT(*),
-       'Historical stock rows still have no evidence-backed effective role assignment.'
-FROM vw_powerbi_compat_stock_detail
-WHERE SourceSystem='POWERBI_HISTORY'
-  AND role_mapping_status='UNRESOLVED_HISTORY_ROLE'
-HAVING COUNT(*)>0
-
+SELECT 2 AS company_id,'HISTORY_ROLE_MAPPING' AS blocker_code,
+       q.issue_count AS issue_count,
+       'Historical stock rows still have no evidence-backed effective role assignment.' AS blocker_note
+FROM (
+    SELECT COUNT(*) AS issue_count
+    FROM vw_powerbi_compat_stock_detail
+    WHERE CONVERT(SourceSystem USING utf8mb4) COLLATE utf8mb4_unicode_ci
+              = _utf8mb4'POWERBI_HISTORY' COLLATE utf8mb4_unicode_ci
+      AND CONVERT(role_mapping_status USING utf8mb4) COLLATE utf8mb4_unicode_ci
+              = _utf8mb4'UNRESOLVED_HISTORY_ROLE' COLLATE utf8mb4_unicode_ci
+) q
+WHERE q.issue_count>0
 UNION ALL
-
-SELECT 2,'LIVE_CAPTURE_INTEGRATION',
-       COUNT(*),
-       'Legacy Power BI metrics have database capture schema but are not yet wired to an automatic ERP workflow.'
-FROM bi_powerbi_live_source_contracts
-WHERE company_id=2
-  AND cutover_blocking=TRUE
-  AND mapping_status='CAPTURE_SCHEMA_READY_APP_INTEGRATION_PENDING'
-HAVING COUNT(*)>0
-
+SELECT 2 AS company_id,'LIVE_CAPTURE_INTEGRATION' AS blocker_code,
+       q.issue_count AS issue_count,
+       'Legacy Power BI metrics have database capture schema but are not yet wired to an automatic ERP workflow.' AS blocker_note
+FROM (
+    SELECT COUNT(*) AS issue_count
+    FROM bi_powerbi_live_source_contracts
+    WHERE company_id=2
+      AND cutover_blocking=TRUE
+      AND mapping_status='CAPTURE_SCHEMA_READY_APP_INTEGRATION_PENDING'
+) q
+WHERE q.issue_count>0
 UNION ALL
-
-SELECT 2,'LIVE_SEMANTIC_CONFIRMATION',
-       COUNT(*),
-       'Potential ERP-native sources exist, but their business meaning has not been proven equivalent to the legacy Power BI metric.'
-FROM bi_powerbi_live_source_contracts
-WHERE company_id=2
-  AND cutover_blocking=TRUE
-  AND mapping_status='SEMANTIC_CONFIRMATION_REQUIRED'
-HAVING COUNT(*)>0
+SELECT 2 AS company_id,'LIVE_SEMANTIC_CONFIRMATION' AS blocker_code,
+       q.issue_count AS issue_count,
+       'Potential ERP-native sources exist, but their business meaning has not been proven equivalent to the legacy Power BI metric.' AS blocker_note
+FROM (
+    SELECT COUNT(*) AS issue_count
+    FROM bi_powerbi_live_source_contracts
+    WHERE company_id=2
+      AND cutover_blocking=TRUE
+      AND mapping_status='SEMANTIC_CONFIRMATION_REQUIRED'
+) q
+WHERE q.issue_count>0
 SQL,
         <<<'SQL'
 CREATE OR REPLACE VIEW vw_powerbi_reporting_readiness AS
@@ -309,8 +319,10 @@ SELECT c.company_id,c.reporting_mode,c.live_cutover_date,
        (SELECT COUNT(*)
         FROM vw_powerbi_compat_stock_detail s
         WHERE s.company_id=c.company_id
-          AND s.SourceSystem='POWERBI_HISTORY'
-          AND s.role_mapping_status='UNRESOLVED_HISTORY_ROLE') AS unresolved_history_role_rows,
+          AND CONVERT(s.SourceSystem USING utf8mb4) COLLATE utf8mb4_unicode_ci
+              = _utf8mb4'POWERBI_HISTORY' COLLATE utf8mb4_unicode_ci
+          AND CONVERT(s.role_mapping_status USING utf8mb4) COLLATE utf8mb4_unicode_ci
+              = _utf8mb4'UNRESOLVED_HISTORY_ROLE' COLLATE utf8mb4_unicode_ci) AS unresolved_history_role_rows,
        (SELECT COUNT(*)
         FROM vw_powerbi_inventory_daily d
         WHERE d.company_id=c.company_id) AS live_inventory_daily_rows,
@@ -325,6 +337,8 @@ SELECT c.company_id,c.reporting_mode,c.live_cutover_date,
         WHERE m.company_id=c.company_id) AS captured_shop_daily_metric_rows,
        (SELECT COUNT(*) FROM bi_powerbi_live_source_contracts s
         WHERE s.company_id=c.company_id AND s.mapping_status='NATIVE_READY') AS native_ready_live_source_contracts,
+       (SELECT COUNT(*) FROM bi_powerbi_live_source_contracts s
+        WHERE s.company_id=c.company_id AND s.mapping_status='APP_CAPTURE_READY') AS app_capture_ready_live_source_contracts,
        (SELECT COUNT(*) FROM bi_powerbi_live_source_contracts s
         WHERE s.company_id=c.company_id
           AND s.mapping_status='CAPTURE_SCHEMA_READY_APP_INTEGRATION_PENDING') AS capture_integration_pending_contracts,

@@ -9,9 +9,9 @@ $fixture=Join-Path ([IO.Path]::GetTempPath()) ('officeapp-seal-test-'+[guid]::Ne
 try {
 $commit='1234567890abcdef1234567890abcdef12345678';$releasePath=Join-Path $fixture 'dist/releases/1234567'
 foreach($dir in @($releasePath,(Join-Path $fixture 'deployment'),(Join-Path $fixture 'app/database'),(Join-Path $fixture 'database/migrations/mysql'),(Join-Path $fixture 'tools'))){New-Item -ItemType Directory -Force $dir|Out-Null}
-Set-Content (Join-Path $fixture 'deployment/production-runner.php') 'runner';Set-Content (Join-Path $fixture 'app/database/MigrationRunner.php') 'migration runner';Set-Content (Join-Path $fixture 'database/migrations/mysql/110_fixture.php') 'fixture'
+Set-Content (Join-Path $fixture 'deployment/production-runner.php') 'runner';Set-Content (Join-Path $fixture 'app/database/MigrationRunner.php') 'migration runner';Set-Content (Join-Path $fixture 'database/migrations/mysql/109_fixture.php') 'fixture'
 Set-Content (Join-Path $fixture 'tools/verify-cpanel-release.ps1') "param([string]`$ReleasePath);[pscustomobject]@{Validation='PASS'}"
-$release=[pscustomobject]@{ReleasePath=$releasePath;LatestMigration=110}
+$release=[pscustomobject]@{ReleasePath=$releasePath;LatestMigration=109}
 $package=Join-Path $releasePath 'officeapp-cpanel.tar.gz';$manifest=Join-Path $releasePath 'deployment-manifest.txt'
 Set-Content $package 'sealed package';Set-Content $manifest 'sealed manifest';Set-Content (Join-Path $releasePath 'SHA256SUMS.txt') 'checksum file'
 Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Execute refuses an unapproved artifact'

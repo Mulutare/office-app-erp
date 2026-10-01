@@ -64,6 +64,16 @@ return [
                     $part = preg_replace('/COUNT\(\*\)/i', 'COUNT(0)', $part);
                     $part = preg_replace('/\bINNER\s+JOIN\b/i', 'JOIN', $part);
                     $part = preg_replace('/(\w+\.\w+)\s+NOT\s+REGEXP\s*/i', '!$1 REGEXP ', $part);
+                    // MySQL 8 stores the same two-argument REGEXP predicate as
+                    // REGEXP_LIKE. Match only a qualified identifier immediately
+                    // before the intact quoted pattern, outside literal parts.
+                    if (isset($parts[$i + 1], $parts[$i + 2])
+                        && preg_match('/^\s*\)/', $parts[$i + 2]) === 1) {
+                        if (preg_match('/^\s*\)\s*\)/', $parts[$i + 2]) === 1) {
+                            $part = preg_replace('/\bNOT\s*\(\s*REGEXP_LIKE\s*\(\s*([A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)+)\s*,\s*$/i', '!$1 REGEXP ', $part);
+                        }
+                        $part = preg_replace('/\bREGEXP_LIKE\s*\(\s*([A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)+)\s*,\s*$/i', '$1 REGEXP ', $part);
+                    }
                     $part = strtolower((string)preg_replace('/[\s()]/', '', $part));
                 }
             }

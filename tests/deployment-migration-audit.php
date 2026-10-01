@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 require __DIR__ . '/../app/database/MigrationRunner.php';
+require __DIR__ . '/../deployment/powerbi-upgrade-validation.php';
 use App\Database\MigrationRunner;
 class AuditRows extends PDOStatement {
     public function __construct(private array $rows) {}
@@ -64,7 +65,23 @@ try {
     $check(str_contains($branch,'MigrationRunner::class,false')&&str_contains($branch,'auditAppliedMigrations')&&str_contains($branch,'auditFirstUnappliedPreflight')&&!str_contains($branch,'->run(')&&!str_contains($branch,'saveMetadata('),'Staged audit never executes migrations or writes deployment state');
     $check(str_contains($branch,'initializePowerBiUpgradeSession($pdo)')&&str_contains($branch,'auditPowerBiUpgradeViews($pdo,false)'),'Staged audit proves the actual Unicode session and baseline view health');
     $health=explode("elseif(\$action==='cutover')",explode("elseif(\$action==='release-health')",$source)[1])[0];
-    $check(str_contains($health,'initializePowerBiUpgradeSession($pdo)')&&str_contains($health,'auditPowerBiUpgradeViews($pdo,true)'),'Release health queries completed Power BI views before cutover');
+    $check(str_contains($health,'initializePowerBiUpgradeSession($pdo)')&&str_contains($health,'auditPowerBiUpgradeViews($pdo,true)')&&str_contains($health,"\$result['release_target']='109'"),'Release health queries completed target-109 Power BI views before cutover');
+    $validation=(string)file_get_contents(__DIR__.'/../deployment/powerbi-upgrade-validation.php');
+    $check(str_contains($validation,'bool $requireRelease109 = false')&&str_contains($validation,'range(15, $requireRelease109 ? 109 : 99)'),'Shared validator requires exact 015-109 release or 015-099 baseline ledgers');
+    $check(str_contains($validation,"\$report['step_residue'] !== 0"),'Shared validator rejects migration step residue');
+    $check(str_contains($validation,"'vw_powerbi_live_stock_detail', 'vw_powerbi_cutover_blockers'")&&str_contains($validation,"'vw_powerbi_reporting_readiness', 'vw_powerbi_109_explicit_shop_scope_audit'")&&!str_contains($validation,'vw_powerbi_110_'),'Shared validator requires repaired stock, blockers, readiness and 109 audit without a 110 sentinel');
+    $check(str_contains($validation,'while ($statement->fetch(PDO::FETCH_NUM) !== false)')&&str_contains($validation,'if ($pdo->inTransaction()) $pdo->rollBack();'),'Shared validator consumes every view and closes its owned read-only transaction');
+    $check(str_contains($validation,'FROM bi_powerbi_reporting_control c')&&str_contains($validation,'INNER JOIN vw_powerbi_109_explicit_shop_scope_audit a')&&str_contains($validation,'validatePowerBiUpgradeReadinessMetadata($audit);'),'Actual release helper validates direct governed readiness metadata and counts');
+    $metadata=['company_id'=>2,'cutover_blocker_rows'=>0,'reporting_mode'=>'HISTORY_ONLY','live_cutover_date'=>null,'explicit_pbi_shop_count'=>22,'unexpected_scoped_external_ids'=>0];
+    $check(!$reject(fn()=>OfficeApp\Deployment\validatePowerBiUpgradeReadinessMetadata($metadata)),'Target-109 readiness accepts the unchanged zero-history backup state');
+    $withBlockers=$metadata;$withBlockers['cutover_blocker_rows']=99;
+    $check(!$reject(fn()=>OfficeApp\Deployment\validatePowerBiUpgradeReadinessMetadata($withBlockers)),'Target-109 readiness permits nonzero governed blockers');
+    foreach(['company_id'=>1,'reporting_mode'=>'HISTORY_THEN_LIVE','live_cutover_date'=>'2026-08-01','explicit_pbi_shop_count'=>21,'unexpected_scoped_external_ids'=>1,'cutover_blocker_rows'=>-1] as $field=>$value){
+        $invalid=$metadata;$invalid[$field]=$value;
+        $check($reject(fn()=>OfficeApp\Deployment\validatePowerBiUpgradeReadinessMetadata($invalid)),'Target-109 readiness rejects invalid '.$field);
+    }
+    $invalid=$metadata;unset($invalid['live_cutover_date']);
+    $check($reject(fn()=>OfficeApp\Deployment\validatePowerBiUpgradeReadinessMetadata($invalid)),'Target-109 readiness requires explicit null cutover metadata');
 } catch(Throwable $e){echo 'FAIL '.$e->getMessage().PHP_EOL;$failed++;}
 finally {foreach(glob($temp.'/*')?:[] as $file)unlink($file);if(is_dir($temp))rmdir($temp);}
 echo ($passed+$failed).' deployment audit checks, '.$failed.' failures'.PHP_EOL;

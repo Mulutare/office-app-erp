@@ -52,7 +52,7 @@ try {
     $report['restored_baseline']=end($audit['applied_versions']);
     $report['checksum_audit']=$audit;
     $pending=array_values(array_filter(array_map(static fn(string $file):string=>(string)(require $file)['version'],glob($directory.'/*.php')),static fn(string $version):bool=>!in_array($version,$audit['applied_versions'],true)));
-    $assert($pending===array_map('strval',range(100,110)),'Pending catalog must contain exactly 100-110 before any mutation');
+    $assert($pending===array_map('strval',range(100,109)),'Pending catalog must contain exactly 100-109 before any mutation');
     $assert($report['restored_baseline']==='099'&&$audit['first_unapplied']==='100','Restored backup must end at 099 with first unapplied 100');
     $assert((int)$pdo->query('SELECT COUNT(*) FROM schema_migration_steps')->fetchColumn()===0,'Restored migration step ledger is not empty');
     $report['baseline_counts']=[];
@@ -71,8 +71,8 @@ try {
     $report['baseline_warehouse_25_26']=array_map(static fn(array $w):array=>['warehouse_id'=>$w['warehouse_id'],'company_id'=>$w['company_id'],'row_sha256'=>hash('sha256',json_encode($w,JSON_THROW_ON_ERROR))],$warehouses);
     $generic=$pdo->query("SELECT * FROM data_external_ids WHERE company_id=2 AND entity_type='warehouses' AND external_id NOT REGEXP '^PBI-SHOP-[0-9]{3}$' ORDER BY entity_id,external_id")->fetchAll(PDO::FETCH_ASSOC);
     $result=$runner->run($directory,static function(string $version,string $event)use(&$report):void{$report['migration_events'][]=['version'=>$version,'event'=>$event];echo 'Migration ',$version,' ',$event,PHP_EOL;});$report['applied_sequence']=$result['applied'];
-    $expectedMigrations=array_map('strval',range(100,110));
-    $assert($result['applied']===$expectedMigrations&&$result['baselined']===[],'Upgrade must apply exactly 100-110 without baselining');
+    $expectedMigrations=array_map('strval',range(100,109));
+    $assert($result['applied']===$expectedMigrations&&$result['baselined']===[],'Upgrade must apply exactly 100-109 without baselining');
     $report['reference_sync']=(new ReferenceDataSynchronizer($pdo,'mysql'))->run(__DIR__.'/../database/seeds');
     $ledgerBeforeAgain=$pdo->query('SELECT * FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_ASSOC);
     $stepsBeforeAgain=$pdo->query('SELECT * FROM schema_migration_steps ORDER BY version,statement_number')->fetchAll(PDO::FETCH_ASSOC);
@@ -83,11 +83,12 @@ try {
     $report['idempotent_skip_count']=count($again['skipped']);
     $report['final_migration']=$pdo->query('SELECT MAX(version) FROM schema_migrations')->fetchColumn();
     $report['step_residue']=(int)$pdo->query('SELECT COUNT(*) FROM schema_migration_steps')->fetchColumn();
-    $assert($report['final_migration']==='110'&&$report['step_residue']===0,'Final ledger/step residue invariant failed');
+    $assert($report['final_migration']==='109'&&$report['step_residue']===0,'Final ledger/step residue invariant failed');
     $report['current_sql_modes']=$pdo->query('SELECT @@GLOBAL.sql_mode AS global_sql_mode,@@SESSION.sql_mode AS session_sql_mode')->fetch(PDO::FETCH_ASSOC);
     foreach($report['current_sql_modes'] as $mode)$assert(in_array('ONLY_FULL_GROUP_BY',explode(',',(string)$mode),true),'ONLY_FULL_GROUP_BY must remain enabled');
-    $report['mysql84_readiness_audit']=$pdo->query('SELECT * FROM vw_powerbi_110_mysql84_readiness_audit WHERE company_id=2')->fetch(PDO::FETCH_ASSOC);
-    $assert((int)$report['mysql84_readiness_audit']['company_id']===2&&(int)$report['mysql84_readiness_audit']['sql_mode_contains_only_full_group_by']===1&&$report['mysql84_readiness_audit']['reporting_mode']==='HISTORY_ONLY'&&$report['mysql84_readiness_audit']['live_cutover_date']===null&&(int)$report['mysql84_readiness_audit']['explicit_pbi_shop_count']===22&&(int)$report['mysql84_readiness_audit']['unexpected_scoped_external_ids']===0,'Migration 110 runtime audit failed');
+    $report['deployment_release_health']=\OfficeApp\Deployment\auditPowerBiUpgradeViews($pdo,true);
+    $report['mysql84_readiness_audit']=$report['deployment_release_health']['readiness_audit'];
+    $assert((int)$report['mysql84_readiness_audit']['company_id']===2&&$report['mysql84_readiness_audit']['reporting_mode']==='HISTORY_ONLY'&&$report['mysql84_readiness_audit']['live_cutover_date']===null&&(int)$report['mysql84_readiness_audit']['explicit_pbi_shop_count']===22&&(int)$report['mysql84_readiness_audit']['unexpected_scoped_external_ids']===0,'Final migration 109 runtime audit failed');
     $report['protected_data_after']=[];foreach($protectedTables as $table){$after=$tableSnapshot($pdo,$table);$report['protected_data_after'][$table]=$after;$assert($after===$report['protected_baseline_data'][$table],'History or native operational rows were changed/invented: '.$table);}
     $report['reporting_control']=$pdo->query('SELECT reporting_mode,live_cutover_date FROM bi_powerbi_reporting_control WHERE company_id=2')->fetch(PDO::FETCH_ASSOC);
     $assert($report['reporting_control']===['reporting_mode'=>'HISTORY_ONLY','live_cutover_date'=>null],'Reporting mode/cutover changed');
@@ -118,7 +119,7 @@ try {
     $report['object_validation']=[];
     $objects=$pdo->query('SELECT table_name,table_type FROM information_schema.tables WHERE table_schema=DATABASE()')->fetchAll(PDO::FETCH_KEY_PAIR);
     $report['required_upgrade_objects']=[];
-    foreach(glob($directory.'/*.php') as $migrationFile){$definition=require $migrationFile;if((int)$definition['version']<100||(int)$definition['version']>110)continue;foreach($definition['statements'] as $sql){if(preg_match('/CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i',$sql,$match)){$name=$match[2];$kind=strtoupper($match[1])==='TABLE'?'BASE TABLE':'VIEW';$assert(($objects[$name]??null)===$kind,'Required upgrade object missing/wrong type: '.$name);$report['required_upgrade_objects'][$name]=$kind;}}}
+    foreach(glob($directory.'/*.php') as $migrationFile){$definition=require $migrationFile;if((int)$definition['version']<100||(int)$definition['version']>109)continue;foreach($definition['statements'] as $sql){if(preg_match('/CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i',$sql,$match)){$name=$match[2];$kind=strtoupper($match[1])==='TABLE'?'BASE TABLE':'VIEW';$assert(($objects[$name]??null)===$kind,'Required upgrade object missing/wrong type: '.$name);$report['required_upgrade_objects'][$name]=$kind;}}}
     foreach($pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() AND table_type='BASE TABLE' AND table_name LIKE 'bi_powerbi_%'")->fetchAll(PDO::FETCH_COLUMN) as $table){
         $checked=$pdo->query('CHECK TABLE `'.str_replace('`','``',$table).'`')->fetchAll(PDO::FETCH_ASSOC);
         $report['object_validation'][$table]=$checked;
@@ -141,7 +142,6 @@ try {
     $assert($report['mussie_confirmed_overrides']===0&&$report['mussie_fabricated_resolved_history']===0,'Unresolved Mussie history was fabricated');
     $report['unresolved_history_rows']=(int)$pdo->query("SELECT COUNT(*) FROM vw_powerbi_compat_stock_detail WHERE company_id=2 AND CONVERT(SourceSystem USING utf8mb4) COLLATE utf8mb4_unicode_ci=_utf8mb4'POWERBI_HISTORY' COLLATE utf8mb4_unicode_ci AND CONVERT(role_mapping_status USING utf8mb4) COLLATE utf8mb4_unicode_ci=_utf8mb4'UNRESOLVED_HISTORY_ROLE' COLLATE utf8mb4_unicode_ci")->fetchColumn();
     $assert($report['unresolved_history_rows']===0,'Original zero-history backup must remain unchanged; 99 rows are validated only in the rollback fixture');
-    $report['deployment_release_health']=\OfficeApp\Deployment\auditPowerBiUpgradeViews($pdo,true);
     $report['result']='PASS';
 } catch(Throwable $e){
     $report['error']=$e->getMessage();

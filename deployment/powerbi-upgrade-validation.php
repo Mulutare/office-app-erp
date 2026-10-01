@@ -72,9 +72,9 @@ function initializePowerBiUpgradeSession(PDO $pdo): array
 /**
  * Query every existing view in an owned read-only transaction. Business rows
  * are discarded; only environment, object metadata, counts and queries return.
- * False validates the restored 099 baseline; true validates the 110 release.
+ * False validates the restored 099 baseline; true validates the 109 release.
  */
-function auditPowerBiUpgradeViews(PDO $pdo, bool $require110 = false): array
+function auditPowerBiUpgradeViews(PDO $pdo, bool $requireRelease109 = false): array
 {
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
         throw new RuntimeException('Power BI upgrade view audit requires the MySQL PDO driver.');
@@ -82,7 +82,7 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $require110 = false): array
     if ($pdo->inTransaction()) {
         throw new RuntimeException('Power BI upgrade view audit requires its own read-only transaction.');
     }
-    $report = ['result' => 'FAIL', 'target' => $require110 ? '110' : '099', 'views' => []];
+    $report = ['result' => 'FAIL', 'target' => $requireRelease109 ? '109' : '099', 'views' => []];
     $pdo->exec('START TRANSACTION READ ONLY');
     try {
         $environment = array_change_key_case($pdo->query(POWERBI_UPGRADE_ENVIRONMENT_SQL)->fetch(PDO::FETCH_ASSOC), CASE_LOWER);
@@ -113,7 +113,7 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $require110 = false): array
         }
 
         $versions = $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);
-        $expectedVersions = array_map(static fn(int $version): string => sprintf('%03d', $version), range(15, $require110 ? 110 : 99));
+        $expectedVersions = array_map(static fn(int $version): string => sprintf('%03d', $version), range(15, $requireRelease109 ? 109 : 99));
         if ($versions !== $expectedVersions) {
             throw new RuntimeException('Power BI upgrade view audit requires the exact ordered 015-' . $report['target'] . ' migration ledger.');
         }
@@ -139,11 +139,10 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $require110 = false): array
             'vw_powerbi_warehouse_territory_bridge', 'vw_powerbi_warehouses',
             'vw_sales_user_authorized_orders', 'vw_sales_user_warehouse_location_scope', 'vw_user_warehouse_location_scope',
         ];
-        if ($require110) {
+        if ($requireRelease109) {
             $required = array_merge($required, [
                 'vw_powerbi_live_stock_detail', 'vw_powerbi_cutover_blockers',
                 'vw_powerbi_reporting_readiness', 'vw_powerbi_109_explicit_shop_scope_audit',
-                'vw_powerbi_110_mysql84_readiness_audit',
             ]);
         }
         foreach ($required as $name) {
@@ -167,34 +166,48 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $require110 = false): array
         }
         $report['view_count'] = count($views);
 
-        if ($require110) {
-            // The sentinel flag proves creation under the required mode. The
-            // actual current GLOBAL and SESSION modes were verified above.
-            $query = 'SELECT * FROM vw_powerbi_110_mysql84_readiness_audit';
+        if ($requireRelease109) {
+            // Read governed state and counts directly. The actual GLOBAL and
+            // SESSION SQL modes were independently verified above.
+            $query = <<<'SQL'
+SELECT c.company_id,
+       (SELECT COUNT(*) FROM vw_powerbi_cutover_blockers b WHERE b.company_id=c.company_id) AS cutover_blocker_rows,
+       c.reporting_mode,c.live_cutover_date,
+       a.explicit_pbi_shop_count,a.unexpected_scoped_external_ids
+FROM bi_powerbi_reporting_control c
+INNER JOIN vw_powerbi_109_explicit_shop_scope_audit a ON a.company_id=c.company_id
+WHERE c.company_id=2
+SQL;
             try {
                 $rows = $pdo->query($query)->fetchAll(PDO::FETCH_ASSOC);
             } catch (Throwable $error) {
-                throw new RuntimeException('Power BI upgrade view audit failed: vw_powerbi_110_mysql84_readiness_audit; query: ' . $query . '; MySQL error: ' . $error->getMessage(), 0, $error);
+                throw new RuntimeException('Power BI upgrade 109 readiness metadata query failed; query: ' . $query . '; MySQL error: ' . $error->getMessage(), 0, $error);
             }
             if (count($rows) !== 1) {
-                throw new RuntimeException('Power BI upgrade 110 sentinel must return exactly one metadata row.');
+                throw new RuntimeException('Power BI upgrade 109 readiness metadata must return exactly one row.');
             }
             $audit = array_change_key_case($rows[0], CASE_LOWER);
-            if ((int)($audit['company_id'] ?? 0) !== 2
-                || (int)($audit['sql_mode_contains_only_full_group_by'] ?? 0) !== 1
-                || ($audit['reporting_mode'] ?? null) !== 'HISTORY_ONLY'
-                || !array_key_exists('live_cutover_date', $audit) || $audit['live_cutover_date'] !== null
-                || (int)($audit['explicit_pbi_shop_count'] ?? 0) !== 22
-                || !array_key_exists('unexpected_scoped_external_ids', $audit)
-                || (int)$audit['unexpected_scoped_external_ids'] !== 0) {
-                throw new RuntimeException('Power BI upgrade 110 sentinel scope/reporting/creation-mode invariant failed.');
-            }
-            // Nonzero cutover_blocker_rows is valid and remains visible.
+            validatePowerBiUpgradeReadinessMetadata($audit);
             $report['readiness_audit'] = $audit;
         }
         $report['result'] = 'PASS';
         return $report;
     } finally {
         if ($pdo->inTransaction()) $pdo->rollBack();
+    }
+}
+
+/** Validate direct release metadata without requiring cutover blockers to be zero. */
+function validatePowerBiUpgradeReadinessMetadata(array $audit): void
+{
+    if ((int)($audit['company_id'] ?? 0) !== 2
+        || ($audit['reporting_mode'] ?? null) !== 'HISTORY_ONLY'
+        || !array_key_exists('live_cutover_date', $audit) || $audit['live_cutover_date'] !== null
+        || (int)($audit['explicit_pbi_shop_count'] ?? 0) !== 22
+        || !array_key_exists('unexpected_scoped_external_ids', $audit)
+        || (int)$audit['unexpected_scoped_external_ids'] !== 0
+        || !array_key_exists('cutover_blocker_rows', $audit)
+        || !is_numeric($audit['cutover_blocker_rows']) || (int)$audit['cutover_blocker_rows'] < 0) {
+        throw new RuntimeException('Power BI upgrade 109 readiness scope/reporting/count invariant failed.');
     }
 }

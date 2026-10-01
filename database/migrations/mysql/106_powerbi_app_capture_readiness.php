@@ -101,8 +101,10 @@ SELECT c.company_id,c.reporting_mode,c.live_cutover_date,
        (SELECT COUNT(*)
         FROM vw_powerbi_compat_stock_detail s
         WHERE s.company_id=c.company_id
-          AND s.SourceSystem='POWERBI_HISTORY'
-          AND s.role_mapping_status='UNRESOLVED_HISTORY_ROLE') AS unresolved_history_role_rows,
+          AND CONVERT(s.SourceSystem USING utf8mb4) COLLATE utf8mb4_unicode_ci
+              = _utf8mb4'POWERBI_HISTORY' COLLATE utf8mb4_unicode_ci
+          AND CONVERT(s.role_mapping_status USING utf8mb4) COLLATE utf8mb4_unicode_ci
+              = _utf8mb4'UNRESOLVED_HISTORY_ROLE' COLLATE utf8mb4_unicode_ci) AS unresolved_history_role_rows,
        (SELECT COUNT(*)
         FROM vw_powerbi_inventory_daily d
         WHERE d.company_id=c.company_id) AS live_inventory_daily_rows,
