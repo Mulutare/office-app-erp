@@ -1,0 +1,20 @@
+From: Jane Candidate <Jane@example.test>
+To: careers@example.test
+Subject: Application VAC-001
+Message-ID: <normal-fixture@example.test>
+Date: Wed, 30 Sep 2026 09:00:00 +0300
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="fixture"
+
+--fixture
+Content-Type: text/plain; charset=UTF-8
+
+Please consider my application for VAC-001.
+Phone: +254 700 123 456
+--fixture
+Content-Type: application/pdf; name="CV.pdf"
+Content-Disposition: attachment; filename="CV.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSBTeW50aGV0aWMgQ1YgZml4dHVyZQolJUVPRg==
+--fixture--

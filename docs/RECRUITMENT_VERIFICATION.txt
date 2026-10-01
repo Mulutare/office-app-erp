@@ -1,0 +1,95 @@
+Recruitment validation report — 1 October 2026
+
+Repository: C:\Users\hp\muluneh\office-app-erp
+Pre-recruitment baseline: c4a8d08936b035151ea5806c7a99aa92b8092478 (the actual commit before recruitment was applied).
+Isolated baseline and candidate checkouts: work/validation/baseline and work/validation/candidate.
+Only synthetic data and disposable containers were used. No production deployment, production migration, production data access, live mailbox access or scheduler installation occurred.
+
+RESULT: NOT READY FOR DEPLOYMENT. Recruitment checks pass locally; broader regressions and production/mailbox verification remain blockers.
+
+Corrections applied to the repository
+1. Introduced migration collision reproduced: original draft had two version-110 files and the runner rejected Duplicate migration version: 110. Existing Power BI 110 is unchanged; recruitment is now 111. The complete fixed catalog and partial-schema guard pass.
+2. Introduced endpoint-fixture contamination reproduced: selecting the first other company returned company 5 in MariaDB. Reactivating it caused the inactive-company authentication failure on the baseline. The endpoint test now creates rec_fixture_other; it does not repurpose an existing fixture company.
+3. Recruitment successor required deployment/rehearsal updates: release health now accepts the exact 015–110 prefix or its reviewed 111 successor with normalized checksum verification. Gaps, future versions and altered 111 checksums are rejected. Backup rehearsal/post-test expectations now target 111; the focused Power BI test expects the complete 111 upgrade. Exact production-backup execution has not been performed.
+4. Scheduled imports previously ignored effective company/HR entitlements. They now use the existing entitlement query before provider access; disabled HR, inactive companies and suspended subscriptions are tested.
+5. Existing deployment documentation advertised an unsupported -Rollback flag. The runbook now accurately describes automatic rollback and the manual-rollback tooling limitation.
+
+Every failing broader check from the initial verification
+Initial tests/run.php: 246 checks, 14 failures. A fresh pre-recruitment MariaDB 10.11.18 fixture with the exact original schema shape and company mutation reproduced all 14 labels. The clean baseline had 13 failures; the corrected MySQL candidate passes the inactive-company check.
+
+1. MySQL forward-migration catalog is ordered and preflight protected
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+2. MySQL reference-data synchronization is repeatable without duplicate grants
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+3. Inactive companies cannot authenticate
+   INTRODUCED BY RECRUITMENT TEST FIXTURE; FIXED. Clean baseline PASS; baseline with original endpoint mutation FAIL; clean final MySQL baseline/candidate PASS.
+4. Approved goods receipt posts successfully
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+5. Goods receipt updates stock quantity, availability and weighted cost
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+6. Goods receipt records one idempotent stock movement
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+7. Goods receipt is marked as posted with actor and timestamp
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+8. Repeated goods receipt posting is safely replayed
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+9. Internal transfer moves the exact quantity and preserves company stock
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+10. Completed transfer cannot move stock twice
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+11. Tenant navigation exposes only licensed and enabled modules
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+12. Licensed Attendance module passes the central entitlement check
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+13. Tenant user creation persists company and reporting manager
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+14. Unhandled RuntimeException at /var/www/html/app/services/DevelopmentSampleCompanyService.php:327
+   PRE-EXISTING in baseline. Clean MariaDB baseline FAIL; original-fixture baseline FAIL; matched MySQL baseline and final candidate FAIL. Functional/test repair remains outstanding.
+
+Initial module-authorization-contract.php: 23 checks, 2 failures. Both labels reproduce in isolated baseline and final candidate:
+- Sales direct and Finance-backed operations cannot bypass module licensing
+  PRE-EXISTING. Baseline FAIL / candidate FAIL. These source-contract expectations remain failing; unchanged source alone was not used as evidence.
+- Sales requires its permission while licensed
+  PRE-EXISTING. Baseline FAIL / candidate FAIL. These source-contract expectations remain failing; unchanged source alone was not used as evidence.
+
+Current broader MySQL outcome: tests/run.php 246 checks / 16 failures on BOTH baseline and final candidate; module authorization 23 checks / 2 failures on BOTH. Failure lists are identical. No candidate-only broader failure remains. Three additional MySQL-fixture failures, beyond the 13 clean MariaDB failures, are:
+- Database server is MariaDB
+- Organization readiness metrics are isolated to Tenant A
+- Organization setup service evaluates the complete guided readiness sequence
+The engine assertion expects MariaDB although production uses MySQL. The two readiness expectations are affected by the synthetic BI roster in company 2; both baseline and candidate fail them. Their production behavior is unresolved. These failures are recorded, not waived.
+The broad suite aborts at DevelopmentSampleCompanyService.php:327: “The sample company could not be created. One or more selected modules are not available for licensing.” Later checks never execute; the ERP-wide suite is not certified complete or green.
+
+Migration rehearsal: distinguish Power BI 110 from recruitment 111
+Engine: disposable mysql:8.4.11. Server/database utf8mb4_0900_ai_ci; application connection utf8mb4_unicode_ci.
+Global and session SQL modes: ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION.
+Exact complete production global/session modes are not available. This matches the recorded version/charset requirements and includes ONLY_FULL_GROUP_BY; it is not claimed to be an exact production-profile replay.
+Disposable trigger creation used log_bin_trust_function_creators=1. The baseline catalog otherwise failed migration 088 with MySQL error 1419 under the restricted fixture user. Production privileges/binlog configuration were not inspected.
+Fresh baseline installation requires five untracked BI source schemas (bi_clusters, bi_warehouse_cluster_map, bi_warehouse_territory_map, bi_employees, bi_employee_assignments). Empty synthetic equivalents and a synthetic manager roster satisfying migration 107 were supplied only to the rehearsal. No production preflight was altered or bypassed.
+Power BI 109→110: exactly 110 applied. 199 existing table snapshots remained identical. Only vw_powerbi_live_stock_detail, vw_powerbi_cutover_blockers and vw_powerbi_reporting_readiness definitions changed; vw_powerbi_110_mysql84_readiness_audit was added. All 72 local views query successfully after 110. Seven dependent views failed before 110 under ONLY_FULL_GROUP_BY, as captured in evidence. Repeat run changed neither data, views nor ledgers.
+Recruitment 110→111: exactly 111 applied, zero baselining; 196 protected table snapshots and 72 view definitions/results remained identical. Existing permissions and global/company grants were preserved; eight recruitment permissions were added. Actual php bin/migrate.php applied 111 and then skipped all 97 catalog versions on rerun.
+Unledgered existing recruitment tables are refused with a reconciliation message; no silent baseline/drop occurs. DDL auto-commit recovery must preserve documents and reconcile the partial schema and step ledger, rather than rerunning an installer.
+
+Local recruitment verification
+- 44 integration checks: vacancy creation, normal/forwarded/missing-CV imports, one applicant applying twice, retries, malformed MIME/raw preservation, invalid/oversized quarantine, tenant lookups, status/history/hiring, export, UIDVALIDITY, overlapping lock, merge/archive.
+- 39 real-controller/screen checks: anonymous/unauthorized endpoints, CSRF, separate capabilities, privileged acknowledged quarantine download, foreign application/document/raw lookup denial, encrypted mailbox storage and hidden secrets, reviewer assignment and Shortlisted transition, combined-filter endpoint export, editor hire denial, disabled-HR download denial.
+- 18 additional security checks: traversal/public-storage rejection, checksum and company-path mismatch denial, authenticated cipher tamper/missing-key failures, foreign/unauthorized reviewer rejection, scheduler entitlement gates, eight formula/control-prefix payloads reopened as XLSX string cells.
+- 5 final-persistence interruption checks: application/attachment rows stay exactly unchanged through failure and successful retry; every document checksum verifies; raw identity/bytes survive; no raw refetch.
+- 7 release-ledger checks: valid 111, existing 110, baseline 099, checksum/gap/future rejection and transaction cleanup.
+- Existing policy 12, data exchange 18, module lifecycle 16, deployment audit 17 all pass. Modified PHP syntax and Git whitespace checks pass.
+Workflow evidence: vacancy VAC-001 → RFC822 fixture import → editor reviewer assignment → Shortlisted controller update → filters (status, vacancy, reviewer, source and date) → exactly one XLSX row, reviewer Fixture editor, status Shortlisted. Recruitment-workflow-export.xlsx is synthetic.
+Security inspection: every controller entry uses requireModulePermission with tenant authentication and licensed/enabled HR. Queries and composite foreign keys bind company_id. Export additionally requires view. Raw downloads require mailbox and quarantine capabilities. Documents are outside public/, use generated keys and checksum validation, and are sent as attachments with no-store/nosniff. No executable file is served inline.
+Quarantine: this release never marks files clean. Regular viewers cannot bypass unscanned/rejected material; explicit quarantine capability and acknowledgement are required. A trusted scanning/release integration is still missing for ordinary CV downloads.
+Secrets: passwords are stored with existing authenticated AES-256-GCM cipher, whitespace preserved, not returned as plaintext/ciphertext by mailbox pages. Missing key/tampering fail closed. Keep the existing key securely backed up. Native IMAP warning draining and generic failure codes were inspected, not tested against a real provider.
+
+Live mailbox verification — NOT PERFORMED
+No real provider/folder/date range/credentials were supplied or tested. Local test image has no IMAP extension. TLS certificate validation, read-only/PEEK flags, host allowlist and STARTTLS/SSL selection were inspected in code; actual DNS/TLS/authentication/provider UID behavior and scheduled live operation remain unverified.
+OAuth-only providers need an OAuth/API connector; the current connector is password/app-password IMAP. Configure host allowlist, durable private storage, trusted HTTPS origin and runtime key before connection tests. Do not infer connected status from fixture results.
+
+Rollback rehearsal and remaining deployment blockers
+Paused all synthetic mailboxes; both real scheduler commands completed without imports. Running pre-recruitment bin/migrate.php against retained additive schema changed neither the recruitment rows nor ledger. All nine recruitment table hashes and 24 document/raw-message references remained intact and checksum verified. This is a local code/DB compatibility rehearsal, not a production filesystem cutover or backup restore.
+Rollback must stop the recruitment cron, pause mailboxes, preserve migration 111 and all imports/history/attachments, preserve the existing encryption key, and retain durable private storage. Never automatically restore the pre-import database backup: it would discard later imports. A destructive DB restore needs a separate reconciliation/export-and-restore plan.
+Remaining blockers: 18 broader MySQL check failures; aborted broad-suite tail; missing exact production SQL-mode/binlog/privilege metadata; no reviewed production-backup restore/upgrade rehearsal; no live IMAP/PHP extension verification; no ordinary-download malware scan integration; no standalone manual rollback CLI; unmodified older release-health rejects retained 111 and a healthy fallback/cutover remains unverified; external document backup requires explicit operator handling. At the end of validation, repository changes were uncommitted and not packaged/sealed/pushed; the later handoff branch preserves reviewed source separately.
+Use Deployment-checklist.txt for actual commands and gates. No deployment or production command from that checklist has been executed.
+
+Evidence
+Validation-evidence/ contains complete logs, hash comparisons, synthetic prerequisite scripts and fixture Compose settings. Original Verification-results-initial.txt and Existing-regression-results.txt remain available. SHA256SUMS-validation.txt identifies the deliverables.

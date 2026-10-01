@@ -1,0 +1,130 @@
+Recruitment deployment checklist — NOT AUTHORIZED TO EXECUTE YET
+1 October 2026
+Repository: C:\Users\hp\muluneh\office-app-erp
+Current migration order: Power BI 110, then recruitment 111.
+No production deployment, migration, backup restore, mailbox connection or cron installation was performed in this validation.
+
+1. Resolve release gates before choosing a deployment window
+[ ] Resolve or explicitly disposition with evidence the 16 tests/run.php and 2 module-authorization failures. The broad suite aborts before its later checks; complete the ERP regression run.
+[ ] Obtain saved production metadata with exact GLOBAL and SESSION sql_mode, MySQL version/comment, charset/collation profile, binary-log/trigger privileges and schema ledger. Local evidence used MySQL 8.4.11 and ONLY_FULL_GROUP_BY but not a proven full production profile.
+[ ] Rehearse a reviewed backup/profile in controlled disposable staging. Synthetic prerequisites used locally do not certify the production BI source tables, existing definers, original backup restore or exact source roster.
+[ ] Confirm PHP IMAP support, actual provider authentication mode, TLS/folder access, host allowlist, durable private storage, HTTPS origin and the unchanged encryption key. OAuth-only access is not implemented.
+[ ] Decide and implement trusted malware scanning/release for ordinary CV downloads. Files remain quarantined; regular viewers cannot download them in this release.
+[ ] Review and commit the 32 recruitment/release files (including new 111 and tests); preserve unrelated untracked files. Push the exact reviewed commit to origin/main. No commit/push was performed here. Release packaging uses tracked committed source, not arbitrary untracked implementation files.
+[ ] Agree on a rollback artifact compatible with the retained 111 ledger. A raw old release's health validator expects 110 and may reject 111, even though its application/migration commands leave retained records untouched. Keep the forward-compatible health helper and reviewed 111 source in an approved fallback artifact; certify its health in staging. Full production cutover/rollback health remains unverified.
+
+Local regression commands, from the repository against disposable synthetic configuration:
+    php tests/run.php
+    php tests/module-authorization-contract.php
+    php tests/effective-permission-policy.php
+    php tests/data-exchange.php
+    php tests/module-release-integration.php
+    php tests/deployment-migration-audit.php
+
+Recruitment fixture commands (APP_ENV=testing, DB_DATABASE=office_app_test only; the integration test resets synthetic recruitment records):
+    php tests/recruitment-migration.php
+    php tests/recruitment-integration.php
+    php tests/recruitment-endpoints.php
+    php tests/recruitment-security.php
+    php tests/recruitment-retry-integrity.php
+    php tests/recruitment-release-contract.php
+Run dependent recruitment tests in that order; do not reset their database while endpoint/security checks run.
+
+Actual original-backup rehearsal command (future controlled staging, with authorized files):
+    powershell -ExecutionPolicy Bypass -File tools/rehearse-production-upgrade.ps1 -BackupPath "C:\secure-backups\production-reviewed.sql.gz" -ProductionEnvironmentPath "C:\secure-backups\production-environment.json"
+The current tool expects exactly baseline 099 → suffix 100–111, preserved protected rows/views, synchronized reference data, repeat-run skips and no step residue. A different actual ledger needs reviewed tooling; do not forge 099 or override preflights. Missing production metadata fails closed. DiagnoseBaselineOnly is not upgrade approval.
+
+2. Provision durable document storage and configuration
+[ ] Choose a stable private path outside /home/passiontech/office_app, deployment-staging, retained/failed releases and the public bridge. Example: /home/passiontech/officeapp-private/recruitment. Record the actual path; this example is not evidence that it exists.
+[ ] Give PHP-FPM and the cron account restrictive write access to that same path. Files should remain 0600, company directories 0700. Check disk capacity and PHP/proxy upload/memory limits.
+[ ] Provision the following through approved hosting/runtime configuration for BOTH web PHP and CLI/cron, outside source control and public files:
+    RECRUITMENT_STORAGE=<recorded stable private path>
+    RECRUITMENT_APP_ORIGIN=https://erp.passiontechnologiesplc.com
+    RECRUITMENT_IMAP_ALLOWED_HOSTS=<actual approved IMAP hostname>
+    RECRUITMENT_MAX_ATTACHMENT_BYTES=10485760
+    RECRUITMENT_SYNC_BATCH=100
+    POWER_BI_ENCRYPTION_KEY=<existing securely backed-up key; do not rotate it casually>
+[ ] Preserve the configured APP_BASE_PATH; the exporter appends it to the trusted origin. Never derive the origin from the request Host header.
+[ ] Verify required PHP extensions: pdo_mysql, fileinfo, iconv, zip, openssl, imap and mbstring. Test web and scheduled runtimes; never print keys/passwords to verify configuration.
+[ ] Keep the existing ERP database/app configuration protected. The deployer copies config/database.php and config/app.local.php; it does not automatically provision external runtime secrets or back up an external document directory.
+
+Document origin/storage/environment must remain the same after code rollback. Default storage/private/recruitment is under the replaceable application root; do not rely on that default for this deployment.
+
+3. Freeze writes and create matching database/document backups
+[ ] Stop recruitment cron and pause all mailboxes in HR → Recruitment mailboxes. Prevent manual recruitment uploads/changes while taking paired snapshots. Use the approved maintenance window to quiesce other ERP writers when required by the backup/restore policy.
+[ ] Before staging/cutover, back up the entire actual RECRUITMENT_STORAGE tree, retaining raw RFC822 files, accepted/quarantined/rejected/oversized parts, company directories and any retained orphan files. Do not exclude quarantined files. Preserve ownership/permissions and record a SHA-256 manifest.
+[ ] Use cPanel File Manager/approved backup facilities to archive a private directory outside the public root and copy the archive off-host. There is no repository standalone document-backup command. An external storage directory is NOT covered by the deployer's application-backup action.
+[ ] Back up the existing encryption key and protected runtime configuration through the secret-management procedure. Never place the plaintext key in the release archive, logs, ticket or public directory.
+[ ] Use cPanel Backup/Backup Wizard or phpMyAdmin for the reviewed rehearsal database export, as documented in docs/PRODUCTION_PLATFORM_ERP_OPERATIONS.md. Verify its restore in an isolated environment; a file's existence alone is not restore proof.
+[ ] Record the database backup ID/time, document archive ID/time, per-file hash manifest, key/config backup ID and retained application path together.
+
+The repository's approved deployment entry point below performs authenticated database-backup and application-backup actions before any migration. Its database backup calls /usr/bin/mysqldump with --single-transaction --routines --triggers --events via a temporary 0600 defaults file, compresses the output and records its size/SHA-256. Its application backup copies the full live root to /home/passiontech/office_app_before_<timestamp>_<sha>. Inspect and copy both recorded backups to protected storage. Do not invent a php bin/backup.php command: none exists.
+
+4. Prepare and seal the exact reviewed artifact (offline; after gates are satisfied)
+From C:\Users\hp\muluneh\office-app-erp:
+    powershell -ExecutionPolicy Bypass -File tools/deploy-production.ps1
+    powershell -ExecutionPolicy Bypass -File tools/deploy-production.ps1 -VerifyOnly
+The first is an offline preparation/report; VerifyOnly seals the exact artifact. Both require the correct reviewed repository state. Execute refuses a changed package/manifest/HEAD/origin/tracked tree. Do not use -AllowDirty to force approval and do not use -ProductionMigration to spoof a live ledger.
+
+5. Deployment and migration — future explicit approval only
+Supported automated command:
+    powershell -ExecutionPolicy Bypass -File tools/deploy-production.ps1 -Execute
+DO NOT RUN NOW. It proves runner identity and the exact ordered ledger prefix, preflights staging, uploads/verifies the artifact, creates the repository database/application backups, runs the calculated migration suffix using staged MigrationRunner, synchronizes reference data, checks Power BI release health and cuts over. It never reverses DDL automatically. External document backup and the freeze above are operator responsibilities before this command.
+
+Actual PHP upgrade commands used by the repository (for reviewed staging or an approved documented cPanel upgrade path, not in addition to a successful automated run):
+    /usr/local/bin/ea-php81 /home/passiontech/office_app/bin/migrate.php
+    /usr/local/bin/ea-php81 /home/passiontech/office_app/bin/sync-reference-data.php
+Verify the host's ea-php81 binary mapping before use. The second command must be gated by successful migration verification. Do not leave temporary migration cron jobs enabled. Never use bin/install-database.php on an existing database.
+
+[ ] Expected suffix is derived from the real ledger. From 099 it includes 100–110 Power BI then 111 recruitment. Do not skip 110, edit its checksum, rename its production ledger entry or execute only a flattened SQL export.
+[ ] Capture migration output and verify unique ordered versions, unchanged historical checksums, 111 checksum, all nine recruitment tables, eight permissions and zero step residue.
+[ ] A second migration run must skip the catalog. Partial recruitment tables without a reconciled ledger must stop the release. DDL can already have committed; preserve all documents and inspect the step ledger before repair.
+[ ] Confirm all existing ERP/Power BI views resolve under the unchanged production SQL modes; verify existing record totals/hashes and source/reporting invariants against the paired backup.
+
+6. Smoke checks before enabling recruitment imports
+[ ] Existing homepage/login/sign-out, tenant switch, module navigation, HR, Inventory, Sales, Finance and Power BI read-only checks pass; preserve Permissions-Policy: geolocation=(self).
+[ ] Test a tenant HR viewer, editor, hiring user, mailbox administrator and export user. HR-disabled and unauthorized users must be denied on direct URLs; separate hire/export/mailbox/quarantine permissions must remain separate.
+[ ] Test anonymous and foreign-company application, attachment and raw-mail URLs. Confirm denial and no applicant content. Confirm regular viewers cannot download quarantined files, privileged review needs acknowledgement, and missing/tampered files fail closed.
+[ ] Create a controlled vacancy, import one approved test application from the configured mailbox, assign an active same-company reviewer, update status and export combined filters. Reopen the XLSX; ensure one row/application, correct reviewer/status/date, literal text payloads and authenticated ERP document links.
+[ ] Retry the same controlled import. Confirm unchanged application count, attachment metadata and checksums, preserved original mail and durable history. Do not inject destructive test triggers or run synthetic fixture-reset scripts in production.
+[ ] Verify secret values are never shown in screens/logs/exports. Keep connection errors generic and no credentials in cron output.
+
+7. Live mailbox verification — separate evidence from local fixtures
+[ ] In the approved runtime, enter the actual provider-supported password/app password through the authenticated mailbox form. Saving leaves the mailbox paused. Do not email or commit secrets.
+[ ] Test TLS certificate validation and read-only folder access using the HR mailbox connection test. Confirm provider logs/message flags: no send/delete/move/expunge/mark-read operations.
+[ ] Preview the actual folder and initial date; record the count. Explicitly confirm the expiring backfill token before enabling bounded import batches.
+[ ] Confirm initial arrivals, native UIDVALIDITY/UID behavior, interrupted connection retries and resumed imports. Inspect recruitment runs/failed queue and disk usage. OAuth-only providers remain a connector blocker.
+Local RFC822 fixtures do not establish any of these live facts. None were performed during this validation.
+
+8. Scheduler — install only after smoke/live checks
+Actual consolidated runner:
+    /usr/local/bin/ea-php81 /home/passiontech/office_app/bin/run-production-task.php recruitment
+Actual standalone alternative:
+    /usr/local/bin/ea-php81 /home/passiontech/office_app/bin/sync-recruitment.php
+Use one scheduling path. Keep web and cron configuration/key/storage identical.
+Example cPanel cron (five minutes; confirm the PHP path):
+    */5 * * * * /usr/local/bin/ea-php81 /home/passiontech/office_app/bin/run-production-task.php recruitment >> /home/passiontech/office_app/storage/logs/recruitment-scheduler.log 2>&1
+[ ] Verify operations_task_runs and recruitment_runs show completion/sanitized failures and locking prevents overlap. Per-mailbox intervals govern due work. Disabled HR/inactive/suspended/expired companies must be skipped.
+[ ] Monitor failed/pending queue, storage capacity, mailbox arrival lag and scheduler failures. No real cron job was installed here.
+
+9. Rollback preserving applications and documents
+Automatic supported behavior: tools/deploy-production.ps1 invokes the authenticated rollback-application action if post-cutover health fails. The production runner renames the failed live directory aside and restores the exact cutover_previous directory from its release metadata. It does not restore the database and does not drop recruitment tables.
+There is NO -Rollback parameter on tools/deploy-production.ps1. Do not use the formerly documented unsupported command.
+
+Approved manual operator procedure (docs/PRODUCTION_PLATFORM_ERP_OPERATIONS.md):
+[ ] Stop recruitment cron, pause mailboxes and prevent HR writes first.
+[ ] Take a CURRENT database/document/key snapshot, even when pre-release backups exist. Preserve any applications/documents imported since the deployment.
+[ ] Using cPanel File Manager, rename failed /home/passiontech/office_app to a new retained incident path and rename the exact reviewed previous/fallback application directory to /home/passiontech/office_app. Keep the public bridge and protected configuration; never delete/copy blindly over the live root.
+[ ] Keep stable RECRUITMENT_STORAGE and the existing key intact. Retain any failed-release directory until reconciliation is complete if documents were mistakenly stored inside it.
+[ ] Leave migration 111, schema_migrations/schema_migration_steps, applicants/applications/emails/attachments/history/events/runs/mailboxes/vacancies and stored ciphertext untouched. Recruitment UI may be absent while its data remains preserved.
+[ ] Use a reviewed fallback artifact retaining 111-compatible ledger health validation and the reviewed 111 migration source. An unmodified old health helper can reject the retained 111 ledger; a fully healthy production rollback is not certified by the local old-code migration probe.
+[ ] Re-run read-only ERP/Power BI/storage health; count retained applications/attachments and verify document checksums. Record fallback path, ledger, paired snapshots and incident outcome. Keep cron paused until an approved recruitment release returns.
+[ ] When restoring recruitment code later, use the same company/mailbox identities, key and storage. Preview if configuration/UIDVALIDITY changed; retry preserved failed rows rather than discarding the register.
+
+Why this preserves imports: rollback replaces application code only. The additive 111 schema and unique provider identities remain in the database; private raw messages and documents stay in durable storage. Local rehearsal retained all nine recruitment table hashes, the ledger and 24 document/raw-message references with verified checksums.
+
+Never restore the PRE-IMPORT database backup automatically. That would lose applications created afterward and orphan later documents. If a database restore is unavoidable, keep the current database and complete file tree, export/reconcile the post-backup recruitment delta in a reviewed isolated restore, preserve IDs/foreign keys/provider identities/history/ciphertext and verify every referenced file before any explicit restore approval. That recovery is a separate procedure, not a supported destructive down migration.
+
+10. Record completion
+[ ] Store the exact commit/package SHA, approved profile, restore-rehearsal result, backup IDs/hashes, migration output, ledger, smoke results, live mailbox results, scheduler run IDs and tested rollback artifact/procedure.
+[ ] Keep local and live evidence separate. Do not label this release green based solely on fixture results.

@@ -11,7 +11,7 @@ final class WorkspaceAccessService
         return [
     'dashboard' => ['dashboard'=>['Dashboard','/dashboard','dashboard.view']],
     'analytics' => ['analytics'=>['Analytics','/analytics','analytics.view']],
-    'hr' => ['employees'=>['Human Resources','/hr',['hr.records.view','hr.records.manage','hr.leave.view','hr.leave.manage','hr.leave.approve','hr.leave.self.view','hr.leave.self.request','hr.leave.team.approve','hr.leave.policy.manage','hr.leave.balance.manage']]],
+    'hr' => ['employees'=>['Human Resources','/hr',['hr.records.view','hr.records.manage','hr.leave.view','hr.leave.manage','hr.leave.approve','hr.leave.self.view','hr.leave.self.request','hr.leave.team.approve','hr.leave.policy.manage','hr.leave.balance.manage']], 'recruitment'=>['Recruitment','/hr/recruitment','hr.recruitment.view'], 'recruitment_mailboxes'=>['Recruitment mailboxes','/hr/recruitment/mailboxes','hr.recruitment.mailboxes']],
     'attendance' => ['records'=>['Attendance','/attendance',['attendance.records.view','attendance.records.manage']]],
     'administration' => ['access_control'=>['Access Control','/administration/access-control','administration.roles.manage'], 'users'=>['Users','/administration/users','administration.users.manage']],
     'sales' => [

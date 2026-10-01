@@ -155,7 +155,7 @@ try {
 
     $pdo->exec('START TRANSACTION READ ONLY');
     try {
-        $check($pdo->query('SELECT MAX(version) FROM schema_migrations')->fetchColumn() === '110', 'Isolated upgrade ledger ends at 110');
+        $check($pdo->query('SELECT MAX(version) FROM schema_migrations')->fetchColumn() === '111', 'Isolated upgrade ledger ends at recruitment 111 after Power BI 110');
         $check((int) $pdo->query('SELECT COUNT(*) FROM schema_migration_steps')->fetchColumn() === 0, 'Migration step ledger has zero residue');
         $check(($migration['preflight'])($pdo) === 'baseline', 'Exact completed 110 layer passes its read-only baseline preflight');
         foreach (array_keys($viewSql) as $name) {

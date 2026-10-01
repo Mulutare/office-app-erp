@@ -14,7 +14,7 @@ try {
         $report['ledger_audit']=(new App\Database\MigrationRunner($pdo,'mysql'))->auditAppliedMigrations(__DIR__.'/../database/migrations/mysql');
         $report['final_migration']=$pdo->query('SELECT MAX(version) FROM schema_migrations')->fetchColumn();
         $report['step_residue']=(int)$pdo->query('SELECT COUNT(*) FROM schema_migration_steps')->fetchColumn();
-        $assert($report['ledger_audit']['first_unapplied']===null&&$report['final_migration']==='110'&&$report['step_residue']===0,'Post-test migration ledger changed');
+        $assert($report['ledger_audit']['first_unapplied']===null&&$report['final_migration']==='111'&&$report['step_residue']===0,'Post-test migration ledger changed');
         $report['protected_data']=[];
         foreach($before['protected_baseline_data'] as $table=>$expected){
             $q=$pdo->prepare("SELECT column_name FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name='PRIMARY' ORDER BY seq_in_index");$q->execute([$table]);$keys=$q->fetchAll(PDO::FETCH_COLUMN);

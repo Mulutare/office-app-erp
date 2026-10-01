@@ -1,0 +1,46 @@
+name: officeapp-recruitment-test
+services:
+  db:
+    image: mysql:8.4.11
+    command:
+      - --sql-mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --log-bin-trust-function-creators=1
+    environment:
+      MYSQL_DATABASE: office_app_test
+      MYSQL_USER: officeapp_test
+      MYSQL_PASSWORD: recruitment-fixture-only
+      MYSQL_ROOT_PASSWORD: recruitment-fixture-root-only
+    tmpfs: [/var/lib/mysql]
+    healthcheck:
+      test: [CMD-SHELL, 'mysqladmin ping -h localhost --silent']
+      interval: 2s
+      timeout: 5s
+      retries: 60
+  app:
+    image: officeapp-recruitment-test:local
+    build:
+      context: .
+      dockerfile: docker/php81/Dockerfile
+    entrypoint: [sleep, infinity]
+    working_dir: /var/www/html/office_app
+    environment:
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      APP_TIMEZONE: Africa/Nairobi
+      APP_BASE_PATH: ""
+      APP_COMPANY_CODE: default
+      SESSION_COOKIE_SECURE: "false"
+      DB_DRIVER: mysql
+      DB_HOST: db
+      DB_DATABASE: office_app_test
+      DB_USERNAME: officeapp_test
+      DB_PASSWORD: recruitment-fixture-only
+      TEST_ADMIN_USERNAME: test_platform_admin
+      TEST_ADMIN_PASSWORD: OfficeApp-Test!2026
+      POWER_BI_ENCRYPTION_KEY: recruitment-fixture-encryption-key-32-characters-only
+      RECRUITMENT_STORAGE: /tmp/recruitment-documents
+      RECRUITMENT_APP_ORIGIN: https://erp.example.test
+    depends_on:
+      db: {condition: service_healthy}

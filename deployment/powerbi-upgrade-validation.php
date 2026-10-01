@@ -69,10 +69,31 @@ function initializePowerBiUpgradeSession(PDO $pdo): array
     return $after;
 }
 
+/** Validate the exact Power BI prefix and the reviewed additive successor. */
+function auditPowerBiUpgradeLedger(PDO $pdo, bool $require110): array
+{
+    $versions = $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);
+    $maximum = $require110 ? 110 : 99;
+    if ($require110 && end($versions) === '111') {
+        $file = __DIR__ . '/../database/migrations/mysql/111_recruitment.php';
+        $checksum = $pdo->query("SELECT checksum FROM schema_migrations WHERE version='111'")->fetchColumn();
+        $contents = is_file($file) ? file_get_contents($file) : false;
+        if (!is_string($contents) || !hash_equals(hash('sha256', str_replace(["\r\n", "\r"], "\n", $contents)), (string)$checksum)) {
+            throw new RuntimeException('Recruitment successor migration checksum mismatch.');
+        }
+        $maximum = 111;
+    }
+    $expected = array_map(static fn(int $version): string => sprintf('%03d', $version), range(15, $maximum));
+    if ($versions !== $expected) {
+        throw new RuntimeException('Power BI upgrade view audit requires the exact ordered 015-' . sprintf('%03d', $maximum) . ' migration ledger.');
+    }
+    return ['target' => sprintf('%03d', $maximum), 'migration_maximum' => (string)end($versions), 'migration_count' => count($versions)];
+}
+
 /**
  * Query every existing view in an owned read-only transaction. Business rows
  * are discarded; only environment, object metadata, counts and queries return.
- * False validates the restored 099 baseline; true validates the 110 release.
+ * False validates the restored 099 baseline; true validates 110 or reviewed 111.
  */
 function auditPowerBiUpgradeViews(PDO $pdo, bool $require110 = false): array
 {
@@ -112,13 +133,7 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $require110 = false): array
             }
         }
 
-        $versions = $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);
-        $expectedVersions = array_map(static fn(int $version): string => sprintf('%03d', $version), range(15, $require110 ? 110 : 99));
-        if ($versions !== $expectedVersions) {
-            throw new RuntimeException('Power BI upgrade view audit requires the exact ordered 015-' . $report['target'] . ' migration ledger.');
-        }
-        $report['migration_maximum'] = (string)end($versions);
-        $report['migration_count'] = count($versions);
+        $report = array_replace($report, auditPowerBiUpgradeLedger($pdo, $require110));
         $report['step_residue'] = (int)$pdo->query('SELECT COUNT(*) FROM schema_migration_steps')->fetchColumn();
         if ($report['step_residue'] !== 0) {
             throw new RuntimeException('Power BI upgrade view audit requires zero schema_migration_steps residue.');
