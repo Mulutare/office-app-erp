@@ -47,7 +47,7 @@ function Read-SealedRelease([string]$Root,[string]$Commit,[string]$OriginCommit,
     return [pscustomobject]@{ReleasePath=$release;Commit=$a.Commit;PackageSHA256=$a.PackageSHA256;PackageSize=$a.PackageSize;LatestMigration=$a.LatestMigration;RunnerSHA256=$a.RunnerSHA256;MigrationRunnerSHA256=$a.MigrationRunnerSHA256}
 }
 function Assert-RunnerIdentity($Status,[string]$ExpectedSHA) {
-    if(-not$Status.ok-or$Status.action-ne'runner-status'-or[int]$Status.protocol_version-ne3-or$Status.build_id-ne'officeapp-deployment-v3-migrate-next-20261002'-or$Status.runner_sha256-ne$ExpectedSHA-or$Status.migration_runner_loaded-ne$false-or$Status.reference_synchronizer_loaded-ne$false){throw 'Executed runner identity/stale-class proof failed.'}
+    if(-not$Status.ok-or$Status.action-ne'runner-status'-or[int]$Status.protocol_version-ne3-or$Status.build_id-ne'officeapp-deployment-v3-lite-runtime-20261002'-or$Status.runner_sha256-ne$ExpectedSHA-or$Status.migration_runner_loaded-ne$false-or$Status.reference_synchronizer_loaded-ne$false){throw 'Executed runner identity/stale-class proof failed.'}
 }
 function Assert-StagedMigrationAudit($Audit,[string]$ExpectedSHA) {
     if(-not$Audit.ok-or$Audit.action-ne'staged-migration-audit'-or@($Audit.applied_versions).Count-eq0-or@($Audit.applied_versions)[-1]-ne'099'-or$Audit.first_unapplied-ne'100'-or$Audit.first_preflight-ne'apply'-or$Audit.migration_runner_sha256-ne$ExpectedSHA){throw 'Read-only staged migration audit failed; no database backup/migration permitted.'}

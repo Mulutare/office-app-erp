@@ -99,7 +99,7 @@ try {
     $check($method->invoke($runner,'062','c7afbf6e450702ed1c512c5ace9e41045402660c50b23e2ebab7a1a3faff5550','1d85d826ec2d6fb1255e0e36ec6b6390e445788afbc3b72e15d1c61e13e0699e'),'Read-only audit honors exact 062 compatibility');
     $source=(string)file_get_contents(__DIR__.'/../deployment/production-runner.php');
     $check(str_contains($source,"['runner-status','staged-migration-audit','migration-status','preflight'],true"),'Identity and staged audit actions bypass nonce/log mutations');
-    $check(str_contains($source,"if(in_array(\$action,['runner-status','staged-migration-audit'],true)){require_once LIVE_ROOT.'/app/helpers/autoload.php';require_once LIVE_ROOT.'/app/helpers/database.php';}else{require_once LIVE_ROOT.'/app/helpers/bootstrap.php';}"),'Read-only actions bypass the session-writing application bootstrap');
+    $check(str_contains($source,"require_once LIVE_ROOT.'/app/helpers/autoload.php';require_once LIVE_ROOT.'/app/helpers/database.php';")&&!str_contains($source,"app/helpers/bootstrap.php"),'All deployment actions bypass the session-writing application bootstrap');
     $identity=explode("elseif(\$action==='staged-migration-audit')",explode("if(\$action==='runner-status')",$source)[1])[0];
     $check(str_contains($identity,'normalizedSourceSha(__FILE__)')&&str_contains($identity,'RUNNER_PROTOCOL_VERSION')&&str_contains($identity,'RUNNER_BUILD_ID')&&str_contains($identity,'PHP_VERSION'),'Identity returns compiled protocol/build and normalized executed file SHA/PHP');
     $check(str_contains($identity,'MigrationRunner::class,false')&&str_contains($identity,'ReferenceDataSynchronizer::class,false'),'Identity stale-class flags never trigger autoload');
@@ -112,7 +112,8 @@ try {
     $check(str_contains($source,"'migrate-next'")&&!str_contains($source,"elseif(\$action==='migrate')"),'Runner removes monolithic migrate action');
     $migrateNext=explode("elseif(\$action==='sync-reference-data')",explode("elseif(\$action==='migrate-next')",$source)[1])[0];
     $check(str_contains($migrateNext,'runNext($directory,$expectedVersion)')&&str_contains($migrateNext,'step_residue_for_version'),'Runner advances exactly one clean migration boundary');
-    $check(str_contains($source,'JSON_INVALID_UTF8_SUBSTITUTE')&&str_contains($source,'deployment_fatal_error'),'Runner protects error JSON and fatal responses');
+    $check(str_contains($source,'JSON_INVALID_UTF8_SUBSTITUTE')&&str_contains($source,'deployment_fatal_error')&&str_contains($source,'php_execution_timeout')&&str_contains($source,'php_memory_exhausted'),'Runner protects and classifies fatal JSON responses');
+    $check(str_contains($source,"\$longActions=['preflight','migrate-next','sync-reference-data','release-health']")&&str_contains($source,"set_time_limit(0)")&&str_contains($source,"\$runtimeLimitAfter!=='0'"),'Long deployment actions disable the PHP request timeout or fail before database mutation');
     $syncBranch=explode("elseif(\$action==='release-health')",explode("elseif(\$action==='sync-reference-data')",$source)[1])[0];
     $check(str_contains($syncBranch,"if(\$current!=='109')")&&str_contains($syncBranch,'Reference sync requires completed migration 109.'),'Reference sync is impossible before migration 109 is complete');
     $health=explode("elseif(\$action==='cutover')",explode("elseif(\$action==='release-health')",$source)[1])[0];

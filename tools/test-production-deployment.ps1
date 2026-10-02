@@ -23,7 +23,7 @@ Check (Reject {Read-SealedRelease $fixture $commit $commit $true}) 'Dirty tracke
 Add-Content $package 'changed';Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Altered package rejected';Set-Content $package 'sealed package'
 Add-Content $manifest 'changed';Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Altered manifest rejected';Set-Content $manifest 'sealed manifest'
 Add-Content (Join-Path $fixture 'deployment/production-runner.php') 'changed';Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Altered local runner rejected';Set-Content (Join-Path $fixture 'deployment/production-runner.php') 'runner'
-$identity=[pscustomobject]@{ok=$true;action='runner-status';protocol_version=3;build_id='officeapp-deployment-v3-migrate-next-20261002';runner_sha256='expected';migration_runner_loaded=$false;reference_synchronizer_loaded=$false}
+$identity=[pscustomobject]@{ok=$true;action='runner-status';protocol_version=3;build_id='officeapp-deployment-v3-lite-runtime-20261002';runner_sha256='expected';migration_runner_loaded=$false;reference_synchronizer_loaded=$false}
 Check (-not(Reject {Assert-RunnerIdentity $identity 'expected'})) 'Exact v3 executed identity accepted'
 $identity.migration_runner_loaded=$true;Check (Reject {Assert-RunnerIdentity $identity 'expected'}) 'Loaded stale migration class rejected';$identity.migration_runner_loaded=$false
 $identity.reference_synchronizer_loaded=$true;Check (Reject {Assert-RunnerIdentity $identity 'expected'}) 'Loaded stale reference class rejected';$identity.reference_synchronizer_loaded=$false
