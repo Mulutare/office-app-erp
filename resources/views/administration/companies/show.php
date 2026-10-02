@@ -222,7 +222,13 @@ $companyInitials = strtoupper(substr(
                     <td><?= e($companyUser['email'] ?? '') ?></td>
                     <td><span class="badge <?= !empty($companyUser['active']) ? 'badge-success' : 'badge-muted' ?>"><?= !empty($companyUser['active']) ? 'Active' : 'Inactive' ?></span></td>
                     <td><?= !empty($companyUser['must_change_password']) ? 'Change required' : 'Updated' ?></td>
-                    <td><a class="table-link" href="<?= e(appBasePath()) ?>/administration/companies/reset-user-password?company_id=<?= e($company['company_id'] ?? 0) ?>&amp;user_id=<?= e($companyUser['user_id'] ?? 0) ?>">Reset password</a></td>
+                    <td>
+    <?php if (empty($companyUser['is_platform_admin'])): ?>
+        <a class="table-link" href="<?= e(appBasePath()) ?>/administration/companies/reset-user-password?company_id=<?= e($company['company_id'] ?? 0) ?>&amp;user_id=<?= e($companyUser['user_id'] ?? 0) ?>">Reset password</a>
+    <?php else: ?>
+        <span class="text-muted">Platform-managed</span>
+    <?php endif; ?>
+</td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

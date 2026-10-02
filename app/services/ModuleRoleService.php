@@ -13,6 +13,7 @@ final class ModuleRoleService
         'procurement' => ['procurement_requester','procurement_approver','purchasing_officer'],
         'finance' => ['finance_officer','finance_approver','executive_viewer','auditor'],
         'hr' => ['hr_administrator','employee_self_service'],
+        'recruitment' => ['hr_administrator'],
         'attendance' => ['hr_administrator','employee_self_service'],
         'it' => ['it_administrator','executive_viewer','auditor'],
         'business' => ['business_development_officer','executive_viewer','auditor'],

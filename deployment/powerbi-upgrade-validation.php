@@ -84,7 +84,7 @@ function initializePowerBiUpgradeSession(PDO $pdo): array
  * are discarded; only environment, object metadata, counts and queries return.
  * False validates the restored 099 baseline; true validates the 109 release.
  */
-function auditPowerBiUpgradeViews(PDO $pdo, bool $requireRelease109 = false): array
+function auditPowerBiUpgradeViews(PDO $pdo, bool $requireRelease109 = false, string $ledgerTarget = ''): array
 {
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
         throw new RuntimeException('Power BI upgrade view audit requires the MySQL PDO driver.');
@@ -95,7 +95,12 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $requireRelease109 = false): ar
     if ($pdo->inTransaction()) {
         throw new RuntimeException('Power BI upgrade view audit requires its own read-only transaction.');
     }
-    $report = ['result' => 'FAIL', 'target' => $requireRelease109 ? '109' : '099', 'views' => []];
+    $target = $ledgerTarget !== '' ? $ledgerTarget : ($requireRelease109 ? '109' : '099');
+    if (!in_array($target, ['099', '109', '110'], true)) {
+        throw new RuntimeException('Power BI upgrade view audit target must be 099, 109 or 110.');
+    }
+    $requireRelease109 = (int)$target >= 109;
+    $report = ['result' => 'FAIL', 'target' => $target, 'views' => []];
     $pdo->exec('START TRANSACTION READ ONLY');
     try {
         $environment = array_change_key_case($pdo->query(POWERBI_UPGRADE_ENVIRONMENT_SQL)->fetch(PDO::FETCH_ASSOC), CASE_LOWER);
@@ -126,7 +131,7 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $requireRelease109 = false): ar
         }
 
         $versions = $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);
-        $expectedVersions = array_map(static fn(int $version): string => sprintf('%03d', $version), range(15, $requireRelease109 ? 109 : 99));
+        $expectedVersions = array_map(static fn(int $version): string => sprintf('%03d', $version), range(15, (int)$target));
         if ($versions !== $expectedVersions) {
             throw new RuntimeException('Power BI upgrade view audit requires the exact ordered 015-' . $report['target'] . ' migration ledger.');
         }

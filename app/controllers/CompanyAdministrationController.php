@@ -77,19 +77,6 @@ final class CompanyAdministrationController
             ->requirePlatformAdministrator();
         $options = $this->companies
             ->formOptions();
-        $companyModules = [];
-
-        foreach ($details['modules'] as $module) {
-            $companyModules[(string) $module['code']] = $module;
-        }
-
-        foreach ($options['modules'] as &$module) {
-            $module += $companyModules[
-                (string) $module['code']
-            ] ?? [];
-        }
-
-        unset($module);
 
         \view('layouts.app', [
             'applicationName' => \config(

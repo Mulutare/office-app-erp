@@ -6,7 +6,7 @@ namespace App\Services;
 /** Pure policy shared by session loading and database-backed authorization. */
 final class EffectivePermissionPolicy
 {
-    public const MODULES = ['dashboard','sales','inventory','finance','hr','attendance','procurement','assets','analytics','administration','it','business'];
+    public const MODULES = ['dashboard','sales','inventory','finance','hr','recruitment','attendance','procurement','assets','analytics','administration','it','business'];
 
     public static function module(string $permission): ?string
     {

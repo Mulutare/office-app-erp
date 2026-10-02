@@ -826,7 +826,7 @@ private function completeLogin(array $user): array
                     ->enabledNavigationModules(
                         $companyId
                     );
-        $_SESSION['auth']['modules'] = $this->entitledModules($_SESSION['auth']['modules'], $_SESSION['auth']['roles']);
+        $_SESSION['auth']['modules'] = $this->entitledModules($_SESSION['auth']['modules'], $_SESSION['auth']['permissions']);
     }
 
     private function entitledModules(array $modules, array $permissions): array

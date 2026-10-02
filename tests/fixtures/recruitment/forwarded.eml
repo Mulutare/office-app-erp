@@ -1,0 +1,8 @@
+From: Recruitment Agency <agency@example.test>
+To: careers@example.test
+Subject: Fwd: Candidate application
+Message-ID: <forwarded-fixture@example.test>
+Date: Wed, 30 Sep 2026 10:00:00 +0300
+Content-Type: text/html; charset=UTF-8
+
+<p>Forwarded application on behalf of an applicant.</p><script>alert(1)</script><img src="https://tracking.example.test/pixel">

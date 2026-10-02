@@ -77,6 +77,7 @@ $leavePolicyController =
 $managerWorkspaceController =
     new ManagerWorkspaceController();
 $hrController = new HrController();
+$recruitmentController = new \App\Controllers\RecruitmentController();
 $employeeActivityController =
     new EmployeeActivityController();
 $employeePositionController =
@@ -119,6 +120,16 @@ $organizationSetupController =
     new OrganizationSetupController();
 
 $router = new Router();
+$router->get('/hr/recruitment', [$recruitmentController, 'index']);
+$router->get('/hr/recruitment/show', [$recruitmentController, 'show']);
+$router->get('/hr/recruitment/applicants', [$recruitmentController, 'applicants']);
+$router->get('/hr/recruitment/create', [$recruitmentController, 'create']);
+$router->get('/hr/recruitment/vacancies', [$recruitmentController, 'vacancies']);
+$router->get('/hr/recruitment/mailboxes', [$recruitmentController, 'mailboxes']);
+$router->get('/hr/recruitment/export', [$recruitmentController, 'export']);
+$router->get('/hr/recruitment/download', [$recruitmentController, 'download']);
+$router->get('/hr/recruitment/raw', [$recruitmentController, 'raw']);
+$router->post('/hr/recruitment/save', [$recruitmentController, 'save']);
 
 $router->post('/api/v1/oauth/token', [$apiV1SalesController, 'token']);
 $router->get('/api/v1/sales/products', [$apiV1SalesController, 'products']);

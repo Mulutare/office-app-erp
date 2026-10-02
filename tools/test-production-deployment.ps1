@@ -9,9 +9,9 @@ $fixture=Join-Path ([IO.Path]::GetTempPath()) ('officeapp-seal-test-'+[guid]::Ne
 try {
 $commit='1234567890abcdef1234567890abcdef12345678';$releasePath=Join-Path $fixture 'dist/releases/1234567'
 foreach($dir in @($releasePath,(Join-Path $fixture 'deployment'),(Join-Path $fixture 'app/database'),(Join-Path $fixture 'database/migrations/mysql'),(Join-Path $fixture 'tools'))){New-Item -ItemType Directory -Force $dir|Out-Null}
-Set-Content (Join-Path $fixture 'deployment/production-runner.php') 'runner';Set-Content (Join-Path $fixture 'app/database/MigrationRunner.php') 'migration runner';Set-Content (Join-Path $fixture 'database/migrations/mysql/109_fixture.php') 'fixture'
+Set-Content (Join-Path $fixture 'deployment/production-runner.php') 'runner';Set-Content (Join-Path $fixture 'app/database/MigrationRunner.php') 'migration runner';Set-Content (Join-Path $fixture 'database/migrations/mysql/110_fixture.php') 'fixture'
 Set-Content (Join-Path $fixture 'tools/verify-cpanel-release.ps1') "param([string]`$ReleasePath);[pscustomobject]@{Validation='PASS'}"
-$release=[pscustomobject]@{ReleasePath=$releasePath;LatestMigration=109}
+$release=[pscustomobject]@{ReleasePath=$releasePath;LatestMigration=110}
 $package=Join-Path $releasePath 'officeapp-cpanel.tar.gz';$manifest=Join-Path $releasePath 'deployment-manifest.txt'
 Set-Content $package 'sealed package';Set-Content $manifest 'sealed manifest';Set-Content (Join-Path $releasePath 'SHA256SUMS.txt') 'checksum file'
 Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Execute refuses an unapproved artifact'
@@ -29,8 +29,8 @@ $identity.migration_runner_loaded=$true;Check (Reject {Assert-RunnerIdentity $id
 $identity.reference_synchronizer_loaded=$true;Check (Reject {Assert-RunnerIdentity $identity 'expected'}) 'Loaded stale reference class rejected';$identity.reference_synchronizer_loaded=$false
 $identity.protocol_version=2;Check (Reject {Assert-RunnerIdentity $identity 'expected'}) 'Old compiled protocol rejected';$identity.protocol_version=3
 Check (Reject {Assert-RunnerIdentity $identity 'different'}) 'Wrong executed runner SHA rejected'
-$audit=[pscustomobject]@{ok=$true;action='staged-migration-audit';applied_versions=@('015','099');first_unapplied='100';first_preflight='apply';migration_runner_sha256='expected'}
-Check (-not(Reject {Assert-StagedMigrationAudit $audit 'expected'})) '099/100/apply staged audit accepted'
+$audit=[pscustomobject]@{ok=$true;action='staged-migration-audit';applied_versions=@('015','109');first_unapplied='110';first_preflight='apply';migration_runner_sha256='expected'}
+Check (-not(Reject {Assert-StagedMigrationAudit $audit 'expected'})) '109/110/apply staged audit accepted'
 $audit.first_preflight='baseline';Check (Reject {Assert-StagedMigrationAudit $audit 'expected'}) 'Unexpected staged preflight rejected'
 # Simulate Windows PowerShell WebException HTTP 500 JSON ErrorDetails without networking.
 Add-Type -TypeDefinition 'public class DeploymentHttpTestException:System.Exception { public object Response {get;set;} }'
@@ -44,7 +44,7 @@ $deploy=Get-Content -Raw (Join-Path $project 'tools/deploy-production.ps1')
 Check ($deploy.Contains('if($Execute){$release=Read-SealedRelease')-and$deploy.Contains('}else{$release=&')) 'Execute uses seal branch and never rebuilds'
 Check ($deploy.IndexOf("Runner 'runner-status'")-lt$deploy.IndexOf("Runner 'begin-release'")) 'Identity proof precedes remote writes'
 Check ($deploy.IndexOf("Runner 'staged-migration-audit'")-lt$deploy.IndexOf("Runner 'database-backup'")) 'Staged audit precedes database backup/migration'
-Check ($deploy.Contains("if(`$missingVersions.Count){`$audit=Runner 'staged-migration-audit'") -and $deploy.Contains("else{`$audit=Runner 'release-health' `$stageRoot") -and $deploy.Contains('staged target-109 release-health PASS')) 'Already-migrated target 109 uses staged release-health instead of the 099-only migration audit'
+Check ($deploy.Contains("if(`$missingVersions.Count){`$audit=Runner 'staged-migration-audit'") -and $deploy.Contains("else{`$audit=Runner 'release-health' `$stageRoot") -and $deploy.Contains('staged target-110 release-health PASS')) 'Already-migrated target 110 uses staged release-health instead of the migration audit'
 Check ($deploy.Contains('foreach($version in $missingVersions)') -and $deploy.Contains("Runner 'migrate-next'") -and (-not $deploy.Contains("Runner 'migrate' "))) 'Execute uses one request per migration'
 Check ((-not $deploy.Contains('$home=Invoke-WebRequest')) -and $deploy.Contains('$homeResponse=Invoke-WebRequest') -and $deploy.Contains('$loginResponse=Invoke-WebRequest')) 'Post-cutover HTTP health avoids reserved HOME variable'
 $build=Get-Content -Raw (Join-Path $project 'tools/build-cpanel-package.ps1')
