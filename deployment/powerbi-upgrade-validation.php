@@ -23,6 +23,12 @@ function initializePowerBiUpgradeSession(PDO $pdo): array
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
         throw new RuntimeException('Power BI upgrade validation requires the MySQL PDO driver.');
     }
+    // Deployment-only text protocol avoids server prepared-statement invalidation
+    // across view dependencies. Normal application connections retain native prepares.
+    if (!$pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, true)
+        || !(bool)$pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES)) {
+        throw new RuntimeException('Power BI upgrade session requires emulated prepares (text protocol).');
+    }
     $before = array_change_key_case($pdo->query(POWERBI_UPGRADE_ENVIRONMENT_SQL)->fetch(PDO::FETCH_ASSOC), CASE_LOWER);
     if (preg_match('/^8\.4\.11(?:-cll-lve)?$/D', (string)$before['version']) !== 1
         || $before['version_comment'] !== 'MySQL Community Server - GPL') {
@@ -66,6 +72,10 @@ function initializePowerBiUpgradeSession(PDO $pdo): array
             throw new RuntimeException('Power BI upgrade session initialization failed: ' . $name . '; expected ' . $expected . '.');
         }
     }
+    $after['emulate_prepares'] = (bool)$pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES);
+    if (!$after['emulate_prepares']) {
+        throw new RuntimeException('Power BI upgrade session requires emulated prepares (text protocol).');
+    }
     return $after;
 }
 
@@ -78,6 +88,9 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $requireRelease109 = false): ar
 {
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
         throw new RuntimeException('Power BI upgrade view audit requires the MySQL PDO driver.');
+    }
+    if (!(bool)$pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES)) {
+        throw new RuntimeException('Power BI upgrade view audit requires emulated prepares (text protocol).');
     }
     if ($pdo->inTransaction()) {
         throw new RuntimeException('Power BI upgrade view audit requires its own read-only transaction.');

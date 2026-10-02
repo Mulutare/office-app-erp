@@ -17,6 +17,7 @@ $tableSnapshot=static function(PDO $pdo,string $table):array{
 };
 try {
     $pdo=db();
+    $assert(!(bool)$pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES),'Normal application PDO must retain native prepares');
     $report['initial_connection_collation']=$pdo->query('SELECT @@collation_connection')->fetchColumn();
     $assert($report['initial_connection_collation']==='utf8mb4_unicode_ci','Application PDO must establish the verified Unicode connection before rehearsal initialization');
     $assert(getenv('OFFICEAPP_REHEARSAL_ISOLATED')==='1'&&getenv('DB_HOST')==='db'&&getenv('DB_DATABASE')==='passiontech_officeapp'&&preg_match('/^officeapp-rehearsal-[a-f0-9]{32}-php$/',(string)getenv('OFFICEAPP_REHEARSAL_CONTAINER'))===1&&$pdo->query('SELECT DATABASE()')->fetchColumn()==='passiontech_officeapp','Rehearsal isolation environment/database mismatch');
@@ -25,7 +26,12 @@ try {
     $diagnostic=getenv('OFFICEAPP_REHEARSAL_DIAGNOSTIC_ONLY')==='1';
     $expectedPath=__DIR__.'/rehearsal-expected-environment.json';
     $expected=$diagnostic?null:json_decode(ltrim((string)file_get_contents($expectedPath),"\xef\xbb\xbf"),true,512,JSON_THROW_ON_ERROR);
-    if(!$diagnostic){$assert(is_array($expected)&&$expected!==[],'Complete proven production environment metadata is required');initializeRehearsalSession($pdo,$expected);}
+    if(!$diagnostic){
+        $assert(is_array($expected)&&$expected!==[],'Complete proven production environment metadata is required');
+        require_once __DIR__.'/../deployment/powerbi-upgrade-validation.php';
+        $report['deployment_session']=\OfficeApp\Deployment\initializePowerBiUpgradeSession($pdo);
+        initializeRehearsalSession($pdo,$expected);
+    }
     $requiredViews=['vw_powerbi_bi_employees','vw_powerbi_cash_deposits','vw_powerbi_employees','vw_powerbi_fulfilled_sales','vw_powerbi_history_date_detail','vw_powerbi_history_export_rows','vw_powerbi_inventory_balance_reconciliation','vw_powerbi_inventory_daily','vw_powerbi_inventory_movements','vw_powerbi_locations','vw_powerbi_products','vw_powerbi_receipts','vw_powerbi_sales_agents','vw_powerbi_sales_order_lines','vw_powerbi_sales_orders','vw_powerbi_sales_payments','vw_powerbi_shop_hierarchy','vw_powerbi_warehouse_cluster_bridge','vw_powerbi_warehouse_territory_bridge','vw_powerbi_warehouses','vw_sales_user_authorized_orders','vw_sales_user_warehouse_location_scope','vw_user_warehouse_location_scope'];
     $report['baseline_view_health']=auditRehearsalBaseline($pdo,$diagnostic,$expected,$requiredViews);
     $report['production_environment']=$expected;

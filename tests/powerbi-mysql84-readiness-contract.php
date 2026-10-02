@@ -205,7 +205,13 @@ try {
     }
 
     require_once __DIR__ . '/../deployment/powerbi-upgrade-validation.php';
+    $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+    $nativeRejected = false;
+    try { \OfficeApp\Deployment\auditPowerBiUpgradeViews($pdo, true); }
+    catch (RuntimeException $error) { $nativeRejected = str_contains($error->getMessage(), 'requires emulated prepares'); }
+    $check($nativeRejected && !$pdo->inTransaction(), 'Deployment audit rejects native prepares before starting a transaction');
     $deploymentSession = \OfficeApp\Deployment\initializePowerBiUpgradeSession($pdo);
+    $check($deploymentSession['emulate_prepares'] === true && (bool)$pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES), 'Deployment initializer enables and verifies text protocol on the actual MySQL PDO');
     $check($deploymentSession['collation_connection'] === 'utf8mb4_unicode_ci' && in_array('ONLY_FULL_GROUP_BY', explode(',', $deploymentSession['sql_mode']), true), 'Actual deployment session helper preserves Unicode and ONLY_FULL_GROUP_BY');
     $deploymentHealth = \OfficeApp\Deployment\auditPowerBiUpgradeViews($pdo, true);
     $check($deploymentHealth['result'] === 'PASS' && $deploymentHealth['target'] === '109' && $deploymentHealth['migration_maximum'] === '109', 'Actual release-health helper queries the completed target-109 Power BI views');

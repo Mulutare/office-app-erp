@@ -8,3 +8,5 @@ if(!is_array($profile)||$profile===[])throw new RuntimeException('Proven product
 $connection=db();
 if($connection->query('SELECT DATABASE()')->fetchColumn()!=='passiontech_officeapp')throw new RuntimeException('Focused test schema identity mismatch');
 initializeRehearsalSession($connection,$profile);
+require_once __DIR__.'/../deployment/powerbi-upgrade-validation.php';
+\OfficeApp\Deployment\initializePowerBiUpgradeSession($connection);

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 require __DIR__ . '/../app/database/MigrationRunner.php';
-require __DIR__ . '/../deployment/powerbi-upgrade-validation.php';
+require_once __DIR__ . '/../deployment/powerbi-upgrade-validation.php';
 use App\Database\MigrationRunner;
 class AuditRows extends PDOStatement {
     public function __construct(private array $rows) {}
@@ -24,11 +24,54 @@ class AuditConnection extends PDO {
     public function inTransaction(): bool {return $this->transaction;}
     public function rollBack(): bool {$this->transaction=false;return true;}
 }
+class UpgradeProtocolConnection extends PDO {
+    public bool $emulated=false;
+    public bool $accept=true;
+    public bool $retain=true;
+    public bool $transaction=false;
+    public int $sqlCalls=0;
+    public function __construct() {}
+    public function getAttribute(int $attribute): mixed {
+        return $attribute===PDO::ATTR_DRIVER_NAME?'mysql':$this->emulated;
+    }
+    public function setAttribute(int $attribute,mixed $value): bool {
+        if($attribute!==PDO::ATTR_EMULATE_PREPARES||$value!==true)throw new RuntimeException('Unexpected attribute change');
+        if($this->accept&&$this->retain)$this->emulated=true;
+        return $this->accept;
+    }
+    public function query(string $sql,?int $fetchMode=null,mixed ...$args): PDOStatement|false {
+        ++$this->sqlCalls;
+        throw new RuntimeException('SQL error sentinel 1615');
+    }
+    public function exec(string $sql): int|false {
+        if($sql==='START TRANSACTION READ ONLY'){$this->transaction=true;return 0;}
+        ++$this->sqlCalls;throw new RuntimeException('Unexpected SQL');
+    }
+    public function inTransaction(): bool {return $this->transaction;}
+    public function rollBack(): bool {$this->transaction=false;return true;}
+}
 $passed=0;$failed=0;
 $check=static function(bool $ok,string $name)use(&$passed,&$failed){echo ($ok?'PASS ':'FAIL ').$name.PHP_EOL;$ok?$passed++:$failed++;};
 $reject=static function(callable $action):bool{try{$action();return false;}catch(RuntimeException){return true;}};
 $temp=sys_get_temp_dir().'/officeapp-audit-'.bin2hex(random_bytes(8));
 try {
+    foreach([false,true] as $release){
+        $protocol=new UpgradeProtocolConnection();
+        $check($reject(fn()=>OfficeApp\Deployment\auditPowerBiUpgradeViews($protocol,$release))&&$protocol->sqlCalls===0,'Native prepares rejected before any SQL for target '.($release?'109':'099'));
+    }
+    foreach(['accept','retain'] as $failure){
+        $protocol=new UpgradeProtocolConnection();$protocol->$failure=false;
+        $check($reject(fn()=>OfficeApp\Deployment\initializePowerBiUpgradeSession($protocol))&&$protocol->sqlCalls===0,'Initializer fails closed before SQL when emulation '.$failure.' fails');
+    }
+    $protocol=new UpgradeProtocolConnection();
+    $errorMessage='';
+    try{OfficeApp\Deployment\initializePowerBiUpgradeSession($protocol);}catch(RuntimeException $error){$errorMessage=$error->getMessage();}
+    $check($protocol->emulated&&$protocol->sqlCalls===1&&$errorMessage==='SQL error sentinel 1615','Initializer enables text protocol before querying and propagates SQL errors without retries');
+    $protocol=new UpgradeProtocolConnection();$protocol->emulated=true;$errorMessage='';
+    try{OfficeApp\Deployment\auditPowerBiUpgradeViews($protocol);}catch(RuntimeException $error){$errorMessage=$error->getMessage();}
+    $check($protocol->sqlCalls===1&&$errorMessage==='SQL error sentinel 1615'&&!$protocol->transaction,'Text-protocol audit propagates SQL errors without retries and closes its read-only transaction');
+    $driver=(string)file_get_contents(__DIR__.'/../app/database/MySqlDriver.php');
+    $check(str_contains($driver,'PDO::ATTR_EMULATE_PREPARES => false'),'Normal application driver retains native prepares');
     mkdir($temp,0700);
     $first="<?php return ['version'=>'001','description'=>'Applied fixture','statements'=>['INVALID SQL MUST NEVER RUN'],'preflight'=>static function(PDO \$p):string{throw new RuntimeException('Applied preflight must never run');}];\n";
     $next="<?php return ['version'=>'002','description'=>'Next fixture','statements'=>['INVALID SQL MUST NEVER RUN'],'preflight'=>static function(PDO \$p):string{return 'apply';}];\n";
