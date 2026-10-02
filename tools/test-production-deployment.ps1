@@ -44,7 +44,9 @@ $deploy=Get-Content -Raw (Join-Path $project 'tools/deploy-production.ps1')
 Check ($deploy.Contains('if($Execute){$release=Read-SealedRelease')-and$deploy.Contains('}else{$release=&')) 'Execute uses seal branch and never rebuilds'
 Check ($deploy.IndexOf("Runner 'runner-status'")-lt$deploy.IndexOf("Runner 'begin-release'")) 'Identity proof precedes remote writes'
 Check ($deploy.IndexOf("Runner 'staged-migration-audit'")-lt$deploy.IndexOf("Runner 'database-backup'")) 'Staged audit precedes database backup/migration'
+Check ($deploy.Contains("if(`$missingVersions.Count){`$audit=Runner 'staged-migration-audit'") -and $deploy.Contains("else{`$audit=Runner 'release-health' `$stageRoot") -and $deploy.Contains('staged target-109 release-health PASS')) 'Already-migrated target 109 uses staged release-health instead of the 099-only migration audit'
 Check ($deploy.Contains('foreach($version in $missingVersions)') -and $deploy.Contains("Runner 'migrate-next'") -and (-not $deploy.Contains("Runner 'migrate' "))) 'Execute uses one request per migration'
+Check ((-not $deploy.Contains('$home=Invoke-WebRequest')) -and $deploy.Contains('$homeResponse=Invoke-WebRequest') -and $deploy.Contains('$loginResponse=Invoke-WebRequest')) 'Post-cutover HTTP health avoids reserved HOME variable'
 $build=Get-Content -Raw (Join-Path $project 'tools/build-cpanel-package.ps1')
 Check ($build.Contains('git -C $projectRoot archive')-and$build.Contains('Assert-ReviewedRuntimeSource')) 'Package uses reviewed HEAD and rejects dirty/untracked runtime source'
 $gitFixture=Join-Path $fixture 'source-test';New-Item -ItemType Directory -Force (Join-Path $gitFixture 'app')|Out-Null
