@@ -23,7 +23,7 @@ Check (Reject {Read-SealedRelease $fixture $commit $commit $true}) 'Dirty tracke
 Add-Content $package 'changed';Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Altered package rejected';Set-Content $package 'sealed package'
 Add-Content $manifest 'changed';Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Altered manifest rejected';Set-Content $manifest 'sealed manifest'
 Add-Content (Join-Path $fixture 'deployment/production-runner.php') 'changed';Check (Reject {Read-SealedRelease $fixture $commit $commit $false}) 'Altered local runner rejected';Set-Content (Join-Path $fixture 'deployment/production-runner.php') 'runner'
-$identity=[pscustomobject]@{ok=$true;action='runner-status';protocol_version=3;build_id='officeapp-deployment-v3-sealed-audit-20261001';runner_sha256='expected';migration_runner_loaded=$false;reference_synchronizer_loaded=$false}
+$identity=[pscustomobject]@{ok=$true;action='runner-status';protocol_version=3;build_id='officeapp-deployment-v3-migrate-next-20261002';runner_sha256='expected';migration_runner_loaded=$false;reference_synchronizer_loaded=$false}
 Check (-not(Reject {Assert-RunnerIdentity $identity 'expected'})) 'Exact v3 executed identity accepted'
 $identity.migration_runner_loaded=$true;Check (Reject {Assert-RunnerIdentity $identity 'expected'}) 'Loaded stale migration class rejected';$identity.migration_runner_loaded=$false
 $identity.reference_synchronizer_loaded=$true;Check (Reject {Assert-RunnerIdentity $identity 'expected'}) 'Loaded stale reference class rejected';$identity.reference_synchronizer_loaded=$false
@@ -37,13 +37,14 @@ Add-Type -TypeDefinition 'public class DeploymentHttpTestException:System.Except
 $exception=New-Object DeploymentHttpTestException;$exception.Response=[pscustomobject]@{StatusCode=500}
 $errorRecord=New-Object Management.Automation.ErrorRecord($exception,'test',[Management.Automation.ErrorCategory]::InvalidOperation,$null)
 $errorRecord.ErrorDetails=New-Object Management.Automation.ErrorDetails('{"error":"deployment_action_failed","message":"Exact staged SQL failure"}')
-$message=Format-RunnerHttpFailure 'migrate' $errorRecord
-Check ($message-eq'Runner action=migrate HTTP=500 error=deployment_action_failed message=Exact staged SQL failure') 'HTTP 500 JSON code/message retained'
+$message=Format-RunnerHttpFailure 'migrate-next' $errorRecord
+Check ($message-eq'Runner action=migrate-next HTTP=500 error=deployment_action_failed message=Exact staged SQL failure') 'HTTP 500 JSON code/message retained'
 $project=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $deploy=Get-Content -Raw (Join-Path $project 'tools/deploy-production.ps1')
 Check ($deploy.Contains('if($Execute){$release=Read-SealedRelease')-and$deploy.Contains('}else{$release=&')) 'Execute uses seal branch and never rebuilds'
 Check ($deploy.IndexOf("Runner 'runner-status'")-lt$deploy.IndexOf("Runner 'begin-release'")) 'Identity proof precedes remote writes'
 Check ($deploy.IndexOf("Runner 'staged-migration-audit'")-lt$deploy.IndexOf("Runner 'database-backup'")) 'Staged audit precedes database backup/migration'
+Check ($deploy.Contains('foreach($version in $missingVersions)') -and $deploy.Contains("Runner 'migrate-next'") -and (-not $deploy.Contains("Runner 'migrate' "))) 'Execute uses one request per migration'
 $build=Get-Content -Raw (Join-Path $project 'tools/build-cpanel-package.ps1')
 Check ($build.Contains('git -C $projectRoot archive')-and$build.Contains('Assert-ReviewedRuntimeSource')) 'Package uses reviewed HEAD and rejects dirty/untracked runtime source'
 $gitFixture=Join-Path $fixture 'source-test';New-Item -ItemType Directory -Force (Join-Path $gitFixture 'app')|Out-Null

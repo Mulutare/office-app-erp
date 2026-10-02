@@ -158,6 +158,71 @@ final class MigrationRunner
         ];
     }
 
+    /**
+     * Apply exactly the next unapplied reviewed migration.
+     *
+     * @return array{version:string,result:string}
+     */
+    public function runNext(string $directory, string $expectedVersion): array
+    {
+        if (preg_match('/^[0-9]{3,20}$/D', $expectedVersion) !== 1) {
+            throw new RuntimeException('Invalid expected migration version.');
+        }
+
+        $this->ensureMigrationLedger();
+        $audit = $this->auditAppliedMigrations($directory);
+        $firstUnapplied = $audit['first_unapplied'];
+
+        if ($firstUnapplied === null) {
+            throw new RuntimeException('No unapplied migration remains.');
+        }
+        if ($firstUnapplied !== $expectedVersion) {
+            throw new RuntimeException(
+                'Expected migration does not match the first unapplied migration: '
+                . $expectedVersion . ' != ' . $firstUnapplied
+            );
+        }
+
+        $files = glob(rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '*.php');
+        if (!is_array($files) || $files === []) {
+            throw new RuntimeException('The migration catalog is empty or unreadable.');
+        }
+        sort($files, SORT_STRING);
+
+        $matchedFile = null;
+        $matchedMigration = null;
+        foreach ($files as $file) {
+            $migration = $this->definition($file);
+            if ($migration['version'] !== $expectedVersion) {
+                continue;
+            }
+            if ($matchedFile !== null) {
+                throw new RuntimeException('Duplicate migration version: ' . $expectedVersion);
+            }
+            $matchedFile = $file;
+            $matchedMigration = $migration;
+        }
+
+        if (!is_string($matchedFile) || !is_array($matchedMigration)) {
+            throw new RuntimeException('Expected migration disappeared from the reviewed catalog: ' . $expectedVersion);
+        }
+
+        $checksum = $this->checksum($matchedFile);
+        $preflight = $matchedMigration['preflight'];
+        $state = $preflight === null ? 'apply' : $preflight($this->connection);
+
+        if ($state === 'baseline') {
+            throw new RuntimeException('Next production migration requires baseline review instead of apply: ' . $expectedVersion);
+        }
+        if ($state !== 'apply') {
+            throw new RuntimeException('Migration preflight returned an invalid state: ' . $expectedVersion);
+        }
+
+        $this->apply($matchedMigration, $checksum);
+
+        return ['version' => $expectedVersion, 'result' => 'applied'];
+    }
+
     /** Validate an existing ledger without creating tables or invoking preflights. */
     public function auditAppliedMigrations(string $directory): array
     {

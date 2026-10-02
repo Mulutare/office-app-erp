@@ -245,7 +245,7 @@ try {
     // Inspect only the two action branches; never invoke the authenticated
     // deployment endpoint or access production from this local contract test.
     $deploymentSource = (string)file_get_contents(dirname(__DIR__) . '/deployment/production-runner.php');
-    foreach (['migrate' => 'MigrationRunner', 'sync-reference-data' => 'ReferenceDataSynchronizer'] as $action => $class) {
+    foreach (['migrate-next' => 'MigrationRunner', 'sync-reference-data' => 'ReferenceDataSynchronizer'] as $action => $class) {
         $start = strpos($deploymentSource, "elseif(\$action==='$action')");
         // The runner's action branches are single lines. Support both LF and CRLF.
         $branch = $start === false ? '' : strtok(substr($deploymentSource, $start), "\r\n");

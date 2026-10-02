@@ -76,9 +76,19 @@ try {
     $warehouses=$pdo->query('SELECT * FROM inventory_warehouses WHERE company_id=2 AND warehouse_id IN(25,26) ORDER BY warehouse_id')->fetchAll(PDO::FETCH_ASSOC);
     $report['baseline_warehouse_25_26']=array_map(static fn(array $w):array=>['warehouse_id'=>$w['warehouse_id'],'company_id'=>$w['company_id'],'row_sha256'=>hash('sha256',json_encode($w,JSON_THROW_ON_ERROR))],$warehouses);
     $generic=$pdo->query("SELECT * FROM data_external_ids WHERE company_id=2 AND entity_type='warehouses' AND external_id NOT REGEXP '^PBI-SHOP-[0-9]{3}$' ORDER BY entity_id,external_id")->fetchAll(PDO::FETCH_ASSOC);
-    $result=$runner->run($directory,static function(string $version,string $event)use(&$report):void{$report['migration_events'][]=['version'=>$version,'event'=>$event];echo 'Migration ',$version,' ',$event,PHP_EOL;});$report['applied_sequence']=$result['applied'];
     $expectedMigrations=array_map('strval',range(100,109));
-    $assert($result['applied']===$expectedMigrations&&$result['baselined']===[],'Upgrade must apply exactly 100-109 without baselining');
+    $report['applied_sequence']=[];$report['per_migration_boundaries']=[];
+    foreach($expectedMigrations as $version){
+        $report['migration_events'][]=['version'=>$version,'event'=>'begin'];echo 'Migration ',$version,' begin',PHP_EOL;
+        $step=$runner->runNext($directory,$version);
+        $assert(($step['result']??null)==='applied'&&($step['version']??null)===$version,'Bounded migration did not apply exact expected version: '.$version);
+        $current=(string)$pdo->query('SELECT MAX(version) FROM schema_migrations')->fetchColumn();
+        $residueStatement=$pdo->prepare('SELECT COUNT(*) FROM schema_migration_steps WHERE version=?');$residueStatement->execute([$version]);$residue=(int)$residueStatement->fetchColumn();
+        $assert($current===$version&&$residue===0,'Per-migration boundary failed: '.$version);
+        $report['applied_sequence'][]=$version;$report['per_migration_boundaries'][]=['version'=>$version,'migration_after'=>$current,'step_residue'=>$residue];
+        $report['migration_events'][]=['version'=>$version,'event'=>'end'];echo 'Migration ',$version,' end',PHP_EOL;
+    }
+    $assert($report['applied_sequence']===$expectedMigrations,'Upgrade must apply exactly 100-109 one migration per boundary');
     $report['reference_sync']=(new ReferenceDataSynchronizer($pdo,'mysql'))->run(__DIR__.'/../database/seeds');
     $ledgerBeforeAgain=$pdo->query('SELECT * FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_ASSOC);
     $stepsBeforeAgain=$pdo->query('SELECT * FROM schema_migration_steps ORDER BY version,statement_number')->fetchAll(PDO::FETCH_ASSOC);

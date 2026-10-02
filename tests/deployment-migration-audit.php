@@ -107,6 +107,14 @@ try {
     $check(str_contains($branch,"\$state['state']!=='staged'")&&str_contains($branch,'$headerRoot!==$root')&&str_contains($branch,"require\$root.'/app/database/MigrationRunner.php'"),'Staged audit requires validated staged state/root and explicit staged runner');
     $check(str_contains($branch,'MigrationRunner::class,false')&&str_contains($branch,'auditAppliedMigrations')&&str_contains($branch,'auditFirstUnappliedPreflight')&&!str_contains($branch,'->run(')&&!str_contains($branch,'saveMetadata('),'Staged audit never executes migrations or writes deployment state');
     $check(str_contains($branch,'initializePowerBiUpgradeSession($pdo)')&&str_contains($branch,'auditPowerBiUpgradeViews($pdo,false)'),'Staged audit proves the actual Unicode session and baseline view health');
+    $runnerSource=(string)file_get_contents(__DIR__.'/../app/database/MigrationRunner.php');
+    $check(str_contains($runnerSource,'public function runNext(string $directory, string $expectedVersion)')&&str_contains($runnerSource,'$this->auditAppliedMigrations($directory)'),'MigrationRunner exposes bounded exact-next execution backed by ledger audit');
+    $check(str_contains($source,"'migrate-next'")&&!str_contains($source,"elseif(\$action==='migrate')"),'Runner removes monolithic migrate action');
+    $migrateNext=explode("elseif(\$action==='sync-reference-data')",explode("elseif(\$action==='migrate-next')",$source)[1])[0];
+    $check(str_contains($migrateNext,'runNext($directory,$expectedVersion)')&&str_contains($migrateNext,'step_residue_for_version'),'Runner advances exactly one clean migration boundary');
+    $check(str_contains($source,'JSON_INVALID_UTF8_SUBSTITUTE')&&str_contains($source,'deployment_fatal_error'),'Runner protects error JSON and fatal responses');
+    $syncBranch=explode("elseif(\$action==='release-health')",explode("elseif(\$action==='sync-reference-data')",$source)[1])[0];
+    $check(str_contains($syncBranch,"if(\$current!=='109')")&&str_contains($syncBranch,'Reference sync requires completed migration 109.'),'Reference sync is impossible before migration 109 is complete');
     $health=explode("elseif(\$action==='cutover')",explode("elseif(\$action==='release-health')",$source)[1])[0];
     $check(str_contains($health,'initializePowerBiUpgradeSession($pdo)')&&str_contains($health,'auditPowerBiUpgradeViews($pdo,true)')&&str_contains($health,"\$result['release_target']='109'"),'Release health queries completed target-109 Power BI views before cutover');
     $validation=(string)file_get_contents(__DIR__.'/../deployment/powerbi-upgrade-validation.php');
