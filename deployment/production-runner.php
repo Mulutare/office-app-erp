@@ -13,10 +13,136 @@ function emitJson(array $payload,int $status=200):void{global $responseSent;http
 function fail(int $s,string $e,string $m=''):never{emitJson(['ok'=>false,'error'=>$e,'message'=>$m],$s);exit;}
 function releaseId(mixed $v):string{$id=is_string($v)?$v:'';if(preg_match('/^[a-f0-9]{7}-[0-9]{14}$/D',$id)!==1)fail(400,'invalid_release_id');return $id;}
 function releaseDir(string $id):string{return STAGING_ROOT.'/'.$id;}
-function removeTree(string $p):void{if(is_link($p)||is_file($p)){if(!unlink($p))throw new RuntimeException('Unable to remove file.');return;}if(!is_dir($p))return;foreach(new FilesystemIterator($p)as$i)removeTree($i->getPathname());if(!rmdir($p))throw new RuntimeException('Unable to remove directory.');}
-function copyTree(string $s,string $d):void{$real=realpath($s);if($real===false||(!str_starts_with($real.'/',LIVE_ROOT.'/')&&$real!==LIVE_ROOT))throw new RuntimeException('Invalid copy source.');if(!is_dir($d)&&!mkdir($d,0700,true))throw new RuntimeException('Unable to create copy destination.');foreach(new FilesystemIterator($real)as$i){if($i->isLink())throw new RuntimeException('Symlink in protected production data.');$t=$d.'/'.$i->getFilename();if($i->isDir())copyTree($i->getPathname(),$t);elseif(!copy($i->getPathname(),$t))throw new RuntimeException('Protected data copy failed.');}}
-function metadata(string $id):array{$p=releaseDir($id).'/.deployment.json';$d=is_file($p)?json_decode((string)file_get_contents($p),true):null;if(!is_array($d)||($d['release_id']??null)!==$id)throw new RuntimeException('Release state unavailable.');return$d;}
-function saveMetadata(string $id,array $d):void{$p=releaseDir($id).'/.deployment.json';if(file_put_contents($p,json_encode($d,JSON_THROW_ON_ERROR),LOCK_EX)===false)throw new RuntimeException('Unable to save release state.');chmod($p,0600);}
+function realDirectory(string $path):void {
+    clearstatcache(true,$path);
+    if(is_link($path)||!is_dir($path)||realpath($path)!==$path)throw new RuntimeException('Noncanonical or linked deployment directory.');
+}
+function absentPath(string $path):void {
+    clearstatcache(true,$path);
+    if(file_exists($path)||is_link($path))throw new RuntimeException('Deployment destination collision.');
+    realDirectory(dirname($path));
+}
+function copyTree(string $s,string $d):void {
+    realDirectory($s);
+    if(($s!==LIVE_ROOT&&!str_starts_with($s,LIVE_ROOT.'/'))||$s===LIVE_ROOT.'/storage'||str_starts_with($s,LIVE_ROOT.'/storage/'))throw new RuntimeException('Invalid code backup source.');
+    absentPath($d);
+    if(!mkdir($d,0700))throw new RuntimeException('Unable to create copy destination.');
+    foreach(new FilesystemIterator($s)as$i){
+        // Never enumerate, read or duplicate runtime evidence in a code backup.
+        if($s===LIVE_ROOT&&$i->getFilename()==='storage')continue;
+        if($i->isLink())throw new RuntimeException('Symlink in application backup.');
+        $t=$d.'/'.$i->getFilename();
+        if($i->isDir())copyTree($i->getPathname(),$t);
+        elseif(!$i->isFile()||!copy($i->getPathname(),$t)||!chmod($t,$i->getPerms()&0777)||!hash_equals(hash_file('sha256',$i->getPathname()),hash_file('sha256',$t)))throw new RuntimeException('Application backup copy verification failed.');
+    }
+}
+function prepareRuntimeSkeleton(string $path):void {
+    // Phar may omit empty TAR directories on extraction. Recreate only the
+    // four directories already required and verified in the archive manifest.
+    foreach([$path,$path.'/cache',$path.'/logs',$path.'/private',$path.'/uploads']as$dir){
+        if(!file_exists($dir)&&!is_link($dir)){realDirectory(dirname($dir));if(!mkdir($dir,0700))throw new RuntimeException('Cannot create runtime skeleton.');}
+        realDirectory($dir);
+    }
+    emptyStorage($path);
+}
+function emptyStorage(string $path,bool $remove=false):void {
+    realDirectory($path);
+    $allowed=['cache','logs','private','uploads'];$seen=[];
+    foreach(new FilesystemIterator($path)as$i){
+        if(!in_array($i->getFilename(),$allowed,true))throw new RuntimeException('Unexpected packaged runtime entry.');
+        realDirectory($i->getPathname());
+        if((new FilesystemIterator($i->getPathname()))->valid())throw new RuntimeException('Packaged runtime data forbidden.');
+        $seen[]=$i->getFilename();
+    }
+    sort($seen);sort($allowed);
+    if($seen!==$allowed)throw new RuntimeException('Runtime skeleton incomplete.');
+    // Only remove known empty directories, never recursively delete a storage tree.
+    if($remove){foreach($seen as$name)if(!rmdir($path.'/'.$name))throw new RuntimeException('Cannot remove empty runtime directory.');if(!rmdir($path))throw new RuntimeException('Cannot remove empty runtime skeleton.');}
+}
+function applicationReady(string $path):void {
+    realDirectory($path);
+    foreach(['app','config','vendor']as$name)realDirectory($path.'/'.$name);
+    foreach(['vendor/autoload.php','config/database.php','config/app.local.php']as$name){$file=$path.'/'.$name;if(is_link($file)||!is_file($file)||!is_readable($file))throw new RuntimeException('Application files unavailable.');}
+}
+function runtimeStorage(string $path,bool $scan=true):array {
+    realDirectory($path);
+    if(!is_writable($path))throw new RuntimeException('Runtime storage is not writable.');
+    foreach(['backups','cache','logs','private','uploads']as$name)realDirectory($path.'/'.$name);
+    $identity=stat($path);
+    if($scan){
+        // Metadata-only traversal rejects links/mounts before live is touched. No file bytes are read.
+        $walk=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::SELF_FIRST);
+        foreach($walk as$i)if($i->isLink()||(!$i->isDir()&&!$i->isFile())||$i->getRealPath()!==$i->getPathname()||stat($i->getPathname())['dev']!==$identity['dev'])throw new RuntimeException('Unsafe runtime storage entry.');
+    }
+    return ['dev'=>$identity['dev'],'ino'=>$identity['ino']];
+}
+function moveDirectory(string $from,string $to):void {
+    realDirectory($from);absentPath($to);
+    if(stat($from)['dev']!==stat(dirname($to))['dev']||!rename($from,$to))throw new RuntimeException('Same-filesystem directory move failed.');
+}
+function acquireHandoffLock() {
+    realDirectory(STAGING_ROOT);
+    $lock=STAGING_ROOT.'/.handoff.lock';
+    if(is_link($lock))throw new RuntimeException('Invalid handoff lock.');
+    $handle=fopen($lock,'c');
+    if($handle===false)throw new RuntimeException('Handoff lock unavailable.');
+    if(!flock($handle,LOCK_EX|LOCK_NB)){fclose($handle);throw new RuntimeException('Handoff already active.');}
+    return $handle;
+}
+function handoffApplication(string $id,array $state,bool $rollback):array {
+    $handle=acquireHandoffLock();
+    try {
+        $fresh=metadata(releaseId($id));
+        if($fresh!==$state||$fresh['state']!==($rollback?'cutover':'ready'))throw new RuntimeException('Handoff state changed.');
+        return performStorageHandoff($id,$fresh,$rollback);
+    } finally {fclose($handle);}
+}
+function performStorageHandoff(string $id,array $state,bool $rollback):array {
+    // Derive every destination from fixed roots and this release; stored previous paths are checked exactly.
+    $id=releaseId($id);realDirectory(dirname(LIVE_ROOT));realDirectory(STAGING_ROOT);realDirectory(releaseDir($id));
+    $target=releaseDir($id).'/office_app';
+    if($rollback){
+        $target=(string)($state['cutover_previous']??'');
+        $pattern='~^'.preg_quote(dirname(LIVE_ROOT).'/office_app_failed_','~').'[0-9]{14}_'.preg_quote($id,'~').'$~D';
+        if(preg_match($pattern,$target)!==1)throw new RuntimeException('No validated rollback source.');
+    }
+    $park=dirname(LIVE_ROOT).'/office_app_failed_'.($rollback?'health_':'').gmdate('YmdHis').'_'.$id;
+    applicationReady(LIVE_ROOT);applicationReady($target);absentPath($park);
+    $storageIdentity=runtimeStorage(LIVE_ROOT.'/storage');
+    foreach([$target,dirname($park),LIVE_ROOT]as$path)if(stat($path)['dev']!==$storageIdentity['dev'])throw new RuntimeException('Handoff requires one filesystem.');
+    if($rollback)absentPath($target.'/storage');else emptyStorage($target.'/storage',true);
+    $pending=$state;$pending['state']=$rollback?'rollback-pending':'cutover-pending';
+    $pending['handoff']=['source'=>LIVE_ROOT,'target'=>$target,'park'=>$park,'storage_identity'=>$storageIdentity];
+    saveMetadata($id,$pending); // Durable intent before any live rename; cleanup must preserve its lock.
+    $moved=0;
+    try {
+        moveDirectory(LIVE_ROOT,$park);$moved=1;
+        moveDirectory($park.'/storage',$target.'/storage');$moved=2;
+        moveDirectory($target,LIVE_ROOT);$moved=3;
+        if(runtimeStorage(LIVE_ROOT.'/storage',false)!==$storageIdentity)throw new RuntimeException('Runtime identity changed during handoff.');
+        $done=$state;$done['state']=$rollback?'rolled-back':'cutover';
+        $done[$rollback?'rollback_failed':'cutover_previous']=$park;
+        saveMetadata($id,$done);
+        return $done;
+    } catch(Throwable $failure){
+        try {
+            if($moved===3){moveDirectory(LIVE_ROOT,$target);$moved=2;}
+            if($moved===2){moveDirectory($target.'/storage',$park.'/storage');$moved=1;}
+            if($moved===1){moveDirectory($park,LIVE_ROOT);$moved=0;}
+            if(runtimeStorage(LIVE_ROOT.'/storage',false)!==$storageIdentity)throw new RuntimeException('Restored runtime identity mismatch.');
+            if(!$rollback){if(!mkdir($target.'/storage',0700))throw new RuntimeException('Cannot restore skeleton.');foreach(['cache','logs','private','uploads']as$name)if(!mkdir($target.'/storage/'.$name,0700))throw new RuntimeException('Cannot restore skeleton.');}
+            saveMetadata($id,$state);
+        } catch(Throwable $restoreFailure){throw new RuntimeException('Handoff recovery incomplete; preserve lock and inspect private deployment metadata.',0,$restoreFailure);}
+        throw new RuntimeException('Handoff failed; original application and storage restored.',0,$failure);
+    }
+}
+function metadata(string $id):array{realDirectory(releaseDir($id));$p=releaseDir($id).'/.deployment.json';if(is_link($p))throw new RuntimeException('Invalid metadata path.');$d=is_file($p)?json_decode((string)file_get_contents($p),true):null;if(!is_array($d)||($d['release_id']??null)!==$id)throw new RuntimeException('Release state unavailable.');return$d;}
+function saveMetadata(string $id,array $d):void{
+    $dir=releaseDir($id);realDirectory($dir);$p=$dir.'/.deployment.json';
+    if(is_link($p))throw new RuntimeException('Invalid metadata path.');
+    $tmp=tempnam($dir,'.metadata-');if($tmp===false)throw new RuntimeException('Unable to create release state.');
+    try{$json=json_encode($d,JSON_THROW_ON_ERROR);if(!chmod($tmp,0600)||file_put_contents($tmp,$json,LOCK_EX)!==strlen($json)||!rename($tmp,$p))throw new RuntimeException('Unable to save release state.');}finally{if(is_file($tmp))unlink($tmp);}
+}
 $headerRoot=(string)($_SERVER['HTTP_X_OFFICEAPP_ROOT']??LIVE_ROOT);if(!preg_match('#^/home/passiontech/(office_app|deployment-staging/[a-f0-9]{7}-[0-9]{14}/office_app)$#D',$headerRoot))fail(403,'invalid_release_root');
 $authRoot=realpath($headerRoot)?:'';$configRoot=is_file($authRoot.'/config/app.local.php')?$authRoot:LIVE_ROOT;$local=is_file($configRoot.'/config/app.local.php')?require$configRoot.'/config/app.local.php':[];$secret=is_array($local)?(string)($local['deployment_secret']??''):'';$ips=is_array($local)?(array)($local['deployment_allowed_ips']??[]):[];if(strlen($secret)<32){http_response_code(404);exit;}if($ips!==[]&&!in_array((string)($_SERVER['REMOTE_ADDR']??''),$ips,true))fail(403,'source_ip_denied');
 $ts=(string)($_SERVER['HTTP_X_OFFICEAPP_TIMESTAMP']??'');$nonce=(string)($_SERVER['HTTP_X_OFFICEAPP_NONCE']??'');$sig=(string)($_SERVER['HTTP_X_OFFICEAPP_SIGNATURE']??'');$body=(string)file_get_contents('php://input');if(!ctype_digit($ts)||abs(time()-(int)$ts)>300||preg_match('/^[a-f0-9]{32,64}$/D',$nonce)!==1)fail(401,'expired_or_invalid_request');$expected=hash_hmac('sha256',$ts."\n".$nonce."\n".$headerRoot."\n".$body,$secret);if(!hash_equals($expected,$sig))fail(401,'authentication_failed');
@@ -26,9 +152,9 @@ $fatalResponseReserve=str_repeat('x',262144);
 $shutdownReleaseId=is_string($request['release_id']??null)&&preg_match('/^[a-f0-9]{7}-[0-9]{14}$/D',$request['release_id'])===1?$request['release_id']:null;$shutdownExpectedVersion=null;
 register_shutdown_function(static function()use(&$action,&$shutdownReleaseId,&$shutdownExpectedVersion):void{global $responseSent,$fatalResponseReserve;if($responseSent)return;$fatalResponseReserve=null;$error=error_get_last();if(!is_array($error)||!in_array($error['type'],[E_ERROR,E_PARSE,E_CORE_ERROR,E_COMPILE_ERROR,E_USER_ERROR],true))return;$payload=['ok'=>false,'action'=>$action,'error'=>fatalErrorCode($error),'message'=>'Fatal PHP runtime error during deployment action.'];if($shutdownReleaseId!==null)$payload['release_id']=$shutdownReleaseId;if($shutdownExpectedVersion!==null)$payload['expected_version']=$shutdownExpectedVersion;emitJson($payload,500);});
 if(!$readOnly){$nd=LIVE_ROOT.'/storage/private/deployment-nonces';if(!is_dir($nd)&&!mkdir($nd,0700,true))fail(503,'nonce_storage_unavailable');$nf=$nd.'/'.$nonce;if(is_file($nf)||file_put_contents($nf,(string)time(),LOCK_EX)===false)fail(409,'replay_detected');chmod($nf,0600);}
-// Archive/storage copies, compression and full staged audits can exceed a host's request limit.
-// Short bounded uploads and rename-only cutover/rollback retain the normal limit.
-$runtimeLimitBefore=(string)ini_get('max_execution_time');$runtimeLimitAfter=$runtimeLimitBefore;$runtimeLimitExtended=false;$longActions=['preflight','staged-migration-audit','finalize-release','database-backup','application-backup','migrate-next','sync-reference-data','release-health'];if(in_array($action,$longActions,true)){if(function_exists('set_time_limit'))$runtimeLimitExtended=@set_time_limit(0);$runtimeLimitAfter=(string)ini_get('max_execution_time');if($runtimeLimitAfter!=='0')fail(503,'deployment_runtime_timeout_limit','Deployment runtime could not disable the PHP execution timeout.');}
+// Archive extraction, code copies, compression and full staged audits can exceed a host's request limit.
+// Handoff link audits run before live moves; the actual handoff remains three directory renames.
+$runtimeLimitBefore=(string)ini_get('max_execution_time');$runtimeLimitAfter=$runtimeLimitBefore;$runtimeLimitExtended=false;$longActions=['preflight','staged-migration-audit','finalize-release','database-backup','application-backup','migrate-next','sync-reference-data','release-health','cutover','rollback-application'];if(in_array($action,$longActions,true)){if(function_exists('set_time_limit'))$runtimeLimitExtended=@set_time_limit(0);$runtimeLimitAfter=(string)ini_get('max_execution_time');if($runtimeLimitAfter!=='0')fail(503,'deployment_runtime_timeout_limit','Deployment runtime could not disable the PHP execution timeout.');}
 try{
  require_once LIVE_ROOT.'/app/helpers/autoload.php';require_once LIVE_ROOT.'/app/helpers/database.php';$pdo=db();$versions=$pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);$current=$versions===[]?null:(string)end($versions);$result=['ok'=>true,'action'=>$action,'migration'=>$current,'runtime'=>['max_execution_time_before'=>$runtimeLimitBefore,'max_execution_time_after'=>$runtimeLimitAfter,'set_time_limit_available'=>function_exists('set_time_limit'),'limit_extension_result'=>$runtimeLimitExtended]];
  if($action==='runner-status'){$result+=['protocol_version'=>RUNNER_PROTOCOL_VERSION,'build_id'=>RUNNER_BUILD_ID,'runner_sha256'=>normalizedSourceSha(__FILE__),'php_version'=>PHP_VERSION,'php_sapi'=>PHP_SAPI,'max_execution_time'=>(string)ini_get('max_execution_time'),'memory_limit'=>(string)ini_get('memory_limit'),'set_time_limit_available'=>function_exists('set_time_limit'),'migration_runner_loaded'=>class_exists(App\Database\MigrationRunner::class,false),'reference_synchronizer_loaded'=>class_exists(App\Database\ReferenceDataSynchronizer::class,false)];}
@@ -37,14 +163,14 @@ try{
  elseif($action==='preflight'){$checks=['php81'=>PHP_VERSION_ID>=80100,'phar'=>class_exists(PharData::class),'staging_parent'=>is_dir(dirname(STAGING_ROOT))&&is_writable(dirname(STAGING_ROOT)),'live_root'=>is_dir(LIVE_ROOT),'database_config'=>is_readable(LIVE_ROOT.'/config/database.php'),'app_config'=>is_readable(LIVE_ROOT.'/config/app.local.php'),'storage'=>is_dir(LIVE_ROOT.'/storage')&&is_readable(LIVE_ROOT.'/storage'),'proc_open'=>function_exists('proc_open'),'mysqldump'=>is_executable('/usr/bin/mysqldump'),'gzip_extension'=>function_exists('gzopen')];if(in_array(false,$checks,true))throw new RuntimeException('Required deployment capability unavailable.');$result['checks']=$checks;}
  elseif($action==='begin-release'){$id=releaseId($request['release_id']??null);$commit=(string)($request['commit']??'');$size=$request['size']??null;$sha=(string)($request['sha256']??'');if(preg_match('/^[a-f0-9]{40}$/D',$commit)!==1||!is_int($size)||$size<1024||$size>1073741824||preg_match('/^[a-f0-9]{64}$/D',$sha)!==1)fail(400,'invalid_release_metadata');if(is_file(DEPLOY_LOCK))throw new RuntimeException('Deployment lock exists.');if(!is_dir(STAGING_ROOT)&&!mkdir(STAGING_ROOT,0700,true))throw new RuntimeException('Cannot create staging root.');$dir=releaseDir($id);if(file_exists($dir)||!mkdir($dir.'/.upload',0700,true))throw new RuntimeException('Cannot create unique release staging directory.');if(file_put_contents(DEPLOY_LOCK,$id,LOCK_EX)===false)throw new RuntimeException('Cannot create deployment lock.');chmod(DEPLOY_LOCK,0600);saveMetadata($id,['release_id'=>$id,'commit'=>$commit,'size'=>$size,'sha256'=>$sha,'next_chunk'=>0,'uploaded'=>0,'state'=>'uploading']);$result['release_id']=$id;}
  elseif($action==='upload-chunk'){$id=releaseId($request['release_id']??null);$state=metadata($id);$index=$request['index']??null;$encoded=$request['data']??null;if($state['state']!=='uploading'||!is_int($index)||$index!==$state['next_chunk']||!is_string($encoded)||strlen($encoded)>400000)fail(400,'invalid_chunk');$bytes=base64_decode($encoded,true);if($bytes===false||strlen($bytes)<1||strlen($bytes)>262144||$state['uploaded']+strlen($bytes)>$state['size'])fail(400,'invalid_chunk_data');$part=releaseDir($id).'/.upload/package.tar.gz.part';if(file_put_contents($part,$bytes,FILE_APPEND|LOCK_EX)===false)throw new RuntimeException('Chunk write failed.');chmod($part,0600);$state['uploaded']+=strlen($bytes);$state['next_chunk']++;saveMetadata($id,$state);$result+=['next_chunk'=>$state['next_chunk'],'uploaded'=>$state['uploaded']];}
- elseif($action==='finalize-release'){$id=releaseId($request['release_id']??null);$state=metadata($id);$dir=releaseDir($id);$part=$dir.'/.upload/package.tar.gz.part';if($state['state']!=='uploading'||!is_file($part)||filesize($part)!==$state['size']||!hash_equals($state['sha256'],hash_file('sha256',$part)))throw new RuntimeException('Uploaded package verification failed.');$archive=$dir.'/officeapp-cpanel.tar.gz';if(!rename($part,$archive))throw new RuntimeException('Cannot finalize package.');$phar=new PharData($archive);$prefix='phar://'.str_replace('\\','/',$archive).'/';$seen=false;foreach(new RecursiveIteratorIterator($phar)as$key=>$entry){$key=(string)$key;$name=str_replace('\\','/',str_starts_with($key,$prefix)?substr($key,strlen($prefix)):$key);if($name==='office_app'||str_starts_with($name,'office_app/'))$seen=true;else throw new RuntimeException('Archive root invalid.');if(str_contains('/'.$name.'/','/../')||str_starts_with($name,'/')||preg_match('/^[A-Za-z]:/',$name)||$entry->isLink())throw new RuntimeException('Unsafe archive entry.');}if(!$seen||isset($phar['office_app/config/database.php'])||isset($phar['office_app/config/app.local.php']))throw new RuntimeException('Archive structure or exclusions invalid.');$phar->extractTo($dir,null,false);$app=$dir.'/office_app';if(!is_file($app.'/vendor/autoload.php'))throw new RuntimeException('Composer autoload absent.');if(!copy(LIVE_ROOT.'/config/database.php',$app.'/config/database.php')||!copy(LIVE_ROOT.'/config/app.local.php',$app.'/config/app.local.php'))throw new RuntimeException('Protected configuration copy failed.');chmod($app.'/config/database.php',0600);chmod($app.'/config/app.local.php',0600);removeTree($app.'/storage');copyTree(LIVE_ROOT.'/storage',$app.'/storage');$state['state']='staged';saveMetadata($id,$state);$result+=['release_id'=>$id,'staged_root'=>$app,'size'=>filesize($archive),'sha256'=>hash_file('sha256',$archive)];}
+ elseif($action==='finalize-release'){$id=releaseId($request['release_id']??null);$state=metadata($id);$dir=releaseDir($id);$part=$dir.'/.upload/package.tar.gz.part';if($state['state']!=='uploading'||!is_file($part)||filesize($part)!==$state['size']||!hash_equals($state['sha256'],hash_file('sha256',$part)))throw new RuntimeException('Uploaded package verification failed.');$archive=$dir.'/officeapp-cpanel.tar.gz';if(!rename($part,$archive))throw new RuntimeException('Cannot finalize package.');$phar=new PharData($archive);$prefix='phar://'.str_replace('\\','/',$archive).'/';$seen=false;foreach(new RecursiveIteratorIterator($phar)as$key=>$entry){$key=(string)$key;$name=str_replace('\\','/',str_starts_with($key,$prefix)?substr($key,strlen($prefix)):$key);if($name==='office_app'||str_starts_with($name,'office_app/'))$seen=true;else throw new RuntimeException('Archive root invalid.');if(str_contains('/'.$name.'/','/../')||str_starts_with($name,'/')||preg_match('/^[A-Za-z]:/',$name)||$entry->isLink())throw new RuntimeException('Unsafe archive entry.');if(str_starts_with($name,'office_app/storage/')&&(!$entry->isDir()||!in_array(rtrim($name,'/'),['office_app/storage/cache','office_app/storage/logs','office_app/storage/private','office_app/storage/uploads'],true)))throw new RuntimeException('Packaged runtime data forbidden.');}if(!$seen||isset($phar['office_app/config/database.php'])||isset($phar['office_app/config/app.local.php']))throw new RuntimeException('Archive structure or exclusions invalid.');foreach(['cache','logs','private','uploads']as$runtime){$entry='office_app/storage/'.$runtime;if(!isset($phar[$entry])||!$phar[$entry]->isDir())throw new RuntimeException('Archive runtime skeleton incomplete.');}absentPath($dir.'/office_app');$phar->extractTo($dir,null,false);$app=$dir.'/office_app';prepareRuntimeSkeleton($app.'/storage');if(!is_file($app.'/vendor/autoload.php'))throw new RuntimeException('Composer autoload absent.');if(!copy(LIVE_ROOT.'/config/database.php',$app.'/config/database.php')||!copy(LIVE_ROOT.'/config/app.local.php',$app.'/config/app.local.php'))throw new RuntimeException('Protected configuration copy failed.');chmod($app.'/config/database.php',0600);chmod($app.'/config/app.local.php',0600);emptyStorage($app.'/storage');applicationReady($app);$state['state']='staged';saveMetadata($id,$state);$result+=['release_id'=>$id,'staged_root'=>$app,'size'=>filesize($archive),'sha256'=>hash_file('sha256',$archive)];}
  elseif($action==='database-backup'){$id=releaseId($request['release_id']??null);$state=metadata($id);if($state['state']!=='staged')throw new RuntimeException('Release not staged.');$cfg=require LIVE_ROOT.'/config/database.php';$name='production-db-before_'.gmdate('YmdHis').'_'.substr($state['commit'],0,7).'.sql.gz';$path=LIVE_ROOT.'/storage/backups/'.$name;if(!is_dir(dirname($path))&&!mkdir(dirname($path),0700,true))throw new RuntimeException('Backup directory unavailable.');$defaults=tempnam(LIVE_ROOT.'/storage/private','deploy-db-');if($defaults===false)throw new RuntimeException('Cannot create protected database client configuration.');file_put_contents($defaults,"[client]\nhost=".$cfg['host']."\nport=".$cfg['port']."\nuser=".$cfg['username']."\npassword=".$cfg['password']."\n",LOCK_EX);chmod($defaults,0600);$args=['/usr/bin/mysqldump','--defaults-extra-file='.$defaults,'--single-transaction','--routines','--triggers','--events',(string)$cfg['database']];$proc=proc_open($args,[1=>['pipe','w'],2=>['pipe','w']],$pipes,null,null,['bypass_shell'=>true]);if(!is_resource($proc)){unlink($defaults);throw new RuntimeException('Cannot start database backup.');}$gz=gzopen($path,'wb9');if($gz===false){unlink($defaults);throw new RuntimeException('Cannot open backup.');}while(!feof($pipes[1])){$c=fread($pipes[1],262144);if($c!==false&&$c!=='')gzwrite($gz,$c);}gzclose($gz);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$code=proc_close($proc);unlink($defaults);clearstatcache(true,$path);if($code!==0||!is_file($path)||filesize($path)<1024)throw new RuntimeException('Database backup failed: '.substr(trim($err),0,300));chmod($path,0600);$state['database_backup']=$name;$state['state']='database-backed-up';saveMetadata($id,$state);$result['backup']=['name'=>$name,'size'=>filesize($path),'sha256'=>hash_file('sha256',$path)];}
- elseif($action==='application-backup'){$id=releaseId($request['release_id']??null);$state=metadata($id);if($state['state']!=='database-backed-up')throw new RuntimeException('Verified database backup required.');$name='office_app_before_'.gmdate('YmdHis').'_'.substr($state['commit'],0,7);$path='/home/passiontech/'.$name;if(file_exists($path))throw new RuntimeException('Application backup exists.');copyTree(LIVE_ROOT,$path);if(!is_file($path.'/vendor/autoload.php')||!is_file($path.'/config/database.php'))throw new RuntimeException('Application backup verification failed.');$state['application_backup']=$name;$state['state']='backed-up';saveMetadata($id,$state);$result['backup']=['name'=>$name,'verified'=>true];}
+ elseif($action==='application-backup'){$id=releaseId($request['release_id']??null);$state=metadata($id);if($state['state']!=='database-backed-up')throw new RuntimeException('Verified database backup required.');$name='office_app_before_'.gmdate('YmdHis').'_'.substr($state['commit'],0,7);if(preg_match('/^office_app_before_[0-9]{14}_[a-f0-9]{7}$/D',$name)!==1)throw new RuntimeException('Invalid backup name.');$path=dirname(LIVE_ROOT).'/'.$name;realDirectory(dirname(LIVE_ROOT));realDirectory(LIVE_ROOT.'/storage');absentPath($path);copyTree(LIVE_ROOT,$path);applicationReady($path);absentPath($path.'/storage');$state['application_backup']=$name;$state['application_backup_scope']='code-config-without-runtime-storage';$state['state']='backed-up';saveMetadata($id,$state);$result['backup']=['name'=>$name,'verified'=>true,'scope'=>'code-config-without-runtime-storage'];}
  elseif($action==='migrate-next'){$id=releaseId($request['release_id']??null);$shutdownReleaseId=$id;$expectedVersion=(string)($request['expected_version']??'');if(preg_match('/^[0-9]{3}$/D',$expectedVersion)!==1)fail(400,'invalid_expected_version');$shutdownExpectedVersion=$expectedVersion;$state=metadata($id);if(!in_array($state['state'],['backed-up','migrating'],true))throw new RuntimeException('Verified backups or active migration sequence required.');$root=releaseDir($id).'/office_app';if($headerRoot!==$root)throw new RuntimeException('Migration root must match staged release.');require_once$root.'/deployment/powerbi-upgrade-validation.php';$result['database_session']=OfficeApp\Deployment\initializePowerBiUpgradeSession($pdo);if(class_exists(App\Database\MigrationRunner::class,false))throw new RuntimeException('MigrationRunner already loaded; refusing stale deployment code.');require$root.'/app/database/MigrationRunner.php';$runner=new App\Database\MigrationRunner($pdo,databaseDriver()->name());$directory=$root.'/database/migrations/'.databaseDriver()->name();$step=$runner->runNext($directory,$expectedVersion);if(($step['result']??null)!=='applied'||($step['version']??null)!==$expectedVersion)throw new RuntimeException('Single-migration execution did not apply the exact expected version.');$after=$pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);$afterCurrent=$after===[]?null:(string)end($after);if($afterCurrent!==$expectedVersion)throw new RuntimeException('Migration ledger did not advance exactly one expected version.');$residueStatement=$pdo->prepare('SELECT COUNT(*) FROM schema_migration_steps WHERE version=?');$residueStatement->execute([$expectedVersion]);$residue=(int)$residueStatement->fetchColumn();if($residue!==0)throw new RuntimeException('Completed migration retained step residue.');$state['state']=$expectedVersion==='111'?'migrated':'migrating';$state['last_migration']=$expectedVersion;saveMetadata($id,$state);$result+=['expected_version'=>$expectedVersion,'applied_version'=>$expectedVersion,'migration_after'=>$afterCurrent,'step_residue_for_version'=>$residue,'result'=>$step];$result['migration']=$afterCurrent;}
  elseif($action==='sync-reference-data'){$id=releaseId($request['release_id']??null);$state=metadata($id);if(!in_array($state['state'],['backed-up','migrated'],true))throw new RuntimeException('Backups required.');if($current!=='111')throw new RuntimeException('Reference sync requires completed migration 111.');$root=releaseDir($id).'/office_app';require_once$root.'/deployment/powerbi-upgrade-validation.php';$result['database_session']=OfficeApp\Deployment\initializePowerBiUpgradeSession($pdo);require$root.'/vendor/autoload.php';if(class_exists(App\Database\ReferenceDataSynchronizer::class,false))throw new RuntimeException('ReferenceDataSynchronizer already loaded; refusing stale deployment code.');require$root.'/app/database/ReferenceDataSynchronizer.php';$sync=new App\Database\ReferenceDataSynchronizer($pdo,databaseDriver()->name());$result['result']=$sync->run($root.'/database/seeds');$state['state']='ready';saveMetadata($id,$state);}
  elseif($action==='release-health'){$root=$headerRoot;require_once$root.'/deployment/powerbi-upgrade-validation.php';$result['release_target']='111';$result['database_session']=OfficeApp\Deployment\initializePowerBiUpgradeSession($pdo);$result['view_health']=OfficeApp\Deployment\auditPowerBiUpgradeViews($pdo,true,'111');$checks=['autoload'=>is_file($root.'/vendor/autoload.php'),'database'=>true,'protected_config'=>is_file($root.'/config/database.php')&&is_file($root.'/config/app.local.php'),'storage'=>is_dir($root.'/storage')&&is_writable($root.'/storage')];if(in_array(false,$checks,true))throw new RuntimeException('Release health failed.');$result['checks']=$checks;}
- elseif($action==='cutover'){$id=releaseId($request['release_id']??null);$state=metadata($id);if($state['state']!=='ready')throw new RuntimeException('Release not ready.');$failed='/home/passiontech/office_app_failed_'.gmdate('YmdHis').'_'.$id;if(!rename(LIVE_ROOT,$failed))throw new RuntimeException('Cannot move live application.');if(!rename(releaseDir($id).'/office_app',LIVE_ROOT)){rename($failed,LIVE_ROOT);throw new RuntimeException('Cannot activate staged application.');}$state['cutover_previous']=$failed;$state['state']='cutover';saveMetadata($id,$state);$result['previous']=$failed;}
- elseif($action==='rollback-application'){$id=releaseId($request['release_id']??null);$state=metadata($id);$previous=(string)($state['cutover_previous']??'');if($state['state']!=='cutover'||preg_match('#^/home/passiontech/office_app_failed_[0-9]{14}_[a-f0-9]{7}-[0-9]{14}$#D',$previous)!==1||!is_dir($previous))throw new RuntimeException('No validated rollback source.');$bad='/home/passiontech/office_app_failed_health_'.gmdate('YmdHis').'_'.$id;if(!rename(LIVE_ROOT,$bad)||!rename($previous,LIVE_ROOT))throw new RuntimeException('Application rollback failed.');$state['state']='rolled-back';saveMetadata($id,$state);$result['restored']=true;}
- elseif($action==='cleanup'){$id=releaseId($request['release_id']??null);if(is_file(DEPLOY_LOCK)&&trim((string)file_get_contents(DEPLOY_LOCK))===$id){if(!unlink(DEPLOY_LOCK))throw new RuntimeException('Cannot remove deployment lock.');}$result['lock_removed']=!is_file(DEPLOY_LOCK);}
+ elseif($action==='cutover'){$id=releaseId($request['release_id']??null);$state=metadata($id);if($state['state']!=='ready')throw new RuntimeException('Release not ready.');$state=handoffApplication($id,$state,false);$result['previous']=$state['cutover_previous'];}
+ elseif($action==='rollback-application'){$id=releaseId($request['release_id']??null);$state=metadata($id);if($state['state']!=='cutover')throw new RuntimeException('No validated rollback source.');$state=handoffApplication($id,$state,true);$result['restored']=true;}
+ elseif($action==='cleanup'){$id=releaseId($request['release_id']??null);$handle=acquireHandoffLock();try{if(is_file(releaseDir($id).'/.deployment.json')&&in_array(metadata($id)['state'],['cutover-pending','rollback-pending'],true))throw new RuntimeException('Unresolved handoff requires recovery; deployment lock retained.');if(is_file(DEPLOY_LOCK)&&trim((string)file_get_contents(DEPLOY_LOCK))===$id){if(!unlink(DEPLOY_LOCK))throw new RuntimeException('Cannot remove deployment lock.');}$result['lock_removed']=!is_file(DEPLOY_LOCK);}finally{fclose($handle);}}
  if(!$readOnly){@file_put_contents(LIVE_ROOT.'/storage/logs/deployment-actions.log',json_encode(['time'=>gmdate(DATE_ATOM),'action'=>$action,'remote'=>$_SERVER['REMOTE_ADDR']??null,'ok'=>true],JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE).PHP_EOL,FILE_APPEND|LOCK_EX);}emitJson($result);
 }catch(Throwable$e){error_log('Deployment runner '.$action.' failed: '.$e->getMessage());$payload=['ok'=>false,'action'=>$action,'error'=>'deployment_action_failed','message'=>'Deployment action failed. Review the private server log for details.'];if($shutdownReleaseId!==null)$payload['release_id']=$shutdownReleaseId;if($shutdownExpectedVersion!==null)$payload['expected_version']=$shutdownExpectedVersion;emitJson($payload,500);}
