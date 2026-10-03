@@ -1,0 +1,385 @@
+ Container officeapp-recruitment-test-app-1  Stopping
+ Container officeapp-recruitment-test-app-1  Stopped
+ Container officeapp-recruitment-test-app-1  Removing
+ Container officeapp-recruitment-test-app-1  Removed
+ Container officeapp-recruitment-test-db-1  Stopping
+ Container officeapp-recruitment-test-db-1  Stopped
+ Container officeapp-recruitment-test-db-1  Removing
+ Container officeapp-recruitment-test-db-1  Removed
+ Network officeapp-recruitment-test_default  Removing
+ Network officeapp-recruitment-test_default  Removed
+ Network officeapp-recruitment-test_default  Creating
+ Network officeapp-recruitment-test_default  Created
+ Container officeapp-recruitment-test-db-1  Creating
+ Container officeapp-recruitment-test-db-1  Created
+ Container officeapp-recruitment-test-app-1  Creating
+ Container officeapp-recruitment-test-app-1  Created
+ Container officeapp-recruitment-test-db-1  Starting
+ Container officeapp-recruitment-test-db-1  Started
+ Container officeapp-recruitment-test-db-1  Waiting
+ Container officeapp-recruitment-test-db-1  Healthy
+ Container officeapp-recruitment-test-app-1  Starting
+ Container officeapp-recruitment-test-app-1  Started
+ officeapp-recruitment-test-app-1 copy app to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy app to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+ officeapp-recruitment-test-app-1 copy bin to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy bin to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+ officeapp-recruitment-test-app-1 copy database to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy database to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+ officeapp-recruitment-test-app-1 copy resources to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy resources to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+ officeapp-recruitment-test-app-1 copy careers to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy careers to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+ officeapp-recruitment-test-app-1 copy tests to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy tests to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+ officeapp-recruitment-test-app-1 copy deployment to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy deployment to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+ officeapp-recruitment-test-app-1 copy tools to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copying
+ officeapp-recruitment-test-app-1 copy tools to officeapp-recruitment-test-app-1:/var/www/html/office_app/ Copied
+{"applied":["107","108","109","110"],"baselined":[],"skipped":["015","016","017","018","019","020","021","022","023","024","025","026","027","028","029","030","031","032","033","034","035","036","037","038","039","040","041","042","043","044","045","046","047","048","049","050","051","052","053","054","055","056","057","058","059","060","061","062","063","064","065","066","067","068","069","070","071","072","073","074","075","076","077","078","079","080","081","082","083","084","085","086","087","088","089","090","091","092","093","094","095","096","097","098","099","100","101","102","103","104","105","106"]}
+PASS Recruitment module lifecycle fixtures exist
+PASS Recruitment is a released ERP module introduced by migration 110
+PASS Recruitment declares HR as a required module dependency
+PASS Platform company provisioning exposes Recruitment as licensable
+PASS Migration does not automatically license Recruitment to existing companies
+PASS Recruitment cannot become effective while not licensed
+PASS Platform licensing mechanism can license Recruitment to a company
+PASS Licensed Recruitment can be switched OFF
+PASS Licensed Recruitment can be switched ON
+PASS Recruitment fails closed when required HR module is disabled
+PASS Recruitment becomes effective again when HR dependency is restored
+PASS Recruitment function permission cannot bypass its module gate
+PASS Recruitment uses the normal role plus module-gate permission mechanism
+PASS Disabling Recruitment removes its effective user permissions
+PASS Platform licensing mechanism can remove the Recruitment license
+15 recruitment module lifecycle checks, 0 failures
+PASS Disposable baseline is exactly migration 110
+PASS Clean 110 schema passes 111 preflight
+PASS Single-step 110 to 111 migration applies
+PASS Migration preserves existing applications
+PASS Migration preserves actual legacy unmatched email record and quarantined document unchanged
+PASS Existing objects fail preflight without ledger bypass
+PASS Ledger safely skips repeated 111
+PASS Migration audit recognizes complete 111 ledger
+PASS Expected normalized table vacancy_criteria
+PASS Expected normalized table application_answers
+PASS Expected normalized table screening_results
+PASS Expected normalized table external_submissions
+PASS Expected normalized table publication_state
+PASS Expected normalized table publication_revisions
+PASS Public vacancy metadata columns exist
+PASS External source identity has composite database uniqueness
+PASS Tenant foreign keys cover answers results and revisions
+PASS Migration has no destructive SQL
+PASS Publication permission belongs to Recruitment
+19 careers migration checks passed
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Recruitment migration 110 applied and rerun safely skipped.
+PASS Historical range preview counts messages before import
+PASS Mailbox cannot run before backfill confirmation
+PASS Normal application with CV imports
+PASS Conservative extraction matches explicit vacancy reference
+PASS CV is preserved and never labelled safe without a scan
+PASS Detected PDF matches extension
+PASS Reimport is idempotent without re-fetch or duplicate application
+PASS Same applicant can apply to two vacancies
+PASS Forwarded application leaves identity and vacancy for HR review
+PASS Missing CV is accepted and retained in review queue
+PASS Review queue includes missing information and uncertain identities
+PASS Email display contains no scripts or remote tracking markup
+PASS Interrupted fetch records a durable failed import
+PASS Retry resumes incomplete import
+PASS Malformed MIME preserves raw message before extraction failure
+PASS Preserved message has verified checksum
+PASS Executable payload masquerading as CV is rejected
+PASS Oversized attachment is explicitly classified
+PASS Manual executable upload rolls back application
+PASS Cross-company application lookup is denied
+PASS Cross-company vacancy association is denied
+PASS Cross-company download lookup is denied
+PASS Hiring permission is separate from editing
+PASS Status changes have an actor and durable history
+PASS Export query respects combined filters
+PASS Excel has one row per filtered application and all 15 required columns
+PASS Applicant formula injection is stored as text
+PASS Notes formula injection is stored as text
+PASS Export dates use company timezone
+PASS Export links point to protected ERP downloads
+PASS Excel has readable headers, filters and frozen heading
+PASS Deliberate validated hiring transition succeeds with hiring permission
+PASS Hiring never automatically creates an employee
+PASS Overlapping workers cannot acquire the same mailbox lock
+PASS Attachment persistence failure keeps raw mail and rolls back incomplete application
+PASS Interrupted attachment import retries to completion
+PASS Oversized emailed CV remains preserved in quarantine with explicit classification
+PASS UIDVALIDITY change uses a new durable provider identity
+PASS Exact preserved messages across UIDVALIDITY epochs reuse their reviewed applications
+PASS Provider identity includes UIDVALIDITY
+PASS Email normalization preserves local part dots and plus suffixes
+PASS Audited human-confirmed merge reassigns applications
+PASS Archived application leaves active register
+PASS Archive preserves imported documents
+44 recruitment integration checks passed
+PASS Anonymous request cannot access download
+PASS Anonymous request cannot access raw
+PASS Anonymous request cannot access export
+PASS Unauthorized endpoint denies index
+PASS Unauthorized endpoint denies show
+PASS Unauthorized endpoint denies vacancies
+PASS Unauthorized endpoint denies applicants
+PASS Unauthorized endpoint denies create
+PASS Unauthorized endpoint denies mailboxes
+PASS Unauthorized endpoint denies export
+PASS Unauthorized endpoint denies download
+PASS Unauthorized endpoint denies raw
+PASS Unauthorized endpoint denies save
+PASS Viewing permission cannot update applications
+PASS Editing permission cannot publish externally
+PASS Viewing permission cannot configure screening criteria
+PASS Screening criterion writes enforce CSRF
+PASS Screening review writes enforce CSRF
+PASS Viewing permission cannot export
+PASS Viewing permission cannot administer mailbox credentials
+PASS Viewing permission cannot bypass quarantine
+PASS Quarantine download requires explicit acknowledgement
+PASS Privileged acknowledged quarantine download succeeds
+PASS Recruitment mutations require valid CSRF token
+PASS Authorized export endpoint produces XLSX
+PASS Rendered HR screen index
+PASS Rendered HR screen show
+PASS Rendered HR screen vacancies
+PASS Rendered HR screen applicants
+PASS Rendered HR screen create
+PASS Rendered HR screen mailboxes
+PASS Mailbox administration does not imply applicant viewing
+PASS HR assigns reviewer and updates imported application through controller
+PASS Filtered endpoint export contains exactly assigned shortlisted application
+PASS Server rejects hiring transition from editor without hire permission
+PASS Disabled Recruitment module denies even privileged document download
+PASS Mailbox configuration stores encrypted secrets without altering password whitespace
+PASS Saving mailbox credentials does not start an unpreviewed backfill
+PASS Mailbox screen never exposes stored plaintext or ciphertext
+PASS Authorized foreign tenant cannot inspect application
+PASS Authorized foreign tenant cannot download document
+PASS Authorized foreign tenant cannot download original mail
+PASS Foreign tenant export uses its own scoped register
+43 endpoint and screen checks passed
+PASS Private storage rejects traversal identifiers
+PASS Document integrity mismatch fails closed
+PASS Foreign company cannot read same document key
+PASS Public document storage is refused
+PASS Tampered credential authentication tag fails closed
+PASS Missing encryption key prevents credential persistence
+PASS Reviewer must have effective Recruitment editing permission in the current company
+PASS Scheduler skips disabled Recruitment without opening a provider or creating import runs
+PASS Scheduler skips inactive companies
+PASS Scheduler skips suspended subscriptions
+PASS Export keeps formula/control-prefix payload as literal text: "=HYPERLINK(\"https:\/\/evil.test\")"
+PASS Export keeps formula/control-prefix payload as literal text: "+SUM(1,1)"
+PASS Export keeps formula/control-prefix payload as literal text: "-1+1"
+PASS Export keeps formula/control-prefix payload as literal text: "@SUM(1,1)"
+PASS Export keeps formula/control-prefix payload as literal text: "\t=1+1"
+PASS Export keeps formula/control-prefix payload as literal text: "\r=1+1"
+PASS Export keeps formula/control-prefix payload as literal text: "\n=1+1"
+PASS Export keeps formula/control-prefix payload as literal text: "  =1+1"
+18 recruitment security checks passed
+PASS Interrupted final persistence records a failed retry
+PASS Interrupted final persistence preserves all applications and attachments
+PASS Preserved raw message retry completes without refetch
+PASS Completed retry cannot duplicate applications or attachments and verifies every document checksum
+PASS Retry preserves the exact original raw storage identity and bytes
+5 retry integrity checks passed
+PASS Draft vacancy cannot publish
+PASS Saving a vacancy does not publish
+PASS Criterion created
+PASS Criterion updated
+PASS Cross-tenant criterion write denied
+PASS Cross-tenant publication denied
+PASS Unknown question type rejected
+PASS Invalid numeric comparison rejected
+PASS Invalid numeric minimum rejected
+PASS Questions use configured order
+PASS Deactivated question excluded
+PASS Explicit numeric minimum passes
+PASS Explicit failure preserves objective explanation
+PASS Missing mandatory answer requires review
+PASS Malformed answer never becomes failure
+PASS Preference cannot disqualify
+PASS Ambiguous field of study requires human review
+PASS Supported question type education_level
+PASS Supported question type single_choice
+PASS Supported question type multiple_choice
+PASS Supported question type location
+PASS Supported question type boolean
+PASS Supported question type document_required
+PASS Supported question type text
+PASS Explicit publication creates first revision
+PASS Public payload contains no internal numeric identity
+PASS Publication revisions increase
+PASS Closure creates a revision
+PASS Closed payload excludes publication content
+PASS Valid signed publication accepted
+PASS Same publication revision is idempotent
+PASS Changed payload at same revision rejected
+PASS Nonce replay denied
+PASS Bad HMAC denied
+PASS Expired signed request denied
+PASS HTTP integration origin rejected
+PASS Credentials in configured origin rejected
+PASS Origin cannot inject path or query
+PASS Malformed JSON rejected
+PASS Oversized JSON rejected
+PASS Missing or short integration key rejected
+PASS Complete public form validates
+PASS Public email error is field-specific
+PASS Application letter is required
+PASS Executable upload denied
+PASS Website only accepts PDF DOC DOCX
+PASS Oversized document denied
+PASS Public form creates opaque confirmation reference
+PASS Public retry returns same reference
+PASS Published vacancy appears in public listing
+PASS Submitted application enters pull queue
+PASS Minimum failure does not reject application
+PASS Website documents remain quarantined
+PASS Exact ERP retry is idempotent
+PASS Changed submission under same identity rejected
+PASS Foreign tenant cannot import website vacancy
+PASS Server-side source vacancy screening filters combine
+PASS Needs-review filter finds imported application
+PASS Bounded pagination respects offset
+PASS Filter queries isolate tenants
+PASS Quarantine filter finds website documents
+PASS Different submission imports and repeat email is flagged without merging
+PASS Import evaluates immutable published requirement despite later HR edits
+PASS Malformed structured answer imports for human review without rejection
+PASS ERP independently treats missing required answers as review
+PASS Unknown vacancy rejected
+PASS Malformed revision type is rejected
+PASS Malformed applicant details are rejected before persistence
+PASS Injected attachment persistence failure rejects import
+PASS Failed import rolls back application transaction
+PASS Acknowledgement matches imported content
+PASS Acknowledged submission leaves pending queue
+PASS Manual screening review records actor
+PASS ERP independently rejects closed vacancy intake
+PASS Completed import remains idempotent after vacancy closes
+PASS Closed vacancy removed from public listing
+PASS Website rejects submissions after closing
+PASS Public retry remains idempotent after closing
+PASS Persistent rate limit denies excess attempts
+PASS Database has one durable external identity
+PASS Database uniqueness rejects duplicate source identity
+PASS Composite tenant foreign keys reject crossed answers
+82 careers integration checks passed
+PASS Public Careers HTTP listing renders
+PASS Public response carries CSP and restrictive MIME headers
+PASS Applicant page exposes no ERP endpoint or integration secret
+PASS Wrong host fails closed
+PASS Unsigned integration HTTP request denied
+PASS Direct document URL unavailable
+PASS Actual vacancy HTTP form renders required documents
+PASS Public form includes CSRF and honeypot protection
+PASS Public submission rejects invalid CSRF
+PASS Public form has responsive viewport and accessible labels
+PASS Real multipart applicant submission succeeds with CSRF and two uploads
+PASS HTTP confirmation displays success after redirect
+PASS Real multipart retry creates no second submission
+13 careers HTTP checks passed
+PASS Real cURL rejects untrusted TLS certificate
+PASS Real cURL verifies trusted TLS certificate and signs request
+PASS Real HTTPS integration rejects wrong dedicated key
+PASS Sync worker pushes approved revisions over verified TLS
+PASS Sync worker pulls documents imports and acknowledges over verified TLS
+PASS Next sync does not import acknowledged submission again
+PASS Successful sync records published revision and timestamp
+PASS Closing in ordinary ERP editor propagates to public website
+8 careers TLS sync checks passed
+PASS No public applicant route introduced in ERP
+PASS Client requires verified HTTPS certificates and hostnames
+PASS Client disables redirects and bounds connection/read duration
+PASS Client bounds response streaming
+PASS Screening performs no final status transition or ranking
+PASS Publication writes require dedicated permission and CSRF
+PASS Public handler checks owned host and does not trust forwarded headers
+PASS Public session is distinct and secured
+PASS Applicant HTTP handler checks uploads CSRF and escaping
+PASS Only deliberate validation messages are presented to applicants
+PASS Public entry point has no ERP origin or shared privileged secret
+11 careers source security checks passed
+PASS Reviewed migration catalog is fully applied through Careers 111
+PASS Migration ledger is the exact ordered 015-111 sequence
+PASS Migration 110 is the reviewed licensed Recruitment migration
+PASS Recruitment occupies 110 and no obsolete Recruitment 111 exists
+PASS Verified production-110 prefix identifies Careers 111 as exactly next
+PASS Release ledger rejects a modified Recruitment 110 checksum
+PASS Release ledger rejects an unknown future migration after 111
+PASS Production runner requires completed target 111 before sync and cutover health
+PASS Staged deployment audit requires verified 110 then apply-ready 111
+PASS Release health preserves Power BI validation while recognizing additive target 111
+10 recruitment release-contract checks, 0 failures
+PASS Native prepares rejected before any SQL for target 099
+PASS Native prepares rejected before any SQL for target 109
+PASS Initializer fails closed before SQL when emulation accept fails
+PASS Initializer fails closed before SQL when emulation retain fails
+PASS Initializer enables text protocol before querying and propagates SQL errors without retries
+PASS Text-protocol audit propagates SQL errors without retries and closes its read-only transaction
+PASS Normal application driver retains native prepares
+PASS Audit validates ledger and first unapplied without SQL/preflight execution
+PASS Only first preflight evaluates in a rolled-back read-only transaction
+PASS Ledger gaps are rejected
+PASS Unknown applied catalog versions are rejected
+PASS Modified applied checksums are rejected
+PASS Duplicate catalog versions are rejected
+PASS Audit uses normalized LF/CRLF checksums
+PASS Mutating preflight is refused and transaction is cleaned
+PASS Read-only audit honors exact 062 compatibility
+PASS Identity and staged audit actions bypass nonce/log mutations
+PASS All deployment actions bypass the session-writing application bootstrap
+PASS Identity returns compiled protocol/build and normalized executed file SHA/PHP
+PASS Identity stale-class flags never trigger autoload
+PASS Staged audit requires validated staged state/root and explicit staged runner
+PASS Staged audit never executes migrations or writes deployment state
+PASS Staged audit proves the actual Unicode session and baseline view health
+PASS MigrationRunner exposes bounded exact-next execution backed by ledger audit
+PASS Runner removes monolithic migrate action
+PASS Runner advances exactly one clean migration boundary
+PASS Runner protects and classifies fatal JSON responses
+PASS Long deployment actions disable the PHP request timeout or fail before database mutation
+PASS Reference sync is impossible before migration 111 is complete
+PASS Release health queries completed target-111 Power BI views before cutover
+PASS Shared validator requires exact ordered ledger through the selected supported target
+PASS Shared validator rejects migration step residue
+PASS Shared validator requires repaired stock, blockers, readiness and 109 audit without a 110 sentinel
+PASS Shared validator consumes every view and closes its owned read-only transaction
+PASS Actual release helper validates direct governed readiness metadata and counts
+PASS Target-109 readiness accepts the unchanged zero-history backup state
+PASS Target-109 readiness permits nonzero governed blockers
+PASS Target-109 readiness rejects invalid company_id
+PASS Target-109 readiness rejects invalid reporting_mode
+PASS Target-109 readiness rejects invalid live_cutover_date
+PASS Target-109 readiness rejects invalid explicit_pbi_shop_count
+PASS Target-109 readiness rejects invalid unexpected_scoped_external_ids
+PASS Target-109 readiness rejects invalid cutover_blocker_rows
+PASS Target-109 readiness requires explicit null cutover metadata
+44 deployment audit checks, 0 failures
+PASS Exact current migration checksum is accepted
+PASS Migration 040 accepts the exact known production legacy checksum
+PASS Read-only catalog audit honors exact legacy 040 checksum
+PASS Migration 040 legacy checksum is rejected if current contents change
+PASS Migration 040 rejects every unrecognized checksum
+PASS Migration 062 contents match the exact reviewed checksum
+PASS Migration 062 exact current checksum is accepted
+PASS Migration 062 accepts the exact known production checksum for reviewed contents
+PASS Read-only catalog audit honors exact legacy 062 checksum
+PASS Migration 062 legacy checksum fails when fixture contents change
+PASS Migration 062 rejects an unrecognized applied checksum
+PASS The migration 040 legacy checksum is rejected for every other version
+PASS The migration 062 legacy checksum cannot be used for another version
+PASS Partial migration step checksum mismatches remain rejected
+PASS migrate-next explicitly requires staged MigrationRunner before instantiation
+PASS migrate-next rejects an already-loaded MigrationRunner without triggering autoload
+PASS sync-reference-data explicitly requires staged ReferenceDataSynchronizer before instantiation
+PASS sync-reference-data rejects an already-loaded ReferenceDataSynchronizer without triggering autoload
+
+18 migration checksum checks, 0 failures

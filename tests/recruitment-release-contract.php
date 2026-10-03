@@ -41,19 +41,19 @@ $reject = static function (callable $action): bool {
 $audit = $runner->auditAppliedMigrations($directory);
 
 $check(
-    ($audit['applied_versions'][array_key_last($audit['applied_versions'])] ?? null) === '110'
+    ($audit['applied_versions'][array_key_last($audit['applied_versions'])] ?? null) === '111'
     && $audit['first_unapplied'] === null,
-    'Reviewed migration catalog is fully applied through Recruitment 110'
+    'Reviewed migration catalog is fully applied through Careers 111'
 );
 
 $expected = array_map(
     static fn (int $version): string => sprintf('%03d', $version),
-    range(15, 110)
+    range(15, 111)
 );
 
 $check(
     $audit['applied_versions'] === $expected,
-    'Migration ledger is the exact ordered 015-110 sequence'
+    'Migration ledger is the exact ordered 015-111 sequence'
 );
 
 $migration = require $directory . '/110_recruitment.php';
@@ -78,15 +78,15 @@ $pdo->beginTransaction();
 try {
     $pdo->exec(
         "DELETE FROM schema_migrations
-         WHERE version='110'"
+         WHERE version='111'"
     );
 
     $prefix = $runner->auditAppliedMigrations($directory);
 
     $check(
-        ($prefix['applied_versions'][array_key_last($prefix['applied_versions'])] ?? null) === '109'
-        && $prefix['first_unapplied'] === '110',
-        'Verified production-109 prefix identifies Recruitment 110 as exactly next'
+        ($prefix['applied_versions'][array_key_last($prefix['applied_versions'])] ?? null) === '110'
+        && $prefix['first_unapplied'] === '111',
+        'Verified production-110 prefix identifies Careers 111 as exactly next'
     );
 } finally {
     $pdo->rollBack();
@@ -119,7 +119,7 @@ try {
         "INSERT INTO schema_migrations
             (version,description,checksum)
          VALUES
-            ('111','Synthetic future migration',REPEAT('b',64))"
+            ('112','Synthetic future migration',REPEAT('b',64))"
     );
 
     $check(
@@ -127,7 +127,7 @@ try {
             static fn () =>
                 $runner->auditAppliedMigrations($directory)
         ),
-        'Release ledger rejects an unknown future migration after 110'
+        'Release ledger rejects an unknown future migration after 111'
     );
 } finally {
     $pdo->rollBack();
@@ -140,17 +140,17 @@ $runnerSource = file_get_contents(
 $check(
     str_contains(
         $runnerSource,
-        "\$expectedVersion==='110'?'migrated':'migrating'"
+        "\$expectedVersion==='111'?'migrated':'migrating'"
     )
     && str_contains(
         $runnerSource,
-        "\$current!=='110'"
+        "\$current!=='111'"
     )
     && str_contains(
         $runnerSource,
-        "\$result['release_target']='110'"
+        "\$result['release_target']='111'"
     ),
-    'Production runner requires completed target 110 before sync and cutover health'
+    'Production runner requires completed target 111 before sync and cutover health'
 );
 
 $commonSource = file_get_contents(
@@ -160,17 +160,17 @@ $commonSource = file_get_contents(
 $check(
     str_contains(
         $commonSource,
-        "[-1]-ne'109'"
+        "[-1]-ne'110'"
     )
     && str_contains(
         $commonSource,
-        "first_unapplied-ne'110'"
+        "first_unapplied-ne'111'"
     )
     && str_contains(
         $commonSource,
         "first_preflight-ne'apply'"
     ),
-    'Staged deployment audit requires verified 109 then apply-ready 110'
+    'Staged deployment audit requires verified 110 then apply-ready 111'
 );
 
 $validationSource = file_get_contents(
@@ -180,13 +180,13 @@ $validationSource = file_get_contents(
 $check(
     str_contains(
         $validationSource,
-        "['099', '109', '110']"
+        "['099', '109', '110', '111']"
     )
     && str_contains(
         $validationSource,
         'range(15, (int)$target)'
     ),
-    'Release health preserves Power BI validation while recognizing additive target 110'
+    'Release health preserves Power BI validation while recognizing additive target 111'
 );
 
 echo "$checks recruitment release-contract checks, $failures failures\n";

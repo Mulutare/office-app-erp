@@ -96,8 +96,8 @@ function auditPowerBiUpgradeViews(PDO $pdo, bool $requireRelease109 = false, str
         throw new RuntimeException('Power BI upgrade view audit requires its own read-only transaction.');
     }
     $target = $ledgerTarget !== '' ? $ledgerTarget : ($requireRelease109 ? '109' : '099');
-    if (!in_array($target, ['099', '109', '110'], true)) {
-        throw new RuntimeException('Power BI upgrade view audit target must be 099, 109 or 110.');
+    if (!in_array($target, ['099', '109', '110', '111'], true)) {
+        throw new RuntimeException('Power BI upgrade view audit target must be 099, 109, 110 or 111.');
     }
     $requireRelease109 = (int)$target >= 109;
     $report = ['result' => 'FAIL', 'target' => $target, 'views' => []];

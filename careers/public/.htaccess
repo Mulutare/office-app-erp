@@ -1,0 +1,6 @@
+Options -Indexes
+DirectoryIndex index.php
+RewriteEngine On
+RewriteBase /careers/
+RewriteRule ^careers\.css$ - [L]
+RewriteRule ^ index.php [L]

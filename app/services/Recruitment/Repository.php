@@ -16,7 +16,7 @@ final class Repository
     }
     private function table(string $name): string
     {
-        if(!in_array($name,['vacancies','applicants','applications','emails','attachments','history','mailboxes','runs','events'],true)) throw new \LogicException('Unknown recruitment table.');
+        if(!in_array($name,['vacancies','applicants','applications','emails','attachments','history','mailboxes','runs','events','vacancy_criteria','application_answers','screening_results','external_submissions','publication_state','publication_revisions'],true)) throw new \LogicException('Unknown recruitment table.');
         return 'recruitment_'.$name;
     }
     public function find(string $table,int $id,bool $lock=false): array
@@ -75,12 +75,19 @@ final class Repository
             if($key==='to') $date=$date->modify('+1 day');
             $where[]='a.received_at'.$operator.'?'; $args[]=$date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
         }
+        if(!empty($filters['screening'])) { $where[]="COALESCE(s.outcome,'pending')=?"; $args[]=$filters['screening']; }
+        if(!empty($filters['unmatched'])) $where[]='a.vacancy_id IS NULL';
+        if(!empty($filters['needs_review'])) $where[]='a.needs_review=1';
+        if(($filters['view']??'')==='attention') $where[]="a.status IN ('New','Under Review')";
+        if(($filters['document']??'')==='quarantine') $where[]="EXISTS(SELECT 1 FROM recruitment_attachments d WHERE d.company_id=a.company_id AND d.application_id=a.id AND d.scan_status='quarantine')";
+        if(($filters['document']??'')==='missing') $where[]='NOT EXISTS(SELECT 1 FROM recruitment_attachments d WHERE d.company_id=a.company_id AND d.application_id=a.id)';
         if(!empty($filters['q'])) {
             $where[]='(p.name LIKE ? OR p.email_normalized LIKE ? OR p.phone LIKE ?)';
             for($i=0;$i<3;$i++) $args[]='%'.substr((string)$filters['q'],0,190).'%';
         }
         if(!empty($filters['queue'])) $where[]="(a.needs_review=1 OR a.vacancy_id IS NULL OR p.identity_verified=0 OR NOT EXISTS(SELECT 1 FROM recruitment_attachments d WHERE d.company_id=a.company_id AND d.application_id=a.id AND d.validation_status='accepted') OR EXISTS(SELECT 1 FROM recruitment_attachments own JOIN recruitment_attachments otherdoc ON otherdoc.company_id=own.company_id AND otherdoc.checksum=own.checksum JOIN recruitment_applications otherapp ON otherapp.company_id=otherdoc.company_id AND otherapp.id=otherdoc.application_id WHERE own.company_id=a.company_id AND own.application_id=a.id AND otherapp.applicant_id<>a.applicant_id AND otherapp.deleted_at IS NULL) OR EXISTS(SELECT 1 FROM recruitment_applicants dup WHERE dup.company_id=p.company_id AND dup.id<>p.id AND dup.merged_into IS NULL AND ((p.email_normalized IS NOT NULL AND dup.email_normalized=p.email_normalized) OR (p.phone IS NOT NULL AND p.phone<>'' AND dup.phone=p.phone))))";
-        $sql='SELECT a.*,p.name,p.email_original,p.email_normalized,p.phone,p.contact_details,p.identity_verified,p.email_verified,v.reference,v.title,v.department,v.location,u.display_name reviewer_name FROM recruitment_applications a JOIN recruitment_applicants p ON p.company_id=a.company_id AND p.id=a.applicant_id LEFT JOIN recruitment_vacancies v ON v.company_id=a.company_id AND v.id=a.vacancy_id LEFT JOIN users u ON u.user_id=a.reviewer_id WHERE '.implode(' AND ',$where).' ORDER BY a.received_at DESC,a.id DESC';
+        $sql='SELECT a.*,COALESCE(s.outcome,\'pending\') screening_outcome,p.name,p.email_original,p.email_normalized,p.phone,p.contact_details,p.identity_verified,p.email_verified,v.reference,v.title,v.department,v.location,u.display_name reviewer_name FROM recruitment_applications a JOIN recruitment_applicants p ON p.company_id=a.company_id AND p.id=a.applicant_id LEFT JOIN recruitment_vacancies v ON v.company_id=a.company_id AND v.id=a.vacancy_id LEFT JOIN users u ON u.user_id=a.reviewer_id LEFT JOIN recruitment_screening_results s ON s.company_id=a.company_id AND s.application_id=a.id WHERE '.implode(' AND ',$where)." ORDER BY CASE WHEN a.status NOT IN ('New','Under Review') THEN 5 WHEN s.outcome='needs_review' THEN 0 WHEN s.outcome='minimum_met' THEN 1 WHEN a.vacancy_id IS NULL THEN 2 WHEN s.outcome='minimum_not_met' THEN 3 ELSE 4 END,a.received_at DESC,a.id DESC";
+        if(($filters['view']??'')==='recent') $sql=preg_replace('/ ORDER BY CASE.*$/', ' ORDER BY a.received_at DESC,a.id DESC',$sql);
         if($limit!==null) $sql.=' LIMIT '.max(1,min($limit,10000)).' OFFSET '.max(0,$offset);
         return $this->query($sql,$args)->fetchAll(\PDO::FETCH_ASSOC);
     }

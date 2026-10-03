@@ -50,7 +50,7 @@ function Assert-RunnerIdentity($Status,[string]$ExpectedSHA) {
     if(-not$Status.ok-or$Status.action-ne'runner-status'-or[int]$Status.protocol_version-ne3-or$Status.build_id-ne'officeapp-deployment-v3-lite-runtime-20261002'-or$Status.runner_sha256-ne$ExpectedSHA-or$Status.migration_runner_loaded-ne$false-or$Status.reference_synchronizer_loaded-ne$false){throw 'Executed runner identity/stale-class proof failed.'}
 }
 function Assert-StagedMigrationAudit($Audit,[string]$ExpectedSHA) {
-    if(-not$Audit.ok-or$Audit.action-ne'staged-migration-audit'-or@($Audit.applied_versions).Count-eq0-or@($Audit.applied_versions)[-1]-ne'109'-or$Audit.first_unapplied-ne'110'-or$Audit.first_preflight-ne'apply'-or$Audit.migration_runner_sha256-ne$ExpectedSHA){throw 'Read-only staged migration audit failed; expected verified production 109 with recruitment 110 as the next apply migration.'}
+    if(-not$Audit.ok-or$Audit.action-ne'staged-migration-audit'-or@($Audit.applied_versions).Count-eq0-or@($Audit.applied_versions)[-1]-ne'110'-or$Audit.first_unapplied-ne'111'-or$Audit.first_preflight-ne'apply'-or$Audit.migration_runner_sha256-ne$ExpectedSHA){throw 'Read-only staged migration audit failed; expected verified production 110 with careers 111 as the next apply migration.'}
 }
 
 function Assert-ReviewedRuntimeSource([string]$Root) {

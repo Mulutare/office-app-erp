@@ -19,18 +19,19 @@ final class RecruitmentController
     private function id(array $input): int { return max(0,(int)($input['id']??0)); }
     private function render(string $screen,array $values): void
     {
-        \view('layouts.app',['pageTitle'=>'Recruitment','pageDescription'=>'Company recruitment register','contentView'=>'hr.recruitment.index','moduleContext'=>['module'=>'recruitment','section'=>$screen==='mailboxes'?'recruitment_mailboxes':'recruitment'],'user'=>$_SESSION['auth'],'applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'screen'=>$screen,'notice'=>\getFlash('recruitment_notice'),'preview'=>\getFlash('recruitment_preview'),'permissions'=>array_filter(['view','edit','export','hire','mailboxes','merge','delete','quarantine'],fn($p)=>$this->can($p))]+$values);
+        \view('layouts.app',['pageTitle'=>'Recruitment','pageDescription'=>'Company recruitment register','contentView'=>'hr.recruitment.index','moduleContext'=>['module'=>'recruitment','section'=>$screen==='mailboxes'?'recruitment_mailboxes':'recruitment'],'user'=>$_SESSION['auth'],'applicationName'=>\config('name','OfficeApp ERP'),'environment'=>\config('environment','unknown'),'screen'=>$screen,'notice'=>\getFlash('recruitment_notice'),'preview'=>\getFlash('recruitment_preview'),'permissions'=>array_filter(['view','edit','export','hire','mailboxes','merge','delete','quarantine','publish'],fn($p)=>$this->can($p))]+$values);
     }
     public function index(): void
     {
         $s=$this->require('view');
         $page=max(1,(int)($_GET['page']??1));
         try {
-            $applications=$s->repo->applications($_GET,50,($page-1)*50);
+            $filters=$_GET; if(!$filters) { $filters['view']='attention'; $_GET['view']='attention'; } $applications=$s->repo->applications($filters,50,($page-1)*50);
             $summary=$s->repo->query('SELECT status,COUNT(*) total FROM recruitment_applications WHERE company_id=? AND deleted_at IS NULL GROUP BY status',[$s->repo->company])->fetchAll(\PDO::FETCH_KEY_PAIR);
             $unreviewed=$s->repo->query('SELECT COUNT(*) FROM recruitment_applications WHERE company_id=? AND deleted_at IS NULL AND needs_review=1',[$s->repo->company])->fetchColumn();
+            $screeningCounts=$s->repo->query("SELECT COALESCE(s.outcome,'pending') outcome,COUNT(*) total FROM recruitment_applications a LEFT JOIN recruitment_screening_results s ON s.company_id=a.company_id AND s.application_id=a.id WHERE a.company_id=? AND a.deleted_at IS NULL GROUP BY COALESCE(s.outcome,'pending')",[$s->repo->company])->fetchAll(\PDO::FETCH_KEY_PAIR);
             $failed=$s->repo->query("SELECT id,mailbox_id,uid,processing_status,error_code FROM recruitment_emails WHERE company_id=? AND processing_status<>'complete' ORDER BY id DESC LIMIT 100",[$s->repo->company])->fetchAll(\PDO::FETCH_ASSOC);
-            $this->render('list',compact('applications','summary','unreviewed','failed','page')+['vacancies'=>$s->repo->all('vacancies'),'reviewers'=>$s->repo->reviewers()]);
+            $this->render('list',compact('applications','summary','unreviewed','screeningCounts','failed','page')+['vacancies'=>$s->repo->all('vacancies'),'reviewers'=>$s->repo->reviewers()]);
         } catch(\InvalidArgumentException $e) { http_response_code(422); echo \e($e->getMessage()); }
     }
     public function show(): void
@@ -41,7 +42,7 @@ final class RecruitmentController
     }
     public function vacancies(): void
     {
-        $s=$this->require('view'); $this->render('vacancies',['vacancies'=>$s->repo->all('vacancies')]);
+        $s=$this->require('view'); $this->render('vacancies',['vacancies'=>$s->repo->all('vacancies'),'careers'=>new \App\Services\Recruitment\CareersPublicationService($s->repo),'publicationStates'=>$s->repo->query('SELECT vacancy_id,s.* FROM recruitment_publication_state s WHERE company_id=?',[$s->repo->company])->fetchAll(\PDO::FETCH_UNIQUE|\PDO::FETCH_ASSOC)]);
     }
     public function applicants(): void
     {
@@ -71,7 +72,7 @@ final class RecruitmentController
     public function save(): void
     {
         $action=(string)($_POST['action']??'');
-        $capability=match($action) {'mailbox','test','preview','sync'=>'mailboxes','merge'=>'merge','archive'=>'delete',default=>'edit'};
+        $capability=match($action) {'mailbox','test','preview','sync'=>'mailboxes','merge'=>'merge','archive'=>'delete','publication'=>'publish',default=>'edit'};
         $s=$this->require($capability); $this->csrf(); $actor=(int)$_SESSION['auth']['user_id'];
         $redirect='/hr/recruitment';
         $notice='Saved successfully.';
@@ -81,6 +82,12 @@ final class RecruitmentController
                 case 'create': $id=$s->create($_POST,$actor,$this->upload()); $redirect.='/show?id='.$id; break;
                 case 'update': $s->update($id,$_POST,$actor,$this->can('hire')); $redirect.='/show?id='.$id; break;
                 case 'upload': $file=$this->upload(); if(!$file) throw new \InvalidArgumentException('Select a document.'); $s->repo->transaction(function()use($s,$id,$file,$actor) { $app=$s->repo->find('applications',$id); if($app['deleted_at']) throw new \InvalidArgumentException('Application archived.'); $s->attachment($id,null,$file); $s->repo->audit('document_uploaded',$id,$actor); }); $redirect.='/show?id='.$id; break;
+                case 'publication': (new \App\Services\Recruitment\CareersPublicationService($s->repo))->publish($id,(string)($_POST['state']??''),$actor); $redirect.='/vacancies'; break;
+                case 'criterion':
+                    $options=array_values(array_filter(array_map('trim',explode("\n",(string)($_POST['choices']??''))),fn($v)=>$v!==''));
+                    $expected=in_array($_POST['comparison']??'eq',['in','contains'],true)?array_values(array_filter(array_map('trim',explode("\n",(string)($_POST['accepted']??''))),fn($v)=>$v!=='')):(string)($_POST['accepted']??'');
+                    (new \App\Services\Recruitment\CareersPublicationService($s->repo))->saveCriterion($id,$_POST+['options'=>$options,'expected'=>$expected,'operator'=>$_POST['comparison']??'eq'],$actor); $redirect.='/vacancies'; break;
+                case 'screening_review': (new \App\Services\Recruitment\CareersPublicationService($s->repo))->review($id,$actor); $redirect.='/show?id='.$id; break;
                 case 'vacancy': $s->vacancy($_POST,$actor); $redirect.='/vacancies'; break;
                 case 'merge': if(($_POST['confirm']??'')!=='MERGE') throw new \InvalidArgumentException('Type MERGE to confirm.'); $s->merge((int)$_POST['from'],(int)$_POST['into'],$actor,(string)$_POST['reason']); break;
                 case 'archive': $s->archive($id,$actor); break;

@@ -106,7 +106,7 @@ try {
     $branch=explode("elseif(\$action==='migration-status')",explode("elseif(\$action==='staged-migration-audit')",$source)[1])[0];
     $check(str_contains($branch,"\$state['state']!=='staged'")&&str_contains($branch,'$headerRoot!==$root')&&str_contains($branch,"require\$root.'/app/database/MigrationRunner.php'"),'Staged audit requires validated staged state/root and explicit staged runner');
     $check(str_contains($branch,'MigrationRunner::class,false')&&str_contains($branch,'auditAppliedMigrations')&&str_contains($branch,'auditFirstUnappliedPreflight')&&!str_contains($branch,'->run(')&&!str_contains($branch,'saveMetadata('),'Staged audit never executes migrations or writes deployment state');
-    $check(str_contains($branch,'initializePowerBiUpgradeSession($pdo)')&&str_contains($branch,'auditPowerBiUpgradeViews($pdo,false)'),'Staged audit proves the actual Unicode session and baseline view health');
+    $check(str_contains($branch,'initializePowerBiUpgradeSession($pdo)')&&str_contains($branch,'auditPowerBiUpgradeViews($pdo,true,(string)$current)'),'Staged audit proves the actual Unicode session and baseline view health');
     $runnerSource=(string)file_get_contents(__DIR__.'/../app/database/MigrationRunner.php');
     $check(str_contains($runnerSource,'public function runNext(string $directory, string $expectedVersion)')&&str_contains($runnerSource,'$this->auditAppliedMigrations($directory)'),'MigrationRunner exposes bounded exact-next execution backed by ledger audit');
     $check(str_contains($source,"'migrate-next'")&&!str_contains($source,"elseif(\$action==='migrate')"),'Runner removes monolithic migrate action');
@@ -115,11 +115,11 @@ try {
     $check(str_contains($source,'JSON_INVALID_UTF8_SUBSTITUTE')&&str_contains($source,'deployment_fatal_error')&&str_contains($source,'php_execution_timeout')&&str_contains($source,'php_memory_exhausted'),'Runner protects and classifies fatal JSON responses');
     $check(str_contains($source,"\$longActions=['preflight','migrate-next','sync-reference-data','release-health']")&&str_contains($source,"set_time_limit(0)")&&str_contains($source,"\$runtimeLimitAfter!=='0'"),'Long deployment actions disable the PHP request timeout or fail before database mutation');
     $syncBranch=explode("elseif(\$action==='release-health')",explode("elseif(\$action==='sync-reference-data')",$source)[1])[0];
-    $check(str_contains($syncBranch,"if(\$current!=='109')")&&str_contains($syncBranch,'Reference sync requires completed migration 109.'),'Reference sync is impossible before migration 109 is complete');
+    $check(str_contains($syncBranch,"if(\$current!=='111')")&&str_contains($syncBranch,'Reference sync requires completed migration 111.'),'Reference sync is impossible before migration 111 is complete');
     $health=explode("elseif(\$action==='cutover')",explode("elseif(\$action==='release-health')",$source)[1])[0];
-    $check(str_contains($health,'initializePowerBiUpgradeSession($pdo)')&&str_contains($health,'auditPowerBiUpgradeViews($pdo,true)')&&str_contains($health,"\$result['release_target']='109'"),'Release health queries completed target-109 Power BI views before cutover');
+    $check(str_contains($health,'initializePowerBiUpgradeSession($pdo)')&&str_contains($health,"auditPowerBiUpgradeViews(\$pdo,true,'111')")&&str_contains($health,"\$result['release_target']='111'"),'Release health queries completed target-111 Power BI views before cutover');
     $validation=(string)file_get_contents(__DIR__.'/../deployment/powerbi-upgrade-validation.php');
-    $check(str_contains($validation,'bool $requireRelease109 = false')&&str_contains($validation,'range(15, $requireRelease109 ? 109 : 99)'),'Shared validator requires exact 015-109 release or 015-099 baseline ledgers');
+    $check(str_contains($validation,'bool $requireRelease109 = false')&&str_contains($validation,'range(15, (int)$target)'),'Shared validator requires exact ordered ledger through the selected supported target');
     $check(str_contains($validation,"\$report['step_residue'] !== 0"),'Shared validator rejects migration step residue');
     $check(str_contains($validation,"'vw_powerbi_live_stock_detail', 'vw_powerbi_cutover_blockers'")&&str_contains($validation,"'vw_powerbi_reporting_readiness', 'vw_powerbi_109_explicit_shop_scope_audit'")&&!str_contains($validation,'vw_powerbi_110_'),'Shared validator requires repaired stock, blockers, readiness and 109 audit without a 110 sentinel');
     $check(str_contains($validation,'while ($statement->fetch(PDO::FETCH_NUM) !== false)')&&str_contains($validation,'if ($pdo->inTransaction()) $pdo->rollBack();'),'Shared validator consumes every view and closes its owned read-only transaction');

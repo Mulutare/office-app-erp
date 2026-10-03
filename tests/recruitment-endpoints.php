@@ -52,6 +52,10 @@ foreach(['index','show','vacancies','applicants','create','mailboxes','export','
     $check($response['status']===403,'Unauthorized endpoint denies '.$method);
 }
 $check($call('view','save',[],['_token'=>'fixture-csrf','action'=>'update','id'=>$app])['status']===403,'Viewing permission cannot update applications');
+$check($call('editor','save',[],['_token'=>'fixture-csrf','action'=>'publication','id'=>1,'state'=>'published'])['status']===403,'Editing permission cannot publish externally');
+$check($call('view','save',[],['_token'=>'fixture-csrf','action'=>'criterion','id'=>1])['status']===403,'Viewing permission cannot configure screening criteria');
+$check($call('editor','save',[],['_token'=>'wrong','action'=>'criterion','id'=>1])['status']===419,'Screening criterion writes enforce CSRF');
+$check($call('editor','save',[],['_token'=>'wrong','action'=>'screening_review','id'=>$app])['status']===419,'Screening review writes enforce CSRF');
 $check($call('view','export')['status']===403,'Viewing permission cannot export');
 $check($call('view','mailboxes')['status']===403,'Viewing permission cannot administer mailbox credentials');
 $check($call('view','download',['id'=>$file,'acknowledge'=>'quarantine'])['status']===403,'Viewing permission cannot bypass quarantine');

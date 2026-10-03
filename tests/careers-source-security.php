@@ -1,0 +1,21 @@
+<?php
+declare(strict_types=1);
+$root=dirname(__DIR__);$count=0;
+$check=function($ok,$label)use(&$count){if(!$ok)throw new RuntimeException('FAIL '.$label);$count++;echo "PASS $label\n";};
+$routes=file_get_contents($root.'/routes/web.php');
+$check(!preg_match('~[\'"]/(?:api/public/recruitment|public/careers|hr/recruitment/public|careers)~',$routes),'No public applicant route introduced in ERP');
+$client=file_get_contents($root.'/app/services/Recruitment/CareersIntegrationClient.php');
+$check(str_contains($client,'CURLOPT_SSL_VERIFYPEER=>true')&&str_contains($client,'CURLOPT_SSL_VERIFYHOST=>2')&&str_contains($client,'CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS'),'Client requires verified HTTPS certificates and hostnames');
+$check(str_contains($client,'CURLOPT_FOLLOWLOCATION=>false')&&str_contains($client,'CURLOPT_CONNECTTIMEOUT=>10')&&str_contains($client,'CURLOPT_TIMEOUT=>60'),'Client disables redirects and bounds connection/read duration');
+$check(str_contains($client,'CareersContract::MAX_BODY')&&str_contains($client,'CURLOPT_WRITEFUNCTION'),'Client bounds response streaming');
+$engine=file_get_contents($root.'/app/services/Recruitment/ScreeningService.php');
+$check(!preg_match('/Rejected|->update\(|->query\(|score|rank/i',$engine),'Screening performs no final status transition or ranking');
+$controller=file_get_contents($root.'/app/controllers/RecruitmentController.php');
+$check(str_contains($controller,"'publication'=>'publish'")&&str_contains($controller,'$this->csrf()'),'Publication writes require dedicated permission and CSRF');
+$public=file_get_contents($root.'/careers/public/index.php');
+$check(!str_contains($public,'HTTP_X_FORWARDED')&&str_contains($public,"\$_SERVER['HTTP_HOST']"),'Public handler checks owned host and does not trust forwarded headers');
+$check(str_contains($public,"session_name('careers_session')")&&str_contains($public,"'secure'=>true")&&str_contains($public,"'httponly'=>true"),'Public session is distinct and secured');
+$check(str_contains($public,'is_uploaded_file')&&str_contains($public,'hash_equals')&&str_contains($public,'htmlspecialchars'),'Applicant HTTP handler checks uploads CSRF and escaping');
+$check(!str_contains($public,'getMessage()')||substr_count($public,'getMessage()')===1,'Only deliberate validation messages are presented to applicants');
+$check(!str_contains($public,'erp.passiontechnologiesplc.com')&&!str_contains($public,'POWER_BI_ENCRYPTION_KEY')&&!str_contains($public,'deployment_secret'),'Public entry point has no ERP origin or shared privileged secret');
+echo "$count careers source security checks passed\n";

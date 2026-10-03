@@ -30,7 +30,12 @@ foreach($pairs as [$w,$e]) {
  $p->prepare("INSERT INTO bi_powerbi_shop_manager_assignments(company_id,warehouse_id,employee_id,status,mapping_source) VALUES(2,?,?,'pending','SYNTHETIC_MIGRATION_FIXTURE')")->execute([$w,$e]);
 }
 
-$result=$runner->run(__DIR__.'/../database/migrations/mysql');
+$catalog=__DIR__.'/../database/migrations/mysql';
+if(getenv('RECRUITMENT_TEST_BASELINE')==='110') {
+ $catalog=sys_get_temp_dir().'/recruitment-baseline-110'; mkdir($catalog,0700,true);
+ foreach(glob(__DIR__.'/../database/migrations/mysql/*.php') as $file) if((int)basename($file)<=110) copy($file,$catalog.'/'.basename($file));
+}
+$result=$runner->run($catalog);
 echo json_encode($result)."\n";
 
 } catch(Throwable $e) { do {fwrite(STDERR,get_class($e).': '.$e->getMessage().PHP_EOL);} while($e=$e->getPrevious()); exit(1); }

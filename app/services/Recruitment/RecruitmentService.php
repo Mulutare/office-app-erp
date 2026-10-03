@@ -61,6 +61,7 @@ final class RecruitmentService
             if(!in_array($status,Rules::STATUSES,true)) throw new \InvalidArgumentException('Invalid application status.');
             if(($status==='Hired'||$old['status']==='Hired') && $status!==$old['status'] && !$canHire) throw new \InvalidArgumentException('Hiring permission is required.');
             $reviewer=(int)($input['reviewer_id']??0); $vacancy=(int)($input['vacancy_id']??0);
+            if($old['source']==='website' && $vacancy!==(int)$old['vacancy_id']) throw new \InvalidArgumentException('Website answers belong to their submitted vacancy. Create a separate application for another vacancy.');
             if($reviewer && !in_array($reviewer,array_map('intval',array_column($this->repo->reviewers(),'user_id')),true)) throw new \InvalidArgumentException('Select an active HR reviewer from this company.');
             if($vacancy) $this->repo->find('vacancies',$vacancy);
             $p=$this->repo->find('applicants',(int)$old['applicant_id'],true);
@@ -83,7 +84,8 @@ final class RecruitmentService
         $emails=$this->repo->query('SELECT id,sender,recipients,subject,received_at,body_text,processing_status,error_code FROM recruitment_emails WHERE company_id=? AND application_id=?',[$company,$id])->fetchAll(\PDO::FETCH_ASSOC);
         $history=$this->repo->query('SELECT h.*,u.display_name FROM recruitment_history h LEFT JOIN users u ON u.user_id=h.actor_id WHERE h.company_id=? AND h.application_id=? ORDER BY h.id',[$company,$id])->fetchAll(\PDO::FETCH_ASSOC);
         $duplicates=$this->repo->query('SELECT DISTINCT p.id,p.name,p.email_original,p.phone FROM recruitment_applicants p WHERE p.company_id=? AND p.id<>? AND p.merged_into IS NULL AND ((? IS NOT NULL AND p.email_normalized=?) OR (? IS NOT NULL AND p.phone=?) OR p.id IN (SELECT a.applicant_id FROM recruitment_applications a JOIN recruitment_attachments d ON d.company_id=a.company_id AND d.application_id=a.id WHERE a.company_id=? AND d.checksum IN(SELECT checksum FROM recruitment_attachments WHERE company_id=? AND application_id=?)))',[$company,$p['id'],$p['email_normalized'],$p['email_normalized'],$p['phone'],$p['phone'],$company,$company,$id])->fetchAll(\PDO::FETCH_ASSOC);
-        return compact('app','p','attachments','emails','history','duplicates');
+        $screening=$this->repo->query('SELECT * FROM recruitment_screening_results WHERE company_id=? AND application_id=?',[$company,$id])->fetch(\PDO::FETCH_ASSOC);
+        return compact('app','p','attachments','emails','history','duplicates','screening');
     }
     public function merge(int $from,int $into,int $actor,string $reason): void
     {

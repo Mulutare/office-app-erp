@@ -1,0 +1,31 @@
+PASS Execute refuses an unapproved artifact
+PASS Exact approved artifact accepted without building
+PASS Changed HEAD rejected
+PASS Divergent origin rejected
+PASS Dirty tracked tree rejected
+PASS Altered package rejected
+PASS Altered manifest rejected
+PASS Altered local runner rejected
+PASS Exact v3 executed identity accepted
+PASS Loaded stale migration class rejected
+PASS Loaded stale reference class rejected
+PASS Old compiled protocol rejected
+PASS Wrong executed runner SHA rejected
+PASS 110/111/apply staged audit accepted
+PASS Unexpected staged preflight rejected
+PASS HTTP 500 JSON code/message retained
+PASS Execute uses seal branch and never rebuilds
+PASS Identity proof precedes remote writes
+PASS Staged audit precedes database backup/migration
+PASS Already-migrated target 111 uses staged release-health instead of the migration audit
+PASS Execute uses one request per migration
+PASS Post-cutover HTTP health avoids reserved HOME variable
+PASS Package uses reviewed HEAD and rejects dirty/untracked runtime source
+PASS Clean tracked runtime source accepted
+PASS Actual untracked runtime file rejected
+PASS Actual tracked modification rejected
+PASS Ignored secrets cannot enter tracked HEAD archive
+PASS Expected native startup stderr does not terminate readiness polling
+PASS Ready isolated database completes polling
+PASS Readiness cannot target the normal development database container
+30 deployment checks, 0 failures
