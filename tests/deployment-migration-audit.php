@@ -113,7 +113,7 @@ try {
     $migrateNext=explode("elseif(\$action==='sync-reference-data')",explode("elseif(\$action==='migrate-next')",$source)[1])[0];
     $check(str_contains($migrateNext,'runNext($directory,$expectedVersion)')&&str_contains($migrateNext,'step_residue_for_version'),'Runner advances exactly one clean migration boundary');
     $check(str_contains($source,'JSON_INVALID_UTF8_SUBSTITUTE')&&str_contains($source,'deployment_fatal_error')&&str_contains($source,'php_execution_timeout')&&str_contains($source,'php_memory_exhausted'),'Runner protects and classifies fatal JSON responses');
-    $check(str_contains($source,"\$longActions=['preflight','migrate-next','sync-reference-data','release-health']")&&str_contains($source,"set_time_limit(0)")&&str_contains($source,"\$runtimeLimitAfter!=='0'"),'Long deployment actions disable the PHP request timeout or fail before database mutation');
+    $check(str_contains($source,"\$longActions=['preflight','staged-migration-audit','finalize-release','database-backup','application-backup','migrate-next','sync-reference-data','release-health']")&&str_contains($source,"set_time_limit(0)")&&str_contains($source,"\$runtimeLimitAfter!=='0'"),'Long deployment actions disable the PHP request timeout or fail before database mutation');
     $syncBranch=explode("elseif(\$action==='release-health')",explode("elseif(\$action==='sync-reference-data')",$source)[1])[0];
     $check(str_contains($syncBranch,"if(\$current!=='111')")&&str_contains($syncBranch,'Reference sync requires completed migration 111.'),'Reference sync is impossible before migration 111 is complete');
     $health=explode("elseif(\$action==='cutover')",explode("elseif(\$action==='release-health')",$source)[1])[0];
